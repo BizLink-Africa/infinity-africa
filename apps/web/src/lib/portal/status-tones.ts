@@ -1,0 +1,118 @@
+import {
+  DISBURSEMENT_STATUS_LABELS,
+  DisbursementStatus,
+  INVOICE_STATUS_LABELS,
+  InvoiceStatus,
+  PAYMENT_LINK_STATUS_LABELS,
+  PaymentLinkStatus,
+} from "@infinity/shared";
+
+import type { BadgeTone } from "@/components/portal/status-badge";
+import type { CollectionStatus, TransactionStatus, WebhookEvent } from "./types";
+
+export interface BadgeProps {
+  label: string;
+  tone: BadgeTone;
+  dot?: boolean;
+  icon?: string;
+  strikethrough?: boolean;
+}
+
+export function paymentLinkBadge(status: PaymentLinkStatus): BadgeProps {
+  const label = PAYMENT_LINK_STATUS_LABELS[status];
+  switch (status) {
+    case PaymentLinkStatus.ACTIVE:
+      return { label, tone: "positive", dot: true };
+    case PaymentLinkStatus.PAID:
+      return { label, tone: "positive-solid", icon: "check" };
+    case PaymentLinkStatus.EXPIRED:
+      return { label, tone: "neutral" };
+    case PaymentLinkStatus.CANCELLED:
+      return { label, tone: "neutral", strikethrough: true };
+  }
+}
+
+export function invoiceBadge(status: InvoiceStatus): BadgeProps {
+  const label = INVOICE_STATUS_LABELS[status];
+  switch (status) {
+    case InvoiceStatus.DRAFT:
+      return { label, tone: "neutral" };
+    case InvoiceStatus.SENT:
+      return { label, tone: "info" };
+    case InvoiceStatus.PAID:
+      return { label, tone: "positive-solid", icon: "check" };
+    case InvoiceStatus.PARTIALLY_PAID:
+      return { label, tone: "pending" };
+    case InvoiceStatus.OVERDUE:
+      return { label, tone: "negative" };
+    case InvoiceStatus.CANCELLED:
+      return { label, tone: "neutral", strikethrough: true };
+  }
+}
+
+export function disbursementBadge(status: DisbursementStatus): BadgeProps {
+  const label = DISBURSEMENT_STATUS_LABELS[status];
+  switch (status) {
+    case DisbursementStatus.PENDING:
+      return { label, tone: "pending" };
+    case DisbursementStatus.PROCESSING:
+      return { label, tone: "pending" };
+    case DisbursementStatus.SUCCESS:
+      return { label: "Completed", tone: "positive", dot: true };
+    case DisbursementStatus.FAILED:
+      return { label, tone: "negative" };
+    case DisbursementStatus.REVERSED:
+      return { label, tone: "neutral" };
+  }
+}
+
+export function collectionBadge(status: CollectionStatus): BadgeProps {
+  switch (status) {
+    case "processing":
+      return { label: "Pending", tone: "pending" };
+    case "successful":
+      return { label: "Success", tone: "positive", dot: true };
+    case "failed":
+      return { label: "Failed", tone: "negative" };
+  }
+}
+
+export function transactionStatusBadge(status: TransactionStatus): BadgeProps {
+  switch (status) {
+    case "successful":
+      return { label: "Success", tone: "positive-solid", icon: "check" };
+    case "pending":
+    case "processing":
+      return { label: "Pending", tone: "pending" };
+    case "failed":
+      return { label: "Failed", tone: "negative" };
+    case "reversed":
+      return { label: "Reversed", tone: "neutral" };
+    case "cancelled":
+      return { label: "Cancelled", tone: "neutral", strikethrough: true };
+  }
+}
+
+export function webhookDeliveryBadge(status: WebhookEvent["status"]): BadgeProps {
+  switch (status) {
+    case "delivered":
+      return { label: "Delivered", tone: "positive-solid", icon: "check" };
+    case "failed":
+      return { label: "Failed", tone: "negative" };
+    case "retrying":
+      return { label: "Retrying", tone: "pending" };
+    case "pending":
+      return { label: "Pending", tone: "pending" };
+  }
+}
+
+export function transactionTypeBadge(type: string): BadgeProps {
+  switch (type) {
+    case "collection":
+      return { label: "Collection", tone: "positive", dot: true };
+    case "disbursement":
+      return { label: "Withdrawal", tone: "info" };
+    default:
+      return { label: type.charAt(0).toUpperCase() + type.slice(1), tone: "neutral" };
+  }
+}

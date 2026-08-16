@@ -1,0 +1,141 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { Card, tdClass, thClass } from "@/components/portal/card";
+import { Icon } from "@/components/portal/icon";
+import { PageHeader } from "@/components/portal/page-header";
+import { StatusBadge } from "@/components/portal/status-badge";
+import { formatCurrency, formatDateTime } from "@/lib/format";
+import { listMyRiskAlerts, listTransactions } from "@/lib/portal/api";
+import { transactionStatusBadge, transactionTypeBadge } from "@/lib/portal/status-tones";
+import type { Transaction } from "@/lib/portal/types";
+
+const OPEN_ALERT_STATUSES = new Set(["OPEN", "UNDER_REVIEW", "DOCUMENTS_REQUESTED", "ESCALATED"]);
+
+export default function TransactionsPage() {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [flaggedTransactionIds, setFlaggedTransactionIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    listTransactions().then(setTransactions);
+    listMyRiskAlerts().then((alerts) => {
+      setFlaggedTransactionIds(
+        new Set(alerts.filter((a) => a.transaction_id && OPEN_ALERT_STATUSES.has(a.status)).map((a) => a.transaction_id as string)),
+      );
+    });
+  }, []);
+
+  return (
+    <div className="space-y-8">
+      <PageHeader
+        title="Transactions"
+        description="A unified ledger of every collection, withdrawal, and fee."
+        action={
+          <button className="flex items-center gap-2 bg-surface border border-outline-variant text-on-surface px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-surface-container-low transition-colors">
+            <Icon name="download" className="text-[18px]" />
+            Export CSV
+          </button>
+        }
+      />
+
+      {flaggedTransactionIds.size > 0 && (
+        <Card className="border-error/40">
+          <div className="flex items-start gap-3">
+            <Icon name="gpp_maybe" className="text-error text-[22px] shrink-0" />
+            <div>
+              <h3 className="font-semibold text-on-background mb-1">Transaction under review</h3>
+              <p className="text-sm text-on-surface-variant">
+                Please submit supporting documents requested by Infinity Africa for the flagged transaction(s) below. See{" "}
+                <a href="/merchant/risk-monitoring" className="text-primary font-semibold hover:underline">
+                  Risk Monitoring
+                </a>{" "}
+                for details.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <Card>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-on-surface-variant mb-1.5">Type</label>
+            <select className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg text-sm">
+              <option>All Types</option>
+              <option>Collection</option>
+              <option>Withdrawal</option>
+              <option>Fee</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-on-surface-variant mb-1.5">Status</label>
+            <select className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg text-sm">
+              <option>All Statuses</option>
+              <option>Success</option>
+              <option>Pending</option>
+              <option>Failed</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-on-surface-variant mb-1.5">From</label>
+            <input className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg text-sm" type="date" defaultValue="2026-08-01" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-on-surface-variant mb-1.5">To</label>
+            <input className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg text-sm" type="date" defaultValue="2026-08-13" />
+          </div>
+        </div>
+      </Card>
+
+      <Card padded={false}>
+        <div className="p-5 pb-3">
+          <h3 className="text-2xl font-semibold text-on-background">All Transactions</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left min-w-[880px]">
+            <thead>
+              <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
+                <th className={thClass}>Date</th>
+                <th className={thClass}>Type</th>
+                <th className={thClass}>Reference</th>
+                <th className={thClass}>Channel</th>
+                <th className={thClass}>Amount</th>
+                <th className={thClass}>Status</th>
+              </tr>
+            </thead>
+            <tbody className="text-sm">
+              {transactions.map((transaction) => {
+                const typeBadge = transactionTypeBadge(transaction.type);
+                const statusBadge = transactionStatusBadge(transaction.status);
+                const positive = transaction.type === "collection";
+                return (
+                  <tr key={transaction.id} className="border-t border-surface-container-highest">
+                    <td className={`${tdClass} text-on-surface-variant text-xs`}>{formatDateTime(transaction.created_at)}</td>
+                    <td className={tdClass}>
+                      <StatusBadge {...typeBadge} />
+                    </td>
+                    <td className={`${tdClass} font-mono text-sm text-on-background`}>
+                      {transaction.reference}
+                      {flaggedTransactionIds.has(transaction.id) && (
+                        <Icon name="gpp_maybe" className="text-error text-[16px] ml-1.5 align-text-bottom" />
+                      )}
+                    </td>
+                    <td className={`${tdClass} text-on-surface-variant`}>{transaction.method}</td>
+                    <td className={`${tdClass} font-semibold ${positive ? "text-primary" : "text-on-background"}`}>
+                      {positive ? "+" : "-"}
+                      {formatCurrency(transaction.gross_amount, transaction.currency)}
+                    </td>
+                    <td className={tdClass}>
+                      <StatusBadge {...statusBadge} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}

@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+:root {
+  --color-primary: #04332a;
+  --color-primary-container: #04332a;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #93ecb8;
+  --color-primary-fixed: #9cf5c1;
+
+  --color-secondary: #56615e;
+  --color-secondary-container: #dae5e1;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #5c6764;
+
+  /* Merchant portal (Stitch reference) background/surface tokens — kept
+     distinct from --color-foreground/background below, which the public
+     marketing/checkout pages still use. */
+  --color-background: #f9f9ff;
+  --color-foreground: #111827;
+  --color-on-background: #141b2b;
+
+  --color-surface: #f9f9ff;
+  --color-surface-dim: #d3daef;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f1f3ff;
+  --color-surface-container: #e9edff;
+  --color-surface-container-high: #e1e8fd;
+  --color-surface-container-highest: #dce2f7;
+  --color-on-surface: #141b2b;
+  --color-on-surface-variant: #3f4942;
+
+  --color-outline: #6f7a71;
+  --color-outline-variant: #bec9bf;
+
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+
+  --color-accent: #dcfce7;
+
+  /* Merchant Portal / Super Admin sidebar branding — deep Infinity Africa green,
+     kept separate from --color-primary so the sidebar can go deeper/richer
+     than buttons and links do without changing the whole app's accent. */
+  --color-sidebar: #04332a;
+  --color-sidebar-strong: #021b15;
+  --color-sidebar-text: #eafff2;
+  --color-sidebar-text-muted: #8fd6b4;
+  --color-sidebar-hover: rgba(255, 255, 255, 0.1);
+  --color-sidebar-active-bg: #ffffff;
+  --color-sidebar-active-text: #04332a;
+
+  --shadow-ambient: 0px 4px 20px rgba(0, 109, 68, 0.04);
+  --shadow-ambient-lg: 0px 12px 40px rgba(0, 82, 50, 0.12);
+}
+
+@theme inline {
+  --color-primary: var(--color-primary);
+  --color-primary-container: var(--color-primary-container);
+  --color-on-primary: var(--color-on-primary);
+  --color-on-primary-container: var(--color-on-primary-container);
+  --color-primary-fixed: var(--color-primary-fixed);
+
+  --color-secondary: var(--color-secondary);
+  --color-secondary-container: var(--color-secondary-container);
+  --color-on-secondary: var(--color-on-secondary);
+  --color-on-secondary-container: var(--color-on-secondary-container);
+
+  --color-background: var(--color-background);
+  --color-foreground: var(--color-foreground);
+  --color-on-background: var(--color-on-background);
+
+  --color-surface: var(--color-surface);
+  --color-surface-dim: var(--color-surface-dim);
+  --color-surface-container-lowest: var(--color-surface-container-lowest);
+  --color-surface-container-low: var(--color-surface-container-low);
+  --color-surface-container: var(--color-surface-container);
+  --color-surface-container-high: var(--color-surface-container-high);
+  --color-surface-container-highest: var(--color-surface-container-highest);
+  --color-on-surface: var(--color-on-surface);
+  --color-on-surface-variant: var(--color-on-surface-variant);
+
+  --color-outline: var(--color-outline);
+  --color-outline-variant: var(--color-outline-variant);
+
+  --color-error: var(--color-error);
+  --color-on-error: var(--color-on-error);
+  --color-error-container: var(--color-error-container);
+  --color-on-error-container: var(--color-on-error-container);
+
+  --color-accent: var(--color-accent);
+
+  --color-sidebar: var(--color-sidebar);
+  --color-sidebar-strong: var(--color-sidebar-strong);
+  --color-sidebar-text: var(--color-sidebar-text);
+  --color-sidebar-text-muted: var(--color-sidebar-text-muted);
+  --color-sidebar-hover: var(--color-sidebar-hover);
+  --color-sidebar-active-bg: var(--color-sidebar-active-bg);
+  --color-sidebar-active-text: var(--color-sidebar-active-text);
+
+  --shadow-ambient: var(--shadow-ambient);
+  --shadow-ambient-lg: var(--shadow-ambient-lg);
+
+  --font-sans: var(--font-inter);
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+.material-symbols-outlined {
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 400,
+    "GRAD" 0,
+    "opsz" 24;
+}
+
+/* Merchant Portal (/merchant/*, /portal/*) and Super Admin (/super-admin/*,
+   /admin/*) use Times New Roman, scoped to these two shells only — the
+   public site keeps --font-sans (Inter). Material Symbols icons are
+   unaffected: the icon stylesheet sets its own font-family on
+   .material-symbols-outlined with higher specificity than this inherited
+   rule. */
+.portal-shell-scope,
+.admin-shell-scope {
+  font-family: "Times New Roman", Times, serif;
+}
+

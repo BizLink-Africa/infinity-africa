@@ -1,0 +1,92 @@
+"""GET /v1/system/selcom-config-status: super-admin gated, safe booleans
+only — never the actual configured secret values.
+"""
+
+import uuid
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.config import get_settings
+from app.main import app
+from tests.factories import (
+    TEST_JWT_SECRET,
+    auth_headers,
+    create_merchant,
+    make_merchant_member,
+    make_super_admin,
+)
+
+client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _configure_settings(monkeypatch):
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", TEST_JWT_SECRET)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_selcom_config_status_requires_auth(fake_client):
+    response = client.get("/v1/system/selcom-config-status")
+    assert response.status_code == 401
+
+
+def test_selcom_config_status_rejects_non_admin(fake_client):
+    merchant = create_merchant(fake_client)
+    user_id = uuid.uuid4()
+    make_merchant_member(fake_client, uuid.UUID(merchant["id"]), user_id, "MERCHANT_ADMIN")
+
+    response = client.get("/v1/system/selcom-config-status", headers=auth_headers(user_id))
+    assert response.status_code == 403
+
+
+def test_selcom_config_status_returns_only_safe_booleans(fake_client, monkeypatch):
+    monkeypatch.setenv("SELCOM_BASE_URL", "https://apigwtest.selcommobile.com")
+    monkeypatch.setenv("SELCOM_API_KEY", "real-secret-key-should-never-appear-in-response")
+    monkeypatch.setenv("SELCOM_API_SECRET", "real-secret-value-should-never-appear-in-response")
+    monkeypatch.setenv("SELCOM_VENDOR_ID", "TILL12345")
+    monkeypatch.setenv("SELCOM_COLLECTION_ENABLED", "true")
+    monkeypatch.setenv("SELCOM_MODE", "live")
+    get_settings.cache_clear()
+
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+
+    response = client.get("/v1/system/selcom-config-status", headers=auth_headers(admin_id))
+    assert response.status_code == 200, response.text
+
+    body = response.json()["data"]
+    assert body == {
+        "collection_enabled": True,
+        "withdrawal_enabled": False,
+        "mock_mode": False,
+        "base_url_configured": True,
+        "api_key_configured": True,
+        "api_secret_configured": True,
+        "vendor_id_configured": True,
+    }
+
+    raw_text = response.text
+    assert "real-secret-key-should-never-appear-in-response" not in raw_text
+    assert "real-secret-value-should-never-appear-in-response" not in raw_text
+    assert "apigwtest.selcommobile.com" not in raw_text
+    assert "TILL12345" not in raw_text
+
+    get_settings.cache_clear()
+
+
+def test_selcom_config_status_all_false_when_unconfigured(fake_client):
+    get_settings.cache_clear()
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+
+    response = client.get("/v1/system/selcom-config-status", headers=auth_headers(admin_id))
+    assert response.status_code == 200, response.text
+    body = response.json()["data"]
+    assert body["base_url_configured"] is False
+    assert body["api_key_configured"] is False
+    assert body["api_secret_configured"] is False
+    assert body["vendor_id_configured"] is False
+    assert body["mock_mode"] is True

@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Settings — Infinity Africa Merchant Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            theme: {
+                extend: {
+                    "colors": {
+                        "background": "#f9f9ff", "error": "#ba1a1a", "on-surface": "#141b2b", "on-background": "#141b2b",
+                        "primary": "#005232", "on-surface-variant": "#3f4942", "primary-container": "#006d44", "on-primary": "#ffffff",
+                        "primary-fixed": "#9cf5c1", "surface-container": "#e9edff", "surface-container-lowest": "#ffffff",
+                        "secondary": "#56615e", "outline": "#6f7a71", "surface": "#f9f9ff", "surface-container-low": "#f1f3ff",
+                        "outline-variant": "#bec9bf", "surface-container-high": "#e1e8fd", "surface-container-highest": "#dce2f7"
+                    },
+                    "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                    "spacing": { "margin-desktop": "40px", "margin-mobile": "16px", "unit": "8px", "container-max": "1280px", "gutter": "24px" },
+                    "fontFamily": {
+                        "display": ["Inter"], "headline-lg-mobile": ["Inter"], "body-lg": ["Inter"], "label-md": ["Inter"],
+                        "headline-lg": ["Inter"], "headline-md": ["Inter"], "body-md": ["Inter"], "label-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }]
+                    },
+                    "boxShadow": { "ambient": "0px 4px 20px rgba(0, 109, 68, 0.04)" }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen">
+
+<div id="sidebar-overlay" onclick="closeSidebar()" class="fixed inset-0 bg-black/40 z-40 hidden"></div>
+
+<aside id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-surface-container-low shadow-sm z-50 flex flex-col py-8 px-4 border-r border-surface-container-highest overflow-y-auto -translate-x-full md:translate-x-0 transition-transform duration-200">
+<div class="mb-10 flex items-center gap-3 px-4 shrink-0">
+<a href="../overview/index.html" class="flex items-center gap-3 flex-1">
+<div class="w-10 h-10 rounded-lg bg-primary-container text-on-primary flex items-center justify-center font-bold text-lg shrink-0">I</div>
+<div><h1 class="font-display text-primary" style="font-size: 20px; line-height: 28px;">Infinity Africa</h1><p class="font-label-sm text-label-sm text-on-surface-variant">Merchant Dashboard</p></div>
+</a>
+<button onclick="closeSidebar()" class="md:hidden text-on-surface-variant p-1"><span class="material-symbols-outlined">close</span></button>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../overview/index.html"><span class="material-symbols-outlined">dashboard</span>Overview</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../collections/index.html"><span class="material-symbols-outlined">payments</span>Collections</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../payment-links/index.html"><span class="material-symbols-outlined">link</span>Payment Links</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../invoices/index.html"><span class="material-symbols-outlined">description</span>Invoices</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../customers/index.html"><span class="material-symbols-outlined">group</span>Customers</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../disbursements/index.html"><span class="material-symbols-outlined">account_balance_wallet</span>Disbursements</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../transactions/index.html"><span class="material-symbols-outlined">receipt_long</span>Transactions</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../wallet/index.html"><span class="material-symbols-outlined">account_balance</span>Wallet</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../pricing/index.html"><span class="material-symbols-outlined">sell</span>Pricing</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../api-keys/index.html"><span class="material-symbols-outlined">api</span>API Keys</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../reports/index.html"><span class="material-symbols-outlined">bar_chart</span>Reports</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-primary font-bold border-r-4 border-primary bg-primary-container/10 font-label-md text-label-md" href="../settings/index.html"><span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">settings</span>Settings</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../support/index.html"><span class="material-symbols-outlined">help</span>Support</a>
+</nav>
+<div class="mt-auto pt-6 shrink-0"><button class="w-full bg-primary-container text-on-primary font-label-md text-label-md py-3 px-4 rounded-lg hover:opacity-90 transition-opacity">Upgrade Plan</button></div>
+</aside>
+
+<header class="fixed top-0 right-0 w-full md:w-[calc(100%-16rem)] z-30 bg-surface/80 backdrop-blur-md shadow-sm flex justify-between items-center h-16 px-4 md:px-8 border-b border-surface-container-highest">
+<div class="flex items-center gap-4 flex-1">
+<button onclick="openSidebar()" class="md:hidden text-on-surface-variant p-2 -ml-2 rounded-lg hover:bg-surface-container-highest"><span class="material-symbols-outlined">menu</span></button>
+<div class="relative w-full max-w-md hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-body-md text-body-md text-on-surface placeholder-outline transition-all" placeholder="Search transactions, invoices, payment links..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-2 md:gap-4">
+<button class="hidden lg:flex items-center gap-2 bg-primary-container text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity"><span class="material-symbols-outlined text-[20px]">add</span>New Transaction</button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full relative"><span class="material-symbols-outlined">notifications</span><span class="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full"></span></button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full hidden sm:block"><span class="material-symbols-outlined">help_outline</span></button>
+<div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm ml-2 border border-outline-variant shrink-0">S</div>
+</div>
+</header>
+
+<main class="pt-20 md:pt-24 pb-16 px-4 md:px-8 md:ml-64 max-w-container-max mx-auto space-y-8">
+
+<div>
+<h2 class="font-headline-lg text-headline-lg text-on-background">Settings</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant mt-1">Manage your business profile, security, and team.</p>
+</div>
+
+<div class="flex flex-wrap gap-2">
+<a href="#profile" class="px-4 py-2 rounded-full text-sm font-semibold bg-primary-container text-on-primary">Business Profile</a>
+<a href="#security" class="px-4 py-2 rounded-full text-sm font-semibold bg-surface-container-low text-on-surface-variant hover:bg-surface-container-highest">Security</a>
+<a href="#notifications" class="px-4 py-2 rounded-full text-sm font-semibold bg-surface-container-low text-on-surface-variant hover:bg-surface-container-highest">Notifications</a>
+<a href="#team" class="px-4 py-2 rounded-full text-sm font-semibold bg-surface-container-low text-on-surface-variant hover:bg-surface-container-highest">Team Members</a>
+</div>
+
+<section id="profile" class="scroll-mt-24 bg-surface rounded-xl border border-surface-container-highest shadow-ambient p-6">
+<h3 class="font-headline-md text-headline-md text-on-background mb-5">Business Profile</h3>
+<form onsubmit="return false;" class="space-y-5">
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Business Name</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" type="text" value="Infinity Africa Demo Merchant"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Registered Email</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" type="email" value="sarah@merchant.co.tz"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Phone Number</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" type="tel" value="+255 754 000 000"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Business Address</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" type="text" value="Mbezi - Ubungo, Dar es Salaam"/>
+</div>
+</div>
+<button class="bg-primary-container text-on-primary font-label-md text-label-md py-3 px-6 rounded-lg hover:opacity-90 transition-opacity" type="submit">Save Changes</button>
+</form>
+</section>
+
+<section id="security" class="scroll-mt-24 bg-surface rounded-xl border border-surface-container-highest shadow-ambient p-6">
+<h3 class="font-headline-md text-headline-md text-on-background mb-5">Security</h3>
+<form onsubmit="return false;" class="space-y-5">
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Current Password</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" type="password" placeholder="Enter current password"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">New Password</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" type="password" placeholder="Enter new password"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Confirm New Password</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" type="password" placeholder="Re-enter new password"/>
+</div>
+<button class="bg-primary-container text-on-primary font-label-md text-label-md py-3 px-6 rounded-lg hover:opacity-90 transition-opacity" type="submit">Update Password</button>
+</form>
+<div class="mt-6 pt-2 border-t border-surface-container-highest">
+<div class="flex items-center justify-between py-3 border-b border-surface-container-highest last:border-0">
+<div>
+<p class="text-sm font-semibold text-on-surface">Two-Factor Authentication</p>
+<p class="text-xs text-on-surface-variant mt-0.5">Add an extra layer of security to your account</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox" checked/>
+<div class="w-11 h-6 bg-surface-container-highest rounded-full peer peer-checked:bg-primary-container transition-colors"></div>
+<div class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+</label>
+</div>
+</div>
+</section>
+
+<section id="notifications" class="scroll-mt-24 bg-surface rounded-xl border border-surface-container-highest shadow-ambient p-6">
+<h3 class="font-headline-md text-headline-md text-on-background mb-5">Notifications</h3>
+<div>
+<div class="flex items-center justify-between py-3 border-b border-surface-container-highest last:border-0">
+<div>
+<p class="text-sm font-semibold text-on-surface">Email notifications</p>
+<p class="text-xs text-on-surface-variant mt-0.5">Get notified by email for every transaction</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox" checked/>
+<div class="w-11 h-6 bg-surface-container-highest rounded-full peer peer-checked:bg-primary-container transition-colors"></div>
+<div class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+</label>
+</div>
+<div class="flex items-center justify-between py-3 border-b border-surface-container-highest last:border-0">
+<div>
+<p class="text-sm font-semibold text-on-surface">SMS alerts</p>
+<p class="text-xs text-on-surface-variant mt-0.5">Receive SMS for payments over TZS 100,000</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox" checked/>
+<div class="w-11 h-6 bg-surface-container-highest rounded-full peer peer-checked:bg-primary-container transition-colors"></div>
+<div class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+</label>
+</div>
+<div class="flex items-center justify-between py-3 border-b border-surface-container-highest last:border-0">
+<div>
+<p class="text-sm font-semibold text-on-surface">Payment link paid alerts</p>
+<p class="text-xs text-on-surface-variant mt-0.5">Instant alert when a customer pays via a link</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox" checked/>
+<div class="w-11 h-6 bg-surface-container-highest rounded-full peer peer-checked:bg-primary-container transition-colors"></div>
+<div class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+</label>
+</div>
+<div class="flex items-center justify-between py-3 border-b border-surface-container-highest last:border-0">
+<div>
+<p class="text-sm font-semibold text-on-surface">Low balance alerts</p>
+<p class="text-xs text-on-surface-variant mt-0.5">Warn me when available balance drops below TZS 500,000</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest rounded-full peer peer-checked:bg-primary-container transition-colors"></div>
+<div class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+</label>
+</div>
+</div>
+</section>
+
+<section id="team" class="scroll-mt-24 bg-surface rounded-xl border border-surface-container-highest shadow-ambient p-6">
+<div class="flex items-center justify-between mb-5">
+<h3 class="font-headline-md text-headline-md text-on-background">Team Members</h3>
+<button class="bg-primary-container text-on-primary font-label-md text-label-md py-3 px-6 rounded-lg hover:opacity-90 transition-opacity">Invite Member</button>
+</div>
+<div class="space-y-1">
+<div class="flex items-center justify-between py-3 border-b border-surface-container-highest last:border-0">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">SM</div>
+<div>
+<p class="text-sm font-semibold text-on-surface">Sarah Mushi</p>
+<p class="text-xs text-on-surface-variant">sarah@merchant.co.tz</p>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-sm text-on-surface-variant hidden sm:inline">Owner</span>
+<span class="inline-flex items-center gap-1 bg-primary-container/10 text-primary px-2.5 py-1 rounded-full text-xs font-semibold">Active</span>
+</div>
+</div>
+<div class="flex items-center justify-between py-3 border-b border-surface-container-highest last:border-0">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">DK</div>
+<div>
+<p class="text-sm font-semibold text-on-surface">David Komba</p>
+<p class="text-xs text-on-surface-variant">david.komba@merchant.co.tz</p>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-sm text-on-surface-variant hidden sm:inline">Admin</span>
+<span class="inline-flex items-center gap-1 bg-primary-container/10 text-primary px-2.5 py-1 rounded-full text-xs font-semibold">Active</span>
+</div>
+</div>
+<div class="flex items-center justify-between py-3 border-b border-surface-container-highest last:border-0">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">RA</div>
+<div>
+<p class="text-sm font-semibold text-on-surface">Rehema Ally</p>
+<p class="text-xs text-on-surface-variant">rehema.ally@merchant.co.tz</p>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-sm text-on-surface-variant hidden sm:inline">Finance</span>
+<span class="inline-flex items-center gap-1 bg-surface-container-highest text-on-surface-variant px-2.5 py-1 rounded-full text-xs font-semibold">Pending Invite</span>
+</div>
+</div>
+</div>
+</section>
+
+</main>
+
+<script>
+    function openSidebar(){document.getElementById('sidebar').classList.remove('-translate-x-full');document.getElementById('sidebar-overlay').classList.remove('hidden');}
+    function closeSidebar(){document.getElementById('sidebar').classList.add('-translate-x-full');document.getElementById('sidebar-overlay').classList.add('hidden');}
+</script>
+</body>
+</html>

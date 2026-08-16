@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Webhooks — Infinity Africa Super Admin</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            theme: {
+                extend: {
+                    "colors": {
+                        "background": "#f9f9ff", "error": "#ba1a1a", "on-surface": "#141b2b", "on-background": "#141b2b",
+                        "primary": "#005232", "on-surface-variant": "#3f4942", "primary-container": "#006d44", "on-primary": "#ffffff",
+                        "on-primary-container": "#93ecb8", "primary-fixed": "#9cf5c1", "surface-container": "#e9edff",
+                        "surface-container-lowest": "#ffffff", "secondary": "#56615e", "outline": "#6f7a71", "surface": "#f9f9ff",
+                        "surface-container-low": "#f1f3ff", "outline-variant": "#bec9bf", "surface-container-high": "#e1e8fd",
+                        "surface-container-highest": "#dce2f7", "surface-variant": "#dce2f7"
+                    },
+                    "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                    "spacing": { "margin-desktop": "40px", "margin-mobile": "16px", "unit": "8px", "container-max": "1280px", "gutter": "24px" },
+                    "fontFamily": {
+                        "display": ["Inter"], "headline-lg-mobile": ["Inter"], "body-lg": ["Inter"], "label-md": ["Inter"],
+                        "headline-lg": ["Inter"], "headline-md": ["Inter"], "body-md": ["Inter"], "label-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }]
+                    },
+                    "boxShadow": { "ambient": "0px 4px 20px rgba(0, 109, 68, 0.04)" }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen">
+
+<div id="sidebar-overlay" onclick="closeSidebar()" class="fixed inset-0 bg-black/40 z-40 hidden"></div>
+
+<aside id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-surface-container-low shadow-sm z-50 flex flex-col py-8 px-4 border-r border-surface-container-highest overflow-y-auto -translate-x-full md:translate-x-0 transition-transform duration-200">
+<div class="mb-8 flex items-center gap-3 px-4 shrink-0">
+<a href="../command-center/index.html" class="flex items-center gap-3 flex-1">
+<div class="w-10 h-10 rounded-lg bg-primary-container text-on-primary flex items-center justify-center font-bold text-lg shrink-0">I</div>
+<div><h1 class="font-display text-primary" style="font-size: 20px; line-height: 28px;">Infinity Africa</h1><p class="font-label-sm text-label-sm text-on-surface-variant">Super Admin</p></div>
+</a>
+<button onclick="closeSidebar()" class="md:hidden text-on-surface-variant p-1"><span class="material-symbols-outlined">close</span></button>
+</div>
+<nav class="flex-1 space-y-0.5">
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../command-center/index.html"><span class="material-symbols-outlined">dashboard</span>Command Center</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../merchants/index.html"><span class="material-symbols-outlined">storefront</span>Merchants</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../collections/index.html"><span class="material-symbols-outlined">payments</span>Collections</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../payment-links/index.html"><span class="material-symbols-outlined">link</span>Payment Links</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../invoices/index.html"><span class="material-symbols-outlined">receipt</span>Invoices</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../customers/index.html"><span class="material-symbols-outlined">group</span>Customers</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../disbursements/index.html"><span class="material-symbols-outlined">receipt_long</span>Disbursements</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../transactions/index.html"><span class="material-symbols-outlined">list_alt</span>Transactions</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../pricing-rules/index.html"><span class="material-symbols-outlined">sell</span>Pricing Rules</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../api-keys/index.html"><span class="material-symbols-outlined">api</span>API Keys</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-primary font-bold border-r-4 border-primary bg-primary-container/10 font-label-md text-label-md" href="../webhooks/index.html"><span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">webhook</span>Webhooks</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../reconciliation-center/index.html"><span class="material-symbols-outlined">account_balance</span>Reconciliation Center</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../settlement-accounts/index.html"><span class="material-symbols-outlined">account_balance_wallet</span>Settlement Accounts</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../compliance-kyc/index.html"><span class="material-symbols-outlined">verified_user</span>Compliance/KYC</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../dispute-management/index.html"><span class="material-symbols-outlined">gavel</span>Dispute Management</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../provider-status/index.html"><span class="material-symbols-outlined">dns</span>Provider Status</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../audit-logs/index.html"><span class="material-symbols-outlined">history</span>Audit Logs</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../support-tickets/index.html"><span class="material-symbols-outlined">support_agent</span>Support Tickets</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../settings/index.html"><span class="material-symbols-outlined">settings</span>Settings</a>
+</nav>
+<div class="mt-auto pt-4 shrink-0">
+<button class="w-full bg-primary-container text-on-primary py-3 rounded-lg font-label-md text-label-md flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-[20px]">bolt</span>Platform Action</button>
+</div>
+</aside>
+
+<header class="fixed top-0 right-0 w-full md:w-[calc(100%-16rem)] z-30 bg-surface/80 backdrop-blur-md shadow-sm flex justify-between items-center h-16 px-4 md:px-8 border-b border-surface-container-highest">
+<div class="flex items-center gap-4 flex-1">
+<button onclick="openSidebar()" class="md:hidden text-on-surface-variant p-2 -ml-2 rounded-lg hover:bg-surface-container-highest"><span class="material-symbols-outlined">menu</span></button>
+<div class="flex-1 max-w-xl hidden sm:flex items-center bg-surface-container-low rounded-full px-4 py-2 border border-outline-variant focus-within:border-primary transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant mr-2 text-[20px]">search</span>
+<input class="bg-transparent border-none outline-none w-full text-body-md font-body-md text-on-surface focus:ring-0 placeholder:text-on-surface-variant p-0" placeholder="Search merchants, transactions, invoices, payment links..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-1 md:gap-3">
+<button class="text-on-surface-variant hover:bg-surface-container-high transition-colors p-2 rounded-full relative">
+<span class="material-symbols-outlined">notifications</span><span class="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full border-2 border-surface"></span></button>
+<button class="text-on-surface-variant hover:bg-surface-container-high transition-colors p-2 rounded-full hidden sm:block"><span class="material-symbols-outlined">help_outline</span></button>
+<div class="flex items-center gap-2 pl-2 md:pl-4 md:border-l border-outline-variant">
+<div class="w-8 h-8 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm border border-outline-variant shrink-0">A</div>
+<span class="font-label-md text-label-md text-on-surface hidden lg:block">Admin User</span>
+</div>
+</div>
+</header>
+
+<main class="pt-20 md:pt-24 pb-16 px-4 md:px-8 md:ml-64 max-w-container-max mx-auto space-y-8">
+
+<div>
+<h2 class="font-headline-lg text-headline-lg text-on-surface mb-1">Webhooks</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Monitor outbound webhook delivery to every merchant's integration.</p>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+<div class="bg-surface rounded-xl p-4 border border-surface-container-highest shadow-ambient">
+<div class="flex items-center gap-2 text-on-surface-variant mb-2"><span class="material-symbols-outlined text-[18px] text-primary">check_circle</span><span class="font-label-md text-label-md">Delivered Today</span></div>
+<div class="font-headline-md text-headline-md text-on-background">8,204</div>
+</div>
+<div class="bg-surface rounded-xl p-4 border border-surface-container-highest shadow-ambient">
+<div class="flex items-center gap-2 text-on-surface-variant mb-2"><span class="material-symbols-outlined text-[18px] text-primary">error</span><span class="font-label-md text-label-md">Failed Today</span></div>
+<div class="font-headline-md text-headline-md text-on-background">12</div>
+</div>
+<div class="bg-surface rounded-xl p-4 border border-surface-container-highest shadow-ambient">
+<div class="flex items-center gap-2 text-on-surface-variant mb-2"><span class="material-symbols-outlined text-[18px] text-primary">speed</span><span class="font-label-md text-label-md">Avg. Delivery Time</span></div>
+<div class="font-headline-md text-headline-md text-on-background">340ms</div>
+</div>
+<div class="bg-surface rounded-xl p-4 border border-surface-container-highest shadow-ambient">
+<div class="flex items-center gap-2 text-on-surface-variant mb-2"><span class="material-symbols-outlined text-[18px] text-primary">refresh</span><span class="font-label-md text-label-md">Retry Queue</span></div>
+<div class="font-headline-md text-headline-md text-on-background">4</div>
+</div>
+</div>
+
+<div class="bg-surface rounded-xl border border-surface-container-highest shadow-ambient overflow-hidden">
+<div class="p-5 pb-3"><h3 class="font-headline-md text-headline-md text-on-background">Webhook Delivery Logs</h3></div>
+<div class="overflow-x-auto">
+<table class="w-full text-left min-w-[1080px]">
+<thead>
+<tr class="text-on-surface-variant text-label-sm font-label-sm border-t border-surface-container-highest">
+<th class="px-5 py-3 font-semibold">Merchant</th>
+<th class="px-5 py-3 font-semibold">Event</th>
+<th class="px-5 py-3 font-semibold">Endpoint URL</th>
+<th class="px-5 py-3 font-semibold">Timestamp</th>
+<th class="px-5 py-3 font-semibold">HTTP Status</th>
+<th class="px-5 py-3 font-semibold">Status</th>
+<th class="px-5 py-3 font-semibold">Actions</th>
+</tr>
+</thead>
+<tbody>
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">J</div><span class="font-medium text-on-surface">Juma Traders Ltd</span></div></td>
+<td class="px-5 py-3.5 font-mono text-on-background">payment_link.paid</td>
+<td class="px-5 py-3.5"><span class="font-mono text-xs text-on-surface-variant truncate block max-w-[220px]">https://api.juma-traders.co.tz/webhooks/infinity</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant">13 Aug 2026, 09:14</td>
+<td class="px-5 py-3.5 font-mono text-primary">200</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-primary text-on-primary px-2.5 py-1 rounded-full text-xs font-semibold"><span class="material-symbols-outlined text-[12px]">check</span>Delivered</span></td>
+<td class="px-5 py-3.5"><button class="p-1.5 text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-[18px]">visibility</span></button></td>
+</tr>
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">A</div><span class="font-medium text-on-surface">Amani Store</span></div></td>
+<td class="px-5 py-3.5 font-mono text-on-background">invoice.overdue</td>
+<td class="px-5 py-3.5"><span class="font-mono text-xs text-on-surface-variant truncate block max-w-[220px]">https://amanistore.tz/hooks/infinity-pay</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant">13 Aug 2026, 08:52</td>
+<td class="px-5 py-3.5 font-mono text-primary">200</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-primary text-on-primary px-2.5 py-1 rounded-full text-xs font-semibold"><span class="material-symbols-outlined text-[12px]">check</span>Delivered</span></td>
+<td class="px-5 py-3.5"><button class="p-1.5 text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-[18px]">visibility</span></button></td>
+</tr>
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">N</div><span class="font-medium text-on-surface">Neema Salon</span></div></td>
+<td class="px-5 py-3.5 font-mono text-on-background">disbursement.completed</td>
+<td class="px-5 py-3.5"><span class="font-mono text-xs text-on-surface-variant truncate block max-w-[220px]">https://neemasalon.co.tz/api/webhooks</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant">13 Aug 2026, 08:40</td>
+<td class="px-5 py-3.5 font-mono text-error">500</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-red-100 text-red-700 px-2.5 py-1 rounded-full text-xs font-semibold">Failed</span></td>
+<td class="px-5 py-3.5"><button class="p-1.5 text-on-surface-variant hover:text-primary flex items-center gap-1"><span class="material-symbols-outlined text-[18px]">refresh</span><span class="font-label-md text-label-md">Retry</span></button></td>
+</tr>
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">B</div><span class="font-medium text-on-surface">Baraka Textiles</span></div></td>
+<td class="px-5 py-3.5 font-mono text-on-background">collection.received</td>
+<td class="px-5 py-3.5"><span class="font-mono text-xs text-on-surface-variant truncate block max-w-[220px]">https://baraka-textiles.com/wh/infinity</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant">13 Aug 2026, 07:58</td>
+<td class="px-5 py-3.5 font-mono text-primary">200</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-primary text-on-primary px-2.5 py-1 rounded-full text-xs font-semibold"><span class="material-symbols-outlined text-[12px]">check</span>Delivered</span></td>
+<td class="px-5 py-3.5"><button class="p-1.5 text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-[18px]">visibility</span></button></td>
+</tr>
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">K</div><span class="font-medium text-on-surface">Kilimanjaro Cafe</span></div></td>
+<td class="px-5 py-3.5 font-mono text-on-background">payment_link.paid</td>
+<td class="px-5 py-3.5"><span class="font-mono text-xs text-on-surface-variant truncate block max-w-[220px]">https://kilimanjarocafe.tz/webhook</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant">13 Aug 2026, 07:30</td>
+<td class="px-5 py-3.5 font-mono text-error">404</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-red-100 text-red-700 px-2.5 py-1 rounded-full text-xs font-semibold">Failed</span></td>
+<td class="px-5 py-3.5"><button class="p-1.5 text-on-surface-variant hover:text-primary flex items-center gap-1"><span class="material-symbols-outlined text-[18px]">refresh</span><span class="font-label-md text-label-md">Retry</span></button></td>
+</tr>
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">G</div><span class="font-medium text-on-surface">Grace Mwakalinga Designs</span></div></td>
+<td class="px-5 py-3.5 font-mono text-on-background">invoice.paid</td>
+<td class="px-5 py-3.5"><span class="font-mono text-xs text-on-surface-variant truncate block max-w-[220px]">https://gracemwakalinga.co.tz/hooks</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant">13 Aug 2026, 06:55</td>
+<td class="px-5 py-3.5 font-mono text-error">503</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full text-xs font-semibold">Retrying</span></td>
+<td class="px-5 py-3.5"><button class="p-1.5 text-on-surface-variant hover:text-primary flex items-center gap-1"><span class="material-symbols-outlined text-[18px]">refresh</span><span class="font-label-md text-label-md">Retry</span></button></td>
+</tr>
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm shrink-0">J</div><span class="font-medium text-on-surface">Juma Traders Ltd</span></div></td>
+<td class="px-5 py-3.5 font-mono text-on-background">disbursement.completed</td>
+<td class="px-5 py-3.5"><span class="font-mono text-xs text-on-surface-variant truncate block max-w-[220px]">https://api.juma-traders.co.tz/webhooks/infinity</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant">13 Aug 2026, 06:10</td>
+<td class="px-5 py-3.5 font-mono text-primary">200</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-primary text-on-primary px-2.5 py-1 rounded-full text-xs font-semibold"><span class="material-symbols-outlined text-[12px]">check</span>Delivered</span></td>
+<td class="px-5 py-3.5"><button class="p-1.5 text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-[18px]">visibility</span></button></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+
+</main>
+
+<script>
+    function openSidebar(){document.getElementById('sidebar').classList.remove('-translate-x-full');document.getElementById('sidebar-overlay').classList.remove('hidden');}
+    function closeSidebar(){document.getElementById('sidebar').classList.add('-translate-x-full');document.getElementById('sidebar-overlay').classList.add('hidden');}
+</script>
+</body>
+</html>

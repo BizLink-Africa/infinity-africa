@@ -1,0 +1,34 @@
+import { AdminKpiCard } from "@/components/admin/kpi-card";
+import { PageHeader } from "@/components/portal/page-header";
+import { DisputesTable } from "@/components/super-admin/disputes-table";
+import { listAdminDisputes } from "@/lib/admin/live-api";
+
+export const metadata = {
+  title: "Disputes | Infinity Africa Super Admin",
+};
+
+export default async function SuperAdminDisputesPage() {
+  const disputes = await listAdminDisputes();
+
+  const counts = {
+    total: disputes.length,
+    underReview: disputes.filter((d) => d.status === "UNDER_REVIEW").length,
+    refundRequested: disputes.filter((d) => d.status === "REFUND_REQUESTED").length,
+    refunded: disputes.filter((d) => d.status === "REFUNDED").length,
+  };
+
+  return (
+    <div className="space-y-8">
+      <PageHeader title="Disputes" description="Customer-reported chargebacks and product/service issues across all merchants." />
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+        <AdminKpiCard icon="gavel" label="Total Disputes" value={counts.total.toLocaleString()} />
+        <AdminKpiCard icon="hourglass_empty" label="Under Review" value={counts.underReview.toLocaleString()} />
+        <AdminKpiCard icon="request_quote" label="Refund Requested" value={counts.refundRequested.toLocaleString()} />
+        <AdminKpiCard icon="check_circle" label="Refunded" value={counts.refunded.toLocaleString()} />
+      </div>
+
+      <DisputesTable rows={disputes} />
+    </div>
+  );
+}

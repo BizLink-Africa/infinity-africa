@@ -1,0 +1,36 @@
+from app.auth.dependencies import (
+    authorize_merchant_action,
+    get_authenticated_caller,
+    get_current_user,
+    get_current_user_id,
+    get_merchant_actor,
+    get_merchant_membership,
+    get_own_merchant,
+    is_super_admin,
+    require_api_key_scope,
+    require_own_merchant_role,
+    require_role,
+    require_super_admin,
+    verify_api_key,
+)
+from app.auth.hashing import hash_api_key
+from app.auth.jwt import InvalidTokenError, decode_access_token
+
+__all__ = [
+    "InvalidTokenError",
+    "authorize_merchant_action",
+    "decode_access_token",
+    "get_authenticated_caller",
+    "get_current_user",
+    "get_current_user_id",
+    "get_merchant_actor",
+    "get_merchant_membership",
+    "get_own_merchant",
+    "hash_api_key",
+    "is_super_admin",
+    "require_api_key_scope",
+    "require_own_merchant_role",
+    "require_role",
+    "require_super_admin",
+    "verify_api_key",
+]

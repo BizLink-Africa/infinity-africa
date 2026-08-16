@@ -1,0 +1,380 @@
+/**
+ * Row shapes for the super admin dashboard's platform-wide monitoring
+ * tables. Each mirrors what a real "list across all merchants" apps/api
+ * endpoint would return (the merchant-scoped equivalents already exist —
+ * see lib/portal/types.ts — these add merchant_name for the admin view and
+ * flatten to just what each table displays). Swapping to FastAPI happens
+ * in lib/admin/api.ts only — no component here talks to mock data directly.
+ */
+
+import type { UserRole } from "@infinity/shared";
+
+export interface AdminOverview {
+  total_merchants: number;
+  collections_today: string;
+  withdrawals_today: string;
+  active_payment_links: number;
+  paid_invoices_today: number;
+  outstanding_invoice_value: string;
+  failed_transactions: number;
+  platform_revenue: string;
+  pending_onboarding_requests: number;
+  pending_withdrawals: number;
+}
+
+/** Straight passthrough of merchants.status — see supabase/migrations'
+ * merchants table CHECK constraint. Distinct from AccountStatus
+ * (onboarding_submissions.review_status, @infinity/shared) — this is the
+ * merchant record's own lifecycle, not the onboarding review lifecycle. */
+export type MerchantAccountStatus = "pending" | "active" | "suspended" | "closed";
+
+export interface Merchant {
+  merchant_id: string;
+  business_name: string;
+  owner_name: string | null;
+  email: string;
+  contact_phone: string | null;
+  nature_of_business: string | null;
+  physical_address: string | null;
+  account_status: MerchantAccountStatus;
+  available_balance: string;
+  created_at: string;
+}
+
+export interface MerchantUserRow {
+  user_id: string;
+  merchant_id: string;
+  merchant_name: string;
+  full_name: string | null;
+  email: string | null;
+  role: UserRole;
+  status: "invited" | "active" | "suspended";
+  created_at: string;
+}
+
+export interface AdminCollectionRow {
+  collection_id: string;
+  merchant_id: string;
+  merchant_name: string;
+  method: string;
+  amount: string;
+  currency: string;
+  phone: string | null;
+  provider_reference: string | null;
+  status: "successful" | "pending" | "processing" | "failed";
+  created_at: string;
+}
+
+export interface AdminPaymentLinkRow {
+  link_id: string;
+  merchant_id: string;
+  merchant_name: string;
+  customer_name: string | null;
+  customer_phone: string | null;
+  amount: string;
+  currency: string;
+  /** Mirrors PaymentLinkStatus (@infinity/shared) — the Stitch mockup's
+   * "Deactivated" label maps to CANCELLED, the real enum's terminal-cancel
+   * state. */
+  status: "ACTIVE" | "PAID" | "EXPIRED" | "CANCELLED";
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface AdminInvoiceRow {
+  invoice_id: string;
+  invoice_number: string;
+  merchant_id: string;
+  merchant_name: string;
+  customer_name: string | null;
+  customer_phone: string | null;
+  total_amount: string;
+  due_date: string;
+  status: "DRAFT" | "SENT" | "PAID" | "PARTIALLY_PAID" | "OVERDUE" | "CANCELLED";
+  created_at: string;
+}
+
+export interface AdminCustomerRow {
+  id: string;
+  name: string;
+  phone: string;
+  merchants: string[];
+  total_spent: string;
+  last_transaction_at: string;
+  status: "active" | "inactive";
+}
+
+export interface AdminWithdrawalRow {
+  withdrawal_id: string;
+  merchant_id: string;
+  merchant_name: string;
+  method: "SELCOM_PESA" | "MOBILE_MONEY" | "BANK_ACCOUNT";
+  amount: string;
+  currency: string;
+  destination: string;
+  status: "PENDING" | "PROCESSING" | "SUCCESS" | "FAILED" | "REVERSED";
+  requires_approval: boolean;
+  provider_reference: string | null;
+  created_at: string;
+}
+
+export interface AdminTransactionRow {
+  transaction_id: string;
+  merchant_id: string;
+  merchant_name: string;
+  type: "collection" | "disbursement" | "fee";
+  reference: string;
+  method: string;
+  gross_amount: string;
+  fee_amount: string;
+  net_amount: string;
+  currency: string;
+  status: "successful" | "pending" | "processing" | "failed" | "reversed" | "cancelled";
+  created_at: string;
+}
+
+export interface PlatformPricingRule {
+  id: string;
+  transaction_type: string;
+  fee_type: "Percentage" | "Flat";
+  rate: string;
+  free: boolean;
+  applies_to: string;
+  enabled: boolean;
+}
+
+export interface MerchantPricingOverride {
+  id: string;
+  merchant_name: string;
+  transaction_type: string;
+  rate: string;
+  reason: string;
+}
+
+export interface PlatformApiKeyRow {
+  id: string;
+  merchant_name: string;
+  key_masked: string;
+  environment: "Live" | "Sandbox";
+  last_used_at: string;
+  status: "Active" | "Revoked";
+}
+
+/** Inbound provider callback log (selcom_webhook_events) — not the outbound
+ * merchant webhook deliveries table, which already has its own
+ * merchant-scoped view (see lib/portal/types.ts's WebhookDelivery). */
+export interface AdminWebhookEventRow {
+  webhook_event_id: string;
+  provider: string;
+  event_type: string;
+  reference: string;
+  status: "received" | "processed" | "failed";
+  processed_at: string | null;
+  created_at: string;
+}
+
+export interface FailedCallbackRow {
+  id: string;
+  provider: string;
+  event_type: string;
+  reference: string;
+  received_at: string;
+  error: string;
+}
+
+export interface UnmatchedTransactionRow {
+  id: string;
+  reference: string;
+  provider: string;
+  amount: string;
+  received_at: string;
+}
+
+export interface DuplicateReferenceRow {
+  id: string;
+  reference: string;
+  occurrences: number;
+  first_seen: string;
+  last_seen: string;
+}
+
+export interface ProviderCallbackLogRow {
+  id: string;
+  timestamp: string;
+  provider: string;
+  event: string;
+  reference: string;
+  http_status: number;
+  match_status: "Matched" | "Failed" | "Unmatched" | "Duplicate";
+}
+
+export interface SettlementAccountRow {
+  id: string;
+  provider: string;
+  account_reference: string;
+  balance: string;
+  last_settled_at: string;
+  status: "Active" | "Under Review";
+}
+
+export interface KycReviewRow {
+  id: string;
+  merchant_name: string;
+  document_type: string;
+  submitted_at: string;
+}
+
+export interface ComplianceFlagRow {
+  id: string;
+  merchant_name: string;
+  reason: string;
+  flagged_at: string;
+  risk_level: "High" | "Medium" | "Low";
+}
+
+export interface ProviderHealth {
+  id: string;
+  name: string;
+  status: "operational" | "degraded" | "down";
+  uptime_month: string;
+  avg_response_ms: number | null;
+}
+
+export interface IncidentRow {
+  id: string;
+  provider: string;
+  incident: string;
+  start_time: string;
+  duration: string;
+  status: "Ongoing" | "Resolved";
+}
+
+export interface AuditLogRow {
+  audit_id: string;
+  actor: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  metadata: Record<string, unknown>;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface SupportTicketRow {
+  id: string;
+  ticket_number: string;
+  merchant_name: string;
+  subject: string;
+  priority: "Urgent" | "High" | "Medium" | "Low";
+  status: "Open" | "Awaiting Merchant" | "Resolved" | "Closed";
+  updated_at: string;
+}
+
+// --- Risk monitoring / document requests / disputes -------------------------
+
+export type FraudRiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type FraudAlertStatus = "OPEN" | "UNDER_REVIEW" | "DOCUMENTS_REQUESTED" | "CLEARED" | "ESCALATED" | "CLOSED";
+
+export interface AdminFraudAlertRow {
+  alert_id: string;
+  merchant_id: string;
+  merchant_name: string | null;
+  transaction_id: string | null;
+  customer_phone: string | null;
+  rule_code: string;
+  risk_level: FraudRiskLevel;
+  reason: string;
+  status: FraudAlertStatus;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DocumentRequestStatus = "PENDING" | "SUBMITTED" | "APPROVED" | "REJECTED";
+
+export interface AdminDocumentRequestFile {
+  id: string;
+  document_label: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  signed_url: string | null;
+  created_at: string;
+}
+
+export interface AdminDocumentRequestRow {
+  request_id: string;
+  merchant_id: string;
+  merchant_name: string | null;
+  transaction_id: string | null;
+  alert_id: string | null;
+  requested_documents: string[];
+  reason: string;
+  status: DocumentRequestStatus;
+  due_date: string | null;
+  created_at: string;
+  updated_at: string;
+  files: AdminDocumentRequestFile[];
+}
+
+export type DisputeStatus =
+  | "SUBMITTED"
+  | "MERCHANT_NOTIFIED"
+  | "UNDER_REVIEW"
+  | "REFUND_REQUESTED"
+  | "REFUNDED"
+  | "REJECTED"
+  | "CLOSED";
+
+export interface AdminDisputeRow {
+  dispute_id: string;
+  merchant_id: string | null;
+  merchant_name: string | null;
+  transaction_id: string | null;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string | null;
+  transaction_reference: string | null;
+  amount: string | null;
+  reason_category: string;
+  description: string;
+  status: DisputeStatus;
+  evidence_files: Array<{ file_path: string; original_filename: string }>;
+  created_at: string;
+  updated_at: string;
+}
+
+export type RefundStatus = "REQUESTED" | "APPROVED" | "PROCESSING" | "SUCCESS" | "FAILED" | "CANCELLED";
+
+export interface AdminRefundRow {
+  id: string;
+  dispute_id: string;
+  transaction_id: string;
+  merchant_id: string;
+  amount: string;
+  currency: string;
+  status: RefundStatus;
+  requested_by: "merchant" | "admin";
+  provider_reference: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminNotificationRow {
+  id: string;
+  notification_type: string;
+  title: string;
+  body: string;
+  related_resource_type: string | null;
+  related_resource_id: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface AdminTeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: "Super Admin" | "Operations Admin" | "Support Admin";
+  status: "active";
+}

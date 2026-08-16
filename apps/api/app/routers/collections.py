@@ -1,0 +1,231 @@
+"""Collections: initiating a mock push/QR collection from a customer, and
+reading back what's been recorded.
+
+Initiation is flat (/v1/collections/{method}, no merchant_id path segment —
+merchant_id lives in the request body instead, same reasoning and the same
+app.auth.get_authenticated_caller/authorize_merchant_action pattern as
+app.routers.payment_links). Reading stays merchant-scoped
+(/v1/merchants/{merchant_id}/collections), unaffected by this.
+"""
+
+import uuid
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, status
+
+from app.auth import (
+    authorize_merchant_action,
+    get_authenticated_caller,
+    require_api_key_scope,
+    require_role,
+)
+from app.core.errors import NotFoundError
+from app.core.pagination import PaginationParams, build_page_meta, pagination_params
+from app.database.session import get_supabase_admin
+from app.schemas.auth import AuthenticatedCaller, AuthenticatedUser
+from app.schemas.collections import (
+    CollectionResponse,
+    DynamicQrCollectionRequest,
+    DynamicQrCollectionResponse,
+    PushCollectionRequest,
+)
+from app.schemas.common import APIResponse
+from app.schemas.enums import CollectionMethod, UserRole
+from app.services.audit import write_audit_log
+from app.services.collections import initiate_collection, initiate_dynamic_qr_collection
+from app.services.crud import get_for_merchant, list_for_merchant
+from app.services.idempotency import run_idempotent
+from app.services.payment_links import validate_payment_link_for_collection
+
+router = APIRouter(prefix="/merchants/{merchant_id}/collections", tags=["collections"])
+initiate_router = APIRouter(prefix="/collections", tags=["collections"])
+
+_DASHBOARD_ROLES = (UserRole.MERCHANT_ADMIN, UserRole.MERCHANT_STAFF)
+
+_METHOD_PATHS: dict[CollectionMethod, str] = {
+    CollectionMethod.USSD_PUSH: "ussd-push",
+    CollectionMethod.STK_PUSH: "stk-push",
+    CollectionMethod.SELCOM_PESA_PUSH: "selcom-pesa-push",
+    CollectionMethod.DYNAMIC_QR: "dynamic-qr",
+}
+
+
+async def _create_push_collection(
+    method: CollectionMethod,
+    payload: PushCollectionRequest,
+    caller: AuthenticatedCaller,
+    idempotency_key: str,
+) -> APIResponse[CollectionResponse]:
+    authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
+    require_api_key_scope(caller, "collections:write")
+    client = get_supabase_admin()
+
+    await validate_payment_link_for_collection(
+        client, merchant_id=payload.merchant_id, payment_link_id=payload.payment_link_id, method=method
+    )
+
+    async def _handler() -> tuple[int, dict]:
+        collection = await initiate_collection(
+            client,
+            merchant_id=payload.merchant_id,
+            method=method,
+            amount=payload.amount,
+            currency=payload.currency,
+            customer_id=payload.customer_id,
+            customer_phone=payload.customer_phone,
+            customer_name=payload.customer_name,
+            customer_email=payload.customer_email,
+            payment_link_id=payload.payment_link_id,
+            invoice_id=payload.invoice_id,
+            merchant_reference=payload.merchant_reference,
+            description=payload.description,
+            callback_url=payload.callback_url,
+        )
+        write_audit_log(
+            client,
+            actor_id=caller.actor_id,
+            actor_type=caller.actor_type,
+            merchant_id=payload.merchant_id,
+            action="collection.initiated",
+            resource_type="collection",
+            resource_id=uuid.UUID(collection["id"]),
+            metadata={"method": method.value},
+        )
+        return status.HTTP_202_ACCEPTED, collection
+
+    _status_code, body = await run_idempotent(
+        client,
+        merchant_id=payload.merchant_id,
+        endpoint=f"POST /v1/collections/{_METHOD_PATHS[method]}",
+        idempotency_key=idempotency_key,
+        request_payload=payload.model_dump(mode="json"),
+        handler=_handler,
+    )
+
+    return APIResponse(data=CollectionResponse(**body))
+
+
+@initiate_router.post(
+    "/ussd-push", response_model=APIResponse[CollectionResponse], status_code=status.HTTP_202_ACCEPTED
+)
+async def create_ussd_push_collection(
+    payload: PushCollectionRequest,
+    caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+):
+    return await _create_push_collection(CollectionMethod.USSD_PUSH, payload, caller, idempotency_key)
+
+
+@initiate_router.post(
+    "/stk-push", response_model=APIResponse[CollectionResponse], status_code=status.HTTP_202_ACCEPTED
+)
+async def create_stk_push_collection(
+    payload: PushCollectionRequest,
+    caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+):
+    return await _create_push_collection(CollectionMethod.STK_PUSH, payload, caller, idempotency_key)
+
+
+@initiate_router.post(
+    "/selcom-pesa-push", response_model=APIResponse[CollectionResponse], status_code=status.HTTP_202_ACCEPTED
+)
+async def create_selcom_pesa_push_collection(
+    payload: PushCollectionRequest,
+    caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+):
+    return await _create_push_collection(CollectionMethod.SELCOM_PESA_PUSH, payload, caller, idempotency_key)
+
+
+@initiate_router.post(
+    "/dynamic-qr", response_model=APIResponse[DynamicQrCollectionResponse], status_code=status.HTTP_202_ACCEPTED
+)
+async def create_dynamic_qr_collection(
+    payload: DynamicQrCollectionRequest,
+    caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+):
+    authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
+    require_api_key_scope(caller, "collections:write")
+    client = get_supabase_admin()
+
+    await validate_payment_link_for_collection(
+        client,
+        merchant_id=payload.merchant_id,
+        payment_link_id=payload.payment_link_id,
+        method=CollectionMethod.DYNAMIC_QR,
+    )
+
+    async def _handler() -> tuple[int, dict]:
+        collection, qr_result = await initiate_dynamic_qr_collection(
+            client,
+            merchant_id=payload.merchant_id,
+            amount=payload.amount,
+            currency=payload.currency,
+            customer_id=payload.customer_id,
+            customer_phone=payload.customer_phone,
+            customer_name=payload.customer_name,
+            customer_email=payload.customer_email,
+            payment_link_id=payload.payment_link_id,
+            invoice_id=payload.invoice_id,
+            merchant_reference=payload.merchant_reference,
+            description=payload.description,
+            callback_url=payload.callback_url,
+        )
+        write_audit_log(
+            client,
+            actor_id=caller.actor_id,
+            actor_type=caller.actor_type,
+            merchant_id=payload.merchant_id,
+            action="collection.initiated",
+            resource_type="collection",
+            resource_id=uuid.UUID(collection["id"]),
+            metadata={"method": "DYNAMIC_QR"},
+        )
+        body = {
+            **collection,
+            "qr_payload": qr_result.qr_payload,
+            "qr_expires_at": qr_result.qr_expires_at.isoformat(),
+            "expires_at": qr_result.qr_expires_at.isoformat(),
+        }
+        return status.HTTP_202_ACCEPTED, body
+
+    _status_code, body = await run_idempotent(
+        client,
+        merchant_id=payload.merchant_id,
+        endpoint="POST /v1/collections/dynamic-qr",
+        idempotency_key=idempotency_key,
+        request_payload=payload.model_dump(mode="json"),
+        handler=_handler,
+    )
+
+    return APIResponse(data=DynamicQrCollectionResponse(**body))
+
+
+# --- Reading back what's been recorded (unchanged, merchant-scoped) -------
+
+
+@router.get("", response_model=APIResponse[list[CollectionResponse]])
+def list_collections(
+    merchant_id: uuid.UUID,
+    _actor: Annotated[AuthenticatedUser, Depends(require_role(*_DASHBOARD_ROLES))],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+):
+    client = get_supabase_admin()
+    rows, total = list_for_merchant(client, "collections", merchant_id=merchant_id, pagination=pagination)
+    data = [CollectionResponse(**row) for row in rows]
+    return APIResponse(data=data, meta=build_page_meta(pagination, total))
+
+
+@router.get("/{collection_id}", response_model=APIResponse[CollectionResponse])
+def get_collection(
+    merchant_id: uuid.UUID,
+    collection_id: uuid.UUID,
+    _actor: Annotated[AuthenticatedUser, Depends(require_role(*_DASHBOARD_ROLES))],
+):
+    client = get_supabase_admin()
+    row = get_for_merchant(client, "collections", merchant_id=merchant_id, row_id=collection_id)
+    if not row:
+        raise NotFoundError("Collection not found")
+    return APIResponse(data=CollectionResponse(**row))

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Payment Links — Infinity Africa Merchant Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            theme: {
+                extend: {
+                    "colors": {
+                        "background": "#f9f9ff", "error": "#ba1a1a", "on-surface": "#141b2b", "on-background": "#141b2b",
+                        "primary": "#005232", "on-surface-variant": "#3f4942", "primary-container": "#006d44", "on-primary": "#ffffff",
+                        "primary-fixed": "#9cf5c1", "surface-container": "#e9edff", "surface-container-lowest": "#ffffff",
+                        "secondary": "#56615e", "outline": "#6f7a71", "surface": "#f9f9ff", "surface-container-low": "#f1f3ff",
+                        "outline-variant": "#bec9bf", "surface-container-high": "#e1e8fd", "surface-container-highest": "#dce2f7"
+                    },
+                    "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                    "spacing": { "margin-desktop": "40px", "margin-mobile": "16px", "unit": "8px", "container-max": "1280px", "gutter": "24px" },
+                    "fontFamily": {
+                        "display": ["Inter"], "headline-lg-mobile": ["Inter"], "body-lg": ["Inter"], "label-md": ["Inter"],
+                        "headline-lg": ["Inter"], "headline-md": ["Inter"], "body-md": ["Inter"], "label-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "label-md": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }]
+                    },
+                    "boxShadow": { "ambient": "0px 4px 20px rgba(0, 109, 68, 0.04)" }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen">
+
+<div id="sidebar-overlay" onclick="closeSidebar()" class="fixed inset-0 bg-black/40 z-40 hidden"></div>
+
+<aside id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-surface-container-low shadow-sm z-50 flex flex-col py-8 px-4 border-r border-surface-container-highest overflow-y-auto -translate-x-full md:translate-x-0 transition-transform duration-200">
+<div class="mb-10 flex items-center gap-3 px-4 shrink-0">
+<a href="../overview/index.html" class="flex items-center gap-3 flex-1">
+<div class="w-10 h-10 rounded-lg bg-primary-container text-on-primary flex items-center justify-center font-bold text-lg shrink-0">I</div>
+<div><h1 class="font-display text-primary" style="font-size: 20px; line-height: 28px;">Infinity Africa</h1><p class="font-label-sm text-label-sm text-on-surface-variant">Merchant Dashboard</p></div>
+</a>
+<button onclick="closeSidebar()" class="md:hidden text-on-surface-variant p-1"><span class="material-symbols-outlined">close</span></button>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../overview/index.html"><span class="material-symbols-outlined">dashboard</span>Overview</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../collections/index.html"><span class="material-symbols-outlined">payments</span>Collections</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-primary font-bold border-r-4 border-primary bg-primary-container/10 font-label-md text-label-md" href="../payment-links/index.html"><span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">link</span>Payment Links</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../invoices/index.html"><span class="material-symbols-outlined">description</span>Invoices</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../customers/index.html"><span class="material-symbols-outlined">group</span>Customers</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../disbursements/index.html"><span class="material-symbols-outlined">account_balance_wallet</span>Disbursements</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../transactions/index.html"><span class="material-symbols-outlined">receipt_long</span>Transactions</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../wallet/index.html"><span class="material-symbols-outlined">account_balance</span>Wallet</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../pricing/index.html"><span class="material-symbols-outlined">sell</span>Pricing</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../api-keys/index.html"><span class="material-symbols-outlined">api</span>API Keys</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../reports/index.html"><span class="material-symbols-outlined">bar_chart</span>Reports</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../settings/index.html"><span class="material-symbols-outlined">settings</span>Settings</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary-container/10 transition-colors font-label-md text-label-md" href="../support/index.html"><span class="material-symbols-outlined">help</span>Support</a>
+</nav>
+<div class="mt-auto pt-6 shrink-0"><button class="w-full bg-primary-container text-on-primary font-label-md text-label-md py-3 px-4 rounded-lg hover:opacity-90 transition-opacity">Upgrade Plan</button></div>
+</aside>
+
+<header class="fixed top-0 right-0 w-full md:w-[calc(100%-16rem)] z-30 bg-surface/80 backdrop-blur-md shadow-sm flex justify-between items-center h-16 px-4 md:px-8 border-b border-surface-container-highest">
+<div class="flex items-center gap-4 flex-1">
+<button onclick="openSidebar()" class="md:hidden text-on-surface-variant p-2 -ml-2 rounded-lg hover:bg-surface-container-highest"><span class="material-symbols-outlined">menu</span></button>
+<div class="relative w-full max-w-md hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-body-md text-body-md text-on-surface placeholder-outline transition-all" placeholder="Search transactions, invoices, payment links..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-2 md:gap-4">
+<button class="hidden lg:flex items-center gap-2 bg-primary-container text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity"><span class="material-symbols-outlined text-[20px]">add</span>New Transaction</button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full relative"><span class="material-symbols-outlined">notifications</span><span class="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full"></span></button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full hidden sm:block"><span class="material-symbols-outlined">help_outline</span></button>
+<div class="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm ml-2 border border-outline-variant shrink-0">S</div>
+</div>
+</header>
+
+<main class="pt-20 md:pt-24 pb-16 px-4 md:px-8 md:ml-64 max-w-container-max mx-auto space-y-8">
+
+<header class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div>
+<h2 class="font-headline-lg text-headline-lg text-on-background">Payment Links</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant mt-1">Create secure links and share them with customers to get paid instantly.</p>
+</div>
+<a href="#create-link" class="flex items-center justify-center gap-2 bg-primary-container text-on-primary px-4 py-2.5 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity w-fit"><span class="material-symbols-outlined text-[18px]">add</span>New Payment Link</a>
+</header>
+
+<!-- Create form + generated link -->
+<section id="create-link" class="scroll-mt-24 grid grid-cols-1 lg:grid-cols-5 gap-6">
+<form class="lg:col-span-3 bg-surface rounded-xl border border-surface-container-highest shadow-ambient p-6 space-y-5" onsubmit="return false;">
+<h3 class="font-headline-md text-headline-md text-on-background mb-1">Create Payment Link</h3>
+<div class="grid sm:grid-cols-2 gap-5">
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Customer Name</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" placeholder="e.g. Grace Mwakalinga" type="text"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Phone Number</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" placeholder="+255 7XX XXX XXX" type="tel"/>
+</div>
+</div>
+<div class="grid sm:grid-cols-2 gap-5">
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Amount (TZS)</label>
+<div class="relative">
+<span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm font-semibold">TZS</span>
+<input class="w-full pl-12 pr-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" placeholder="25,000" type="number"/>
+</div>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Expiry Date</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" type="date"/>
+</div>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Description</label>
+<input class="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md" placeholder="e.g. Invoice for graphic design services"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-2">Allowed Payment Channels</label>
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+<label class="flex items-center gap-2 bg-surface-container-low border border-surface-container-highest rounded-lg px-3 py-2.5 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary-container/10">
+<input checked class="rounded border-outline-variant text-primary-container focus:ring-primary" type="checkbox"/><span class="text-sm font-medium text-on-surface">M-Pesa</span></label>
+<label class="flex items-center gap-2 bg-surface-container-low border border-surface-container-highest rounded-lg px-3 py-2.5 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary-container/10">
+<input checked class="rounded border-outline-variant text-primary-container focus:ring-primary" type="checkbox"/><span class="text-sm font-medium text-on-surface">Tigo Pesa</span></label>
+<label class="flex items-center gap-2 bg-surface-container-low border border-surface-container-highest rounded-lg px-3 py-2.5 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary-container/10">
+<input checked class="rounded border-outline-variant text-primary-container focus:ring-primary" type="checkbox"/><span class="text-sm font-medium text-on-surface">Airtel Money</span></label>
+<label class="flex items-center gap-2 bg-surface-container-low border border-surface-container-highest rounded-lg px-3 py-2.5 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary-container/10">
+<input class="rounded border-outline-variant text-primary-container focus:ring-primary" type="checkbox"/><span class="text-sm font-medium text-on-surface">HaloPesa</span></label>
+</div>
+</div>
+<button class="w-full bg-primary-container text-on-primary font-label-md text-label-md py-3 rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2" type="submit">
+<span class="material-symbols-outlined text-[20px]">link</span>Generate Payment Link</button>
+</form>
+
+<!-- Generated link result -->
+<div class="lg:col-span-2 bg-surface rounded-xl border border-surface-container-highest shadow-ambient p-6 flex flex-col gap-5 h-fit">
+<div>
+<h3 class="font-headline-md text-headline-md text-on-background mb-1">Your Payment Link</h3>
+<p class="text-sm text-on-surface-variant">Share it with your customer to collect payment instantly.</p>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-on-surface-variant mb-1.5">Generated Payment URL</label>
+<div class="flex items-center gap-2">
+<input class="flex-1 px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg text-sm text-on-surface truncate" readonly value="https://pay.infinityafrica.net/link/PLK-7X29QK"/>
+<button class="shrink-0 p-2.5 bg-primary-container/10 text-primary rounded-lg hover:bg-primary-container/20 transition-colors" title="Copy link"><span class="material-symbols-outlined text-[20px]">content_copy</span></button>
+</div>
+</div>
+<a href="https://wa.me/?text=Please%20complete%20your%20payment%20of%20TZS%2025%2C000%20via%20this%20secure%20Infinity%20link%3A%20https%3A%2F%2Fpay.infinityafrica.net%2Flink%2FPLK-7X29QK" class="w-full flex items-center justify-center gap-2 bg-[#25D366] text-white font-label-md text-label-md py-3 rounded-lg hover:opacity-90 transition-opacity">
+<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12.001 2C6.478 2 2 6.477 2 12c0 1.802.472 3.552 1.369 5.09L2 22l5.03-1.319A9.96 9.96 0 0 0 12.001 22C17.523 22 22 17.523 22 12S17.523 2 12.001 2zm0 18.09c-1.61 0-3.19-.433-4.567-1.253l-.328-.194-3.03.795.81-2.955-.213-.34A8.075 8.075 0 0 1 3.91 12c0-4.465 3.63-8.09 8.091-8.09 4.462 0 8.09 3.625 8.09 8.09 0 4.465-3.628 8.09-8.09 8.09z"/></svg>
+Share via WhatsApp</a>
+<div class="flex flex-col items-center gap-2 pt-2 border-t border-surface-container-highest">
+<div class="w-32 h-32 bg-white border border-surface-container-highest rounded-lg p-2 shadow-sm">
+<svg viewBox="0 0 21 21" class="w-full h-full">
+<rect width="21" height="21" fill="white"></rect>
+<rect x="0" y="0" width="7" height="7" fill="#141b2b"></rect>
+<rect x="1" y="1" width="5" height="5" fill="white"></rect>
+<rect x="2" y="2" width="3" height="3" fill="#141b2b"></rect>
+<rect x="14" y="0" width="7" height="7" fill="#141b2b"></rect>
+<rect x="15" y="1" width="5" height="5" fill="white"></rect>
+<rect x="16" y="2" width="3" height="3" fill="#141b2b"></rect>
+<rect x="0" y="14" width="7" height="7" fill="#141b2b"></rect>
+<rect x="1" y="15" width="5" height="5" fill="white"></rect>
+<rect x="2" y="16" width="3" height="3" fill="#141b2b"></rect>
+<rect x="9" y="1" width="1" height="1" fill="#141b2b"></rect>
+<rect x="11" y="2" width="1" height="1" fill="#141b2b"></rect>
+<rect x="9" y="4" width="1" height="1" fill="#141b2b"></rect>
+<rect x="12" y="4" width="1" height="1" fill="#141b2b"></rect>
+<rect x="10" y="6" width="1" height="1" fill="#141b2b"></rect>
+<rect x="1" y="9" width="1" height="1" fill="#141b2b"></rect>
+<rect x="3" y="10" width="1" height="1" fill="#141b2b"></rect>
+<rect x="5" y="9" width="1" height="1" fill="#141b2b"></rect>
+<rect x="2" y="12" width="1" height="1" fill="#141b2b"></rect>
+<rect x="9" y="9" width="2" height="2" fill="#141b2b"></rect>
+<rect x="12" y="9" width="1" height="1" fill="#141b2b"></rect>
+<rect x="9" y="12" width="1" height="1" fill="#141b2b"></rect>
+<rect x="11" y="12" width="2" height="2" fill="#141b2b"></rect>
+<rect x="9" y="14" width="1" height="1" fill="#141b2b"></rect>
+<rect x="14" y="9" width="1" height="1" fill="#141b2b"></rect>
+<rect x="16" y="10" width="1" height="1" fill="#141b2b"></rect>
+<rect x="18" y="9" width="1" height="1" fill="#141b2b"></rect>
+<rect x="14" y="12" width="2" height="1" fill="#141b2b"></rect>
+<rect x="18" y="12" width="1" height="2" fill="#141b2b"></rect>
+<rect x="14" y="14" width="1" height="1" fill="#141b2b"></rect>
+<rect x="16" y="15" width="2" height="2" fill="#141b2b"></rect>
+<rect x="14" y="17" width="1" height="1" fill="#141b2b"></rect>
+<rect x="9" y="16" width="1" height="1" fill="#141b2b"></rect>
+<rect x="11" y="17" width="1" height="1" fill="#141b2b"></rect>
+<rect x="9" y="19" width="2" height="1" fill="#141b2b"></rect>
+</svg>
+</div>
+<p class="text-xs text-on-surface-variant">Scan to pay instantly</p>
+</div>
+<p class="text-xs text-on-surface-variant text-center pt-1">This link expires on the date you selected and can be deactivated at any time.</p>
+</div>
+</section>
+
+<!-- Payment Links Table -->
+<section class="bg-surface rounded-xl border border-surface-container-highest shadow-ambient overflow-hidden">
+<div class="flex flex-wrap items-center justify-between gap-3 p-5 pb-3">
+<h3 class="font-headline-md text-headline-md text-on-background">Your Payment Links</h3>
+<div class="flex gap-2">
+<span class="px-3 py-1.5 rounded-full bg-primary-container/10 text-primary text-xs font-semibold cursor-pointer">All</span>
+<span class="px-3 py-1.5 rounded-full text-on-surface-variant text-xs font-semibold cursor-pointer hover:bg-surface-container-low">Active</span>
+<span class="px-3 py-1.5 rounded-full text-on-surface-variant text-xs font-semibold cursor-pointer hover:bg-surface-container-low">Paid</span>
+<span class="px-3 py-1.5 rounded-full text-on-surface-variant text-xs font-semibold cursor-pointer hover:bg-surface-container-low">Expired</span>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left min-w-[820px]">
+<thead>
+<tr class="text-on-surface-variant text-label-sm font-label-sm border-t border-surface-container-highest">
+<th class="px-5 py-3 font-semibold">Customer</th>
+<th class="px-5 py-3 font-semibold">Amount</th>
+<th class="px-5 py-3 font-semibold">Channels</th>
+<th class="px-5 py-3 font-semibold">Status</th>
+<th class="px-5 py-3 font-semibold">Expires</th>
+<th class="px-5 py-3 font-semibold text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="text-body-md text-[14px]">
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="font-medium text-on-background">Grace Mwakalinga</div><div class="text-xs text-on-surface-variant">Web design deposit</div></td>
+<td class="px-5 py-3.5 font-semibold text-on-background">TZS 25,000</td>
+<td class="px-5 py-3.5 text-on-surface-variant text-xs">M-Pesa, Tigo Pesa, Airtel</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-primary-container/10 text-primary px-2.5 py-1 rounded-full text-xs font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Active</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant text-xs">24 Aug 2026</td>
+<td class="px-5 py-3.5 text-right"><button class="p-1.5 text-on-surface-variant hover:text-primary" title="Copy"><span class="material-symbols-outlined text-[18px]">content_copy</span></button><button class="p-1.5 text-on-surface-variant hover:text-primary" title="Share"><span class="material-symbols-outlined text-[18px]">ios_share</span></button></td>
+</tr>
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="font-medium text-on-background">Juma Traders</div><div class="text-xs text-on-surface-variant">Wholesale order #88</div></td>
+<td class="px-5 py-3.5 font-semibold text-on-background">TZS 320,000</td>
+<td class="px-5 py-3.5 text-on-surface-variant text-xs">M-Pesa, HaloPesa</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-primary text-on-primary px-2.5 py-1 rounded-full text-xs font-semibold"><span class="material-symbols-outlined text-[12px]">check</span>Paid</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant text-xs">18 Aug 2026</td>
+<td class="px-5 py-3.5 text-right"><button class="p-1.5 text-on-surface-variant hover:text-primary" title="Copy"><span class="material-symbols-outlined text-[18px]">content_copy</span></button><button class="p-1.5 text-on-surface-variant hover:text-primary" title="Share"><span class="material-symbols-outlined text-[18px]">ios_share</span></button></td>
+</tr>
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="font-medium text-on-background">Amani Store</div><div class="text-xs text-on-surface-variant">Monthly supply top-up</div></td>
+<td class="px-5 py-3.5 font-semibold text-on-background">TZS 64,500</td>
+<td class="px-5 py-3.5 text-on-surface-variant text-xs">Airtel Money</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-primary-container/10 text-primary px-2.5 py-1 rounded-full text-xs font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Active</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant text-xs">30 Aug 2026</td>
+<td class="px-5 py-3.5 text-right"><button class="p-1.5 text-on-surface-variant hover:text-primary" title="Copy"><span class="material-symbols-outlined text-[18px]">content_copy</span></button><button class="p-1.5 text-on-surface-variant hover:text-primary" title="Share"><span class="material-symbols-outlined text-[18px]">ios_share</span></button></td>
+</tr>
+<tr class="border-t border-surface-container-highest opacity-60">
+<td class="px-5 py-3.5"><div class="font-medium text-on-background">Baraka Textiles</div><div class="text-xs text-on-surface-variant">Fabric consignment</div></td>
+<td class="px-5 py-3.5 font-semibold text-on-background">TZS 145,000</td>
+<td class="px-5 py-3.5 text-on-surface-variant text-xs">M-Pesa</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-surface-container-highest text-on-surface-variant px-2.5 py-1 rounded-full text-xs font-semibold">Expired</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant text-xs">02 Aug 2026</td>
+<td class="px-5 py-3.5 text-right"><button class="p-1.5 text-on-surface-variant hover:text-primary" title="Copy"><span class="material-symbols-outlined text-[18px]">content_copy</span></button><button class="p-1.5 text-on-surface-variant hover:text-primary" title="Share"><span class="material-symbols-outlined text-[18px]">ios_share</span></button></td>
+</tr>
+<tr class="border-t border-surface-container-highest">
+<td class="px-5 py-3.5"><div class="font-medium text-on-background">Neema Salon</div><div class="text-xs text-on-surface-variant">Equipment deposit</div></td>
+<td class="px-5 py-3.5 font-semibold text-on-background">TZS 90,000</td>
+<td class="px-5 py-3.5 text-on-surface-variant text-xs">Tigo Pesa, Airtel</td>
+<td class="px-5 py-3.5"><span class="inline-flex items-center gap-1 bg-primary-container/10 text-primary px-2.5 py-1 rounded-full text-xs font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Active</span></td>
+<td class="px-5 py-3.5 text-on-surface-variant text-xs">28 Aug 2026</td>
+<td class="px-5 py-3.5 text-right"><button class="p-1.5 text-on-surface-variant hover:text-primary" title="Copy"><span class="material-symbols-outlined text-[18px]">content_copy</span></button><button class="p-1.5 text-on-surface-variant hover:text-primary" title="Share"><span class="material-symbols-outlined text-[18px]">ios_share</span></button></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</main>
+
+<script>
+    function openSidebar(){document.getElementById('sidebar').classList.remove('-translate-x-full');document.getElementById('sidebar-overlay').classList.remove('hidden');}
+    function closeSidebar(){document.getElementById('sidebar').classList.add('-translate-x-full');document.getElementById('sidebar-overlay').classList.add('hidden');}
+</script>
+</body>
+</html>
