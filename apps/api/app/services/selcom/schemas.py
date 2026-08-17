@@ -1,8 +1,11 @@
-"""Shared result types every Selcom client implementation (mock_client.py,
-live_client.py) returns — the vocabulary the rest of the app (routers,
-app/services/collections.py, app/services/disbursements.py) is written
-against, regardless of which client is active. See client.py for the
-PaymentProvider interface these types appear in.
+"""Shared result types every Selcom checkout/collections client
+implementation (mock_client.py, live_client.py) returns — the vocabulary
+app/services/collections.py is written against, regardless of which client
+is active. See client.py for the PaymentProvider interface these types
+appear in.
+
+Withdrawals/disbursements are a different Selcom product with their own
+result type — see app/services/selcom_business/schemas.py.
 """
 
 from datetime import datetime
@@ -25,10 +28,3 @@ class DynamicQrResult(BaseModel):
     provider_reference: str
     qr_payload: str
     qr_expires_at: datetime
-
-
-class DisbursementResult(BaseModel):
-    provider: str
-    provider_reference: str
-    status: ProviderStatus
-    failure_reason: str | None = None

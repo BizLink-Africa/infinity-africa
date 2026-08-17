@@ -32,5 +32,9 @@ def get_selcom_config_status(
             api_key_configured=bool(settings.selcom_api_key),
             api_secret_configured=bool(settings.selcom_api_secret),
             vendor_id_configured=bool(settings.selcom_vendor_id),
+            business_mode=settings.selcom_business_mode,
+            business_api_key_configured=bool(settings.selcom_business_api_key),
+            business_private_key_configured=bool(settings.selcom_business_private_key_base64),
+            business_account_number_configured=bool(settings.selcom_business_account_number),
         )
     )

@@ -15,13 +15,17 @@ through that document, in particular step 1 (fixing this file against
 Selcom's real API reference) and step 2 (testing against a real sandbox).
 
 Two things live here:
-- SelcomHTTPClient: raw signed HTTP calls to Selcom's Collection/Payout API.
+- SelcomHTTPClient: raw signed HTTP calls to Selcom's Collection API.
 - LiveSelcomClient: the PaymentProvider implementation — translates this
   app's method-agnostic calls into the right SelcomHTTPClient call and
-  parses the response back into CollectionResult/DynamicQrResult/
-  DisbursementResult, the same shapes MockSelcomClient returns. Everything
-  above this layer is written against that shared interface and never
-  knows which client is active.
+  parses the response back into CollectionResult/DynamicQrResult, the same
+  shapes MockSelcomClient returns. Everything above this layer is written
+  against that shared interface and never knows which client is active.
+
+Withdrawals/disbursements are a different Selcom product (the Business
+Disbursement API, real RSA-SHA256-signed docs at
+developer.selcom.business) with its own client — see
+app/services/selcom_business/. Nothing here handles payouts anymore.
 """
 
 import json
@@ -36,11 +40,9 @@ from app.core.errors import SelcomAPIError
 from app.services.selcom.parsing import extract_provider_reference, extract_status
 from app.services.selcom.schemas import (
     CollectionResult,
-    DisbursementResult,
     DynamicQrResult,
 )
 from app.services.selcom.signature import sign_request
-from app.services.selcom.withdrawals import initiate_withdrawal
 
 logger = logging.getLogger("infinity.selcom")
 
@@ -54,7 +56,6 @@ _PATH_STK_PUSH = "/v1/checkout/push-stk"
 _PATH_SELCOM_PESA_PUSH = "/v1/checkout/push-wallet"
 _PATH_DYNAMIC_QR = "/v1/checkout/qr"
 _PATH_ORDER_STATUS = "/v1/checkout/order-status"
-_PATH_PAYOUT = "/v1/payout/create"
 
 
 class SelcomHTTPClient:
@@ -96,7 +97,10 @@ class SelcomHTTPClient:
         logger.info("selcom_request path=%s status=%d latency_ms=%d", path, response.status_code, latency_ms)
 
         if response.status_code >= 400:
-            raise SelcomAPIError(f"Selcom returned HTTP {response.status_code} for {path}")
+            raise SelcomAPIError(
+                f"Selcom returned HTTP {response.status_code} for {path}",
+                provider_status_code=response.status_code,
+            )
 
         try:
             return response.json()
@@ -133,44 +137,15 @@ class SelcomHTTPClient:
     async def get_order_status(self, *, provider_reference: str) -> dict:
         return await self._post(_PATH_ORDER_STATUS, {"vendor": self._vendor_id, "order_id": provider_reference})
 
-    async def create_payout(
-        self,
-        *,
-        amount: Decimal,
-        currency: str,
-        destination_identifier: str,
-        reference: str,
-        bank_name: str | None = None,
-        network: str | None = None,
-    ) -> dict:
-        body = {
-            "vendor": self._vendor_id,
-            "order_id": reference,
-            "amount": str(amount),
-            "currency": currency,
-            "destination": destination_identifier,
-        }
-        if bank_name:
-            body["bank_name"] = bank_name
-        if network:
-            body["network"] = network
-        return await self._post(_PATH_PAYOUT, body)
-
 
 class LiveSelcomClient:
     """The PaymentProvider implementation used when SELCOM_MODE=live (see
     app/services/selcom/client.py::get_selcom_client()). Implements the
     exact same interface MockSelcomClient does (app/services/selcom/client.py's
     PaymentProvider Protocol) so nothing above this layer (routers,
-    app/services/collections.py, app/services/disbursements.py) has to know
-    or care which one is active.
-
-    Despite the name, this class also handles disbursements/withdrawals
-    (initiate_disbursement below) — it implements the *whole* PaymentProvider
-    protocol, same as MockSelcomClient does. The withdrawal-specific payload
-    construction and response parsing live in
-    app/services/selcom/withdrawals.py; this class just delegates to it, the
-    same way it delegates push/QR collection work to its own methods.
+    app/services/collections.py) has to know or care which one is active.
+    Collections/checkout only — see app/services/selcom_business/ for
+    withdrawals/disbursements.
     """
 
     def __init__(self, *, client: SelcomHTTPClient):
@@ -235,31 +210,4 @@ class LiveSelcomClient:
             provider_reference=extract_provider_reference(response) or reference,
             qr_payload=qr_payload,
             qr_expires_at=datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds),
-        )
-
-    async def initiate_disbursement(
-        self,
-        *,
-        method: str,
-        amount: Decimal,
-        currency: str,
-        destination_identifier: str,
-        reference: str,
-        bank_name: str | None = None,
-        network: str | None = None,
-    ) -> DisbursementResult:
-        """Delegates to app/services/selcom/withdrawals.py — see that
-        module for the method-aware payload construction. `bank_name`/
-        `network` are optional because the PaymentProvider protocol's
-        initiate_disbursement signature (client.py) doesn't carry them; only
-        app/services/disbursements.py's Selcom-aware caller passes them."""
-        return await initiate_withdrawal(
-            self._client,
-            method=method,
-            amount=amount,
-            currency=currency,
-            destination_identifier=destination_identifier,
-            bank_name=bank_name,
-            network=network,
-            reference=reference,
         )

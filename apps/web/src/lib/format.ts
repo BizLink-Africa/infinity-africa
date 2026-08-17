@@ -15,6 +15,16 @@ export function formatCurrency(amount: string | number, currency: string): strin
   }
 }
 
+/** Masks a phone number or account number for display in the Super Admin
+ * withdrawal approval queue — shows only the last 4 characters, e.g.
+ * "+255700000000" -> "•••• 0000". Presentation-only: the raw value is never
+ * withheld from the API response, only from what's rendered on screen. */
+export function maskAccountIdentifier(identifier: string): string {
+  const digits = identifier.trim();
+  if (digits.length <= 4) return digits;
+  return `•••• ${digits.slice(-4)}`;
+}
+
 export function formatDateTime(iso: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     dateStyle: "medium",

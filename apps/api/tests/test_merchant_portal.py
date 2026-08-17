@@ -260,6 +260,7 @@ def test_staff_cannot_create_withdrawal(fake_client):
             "amount": "10000",
             "destination_name": "Jane",
             "destination_phone": "+255700000000",
+            "destination_code": "MPESA",
         },
     )
     assert response.status_code == 403
@@ -608,26 +609,39 @@ def test_overview_404s_with_no_membership(fake_client):
 
 
 @pytest.mark.parametrize(
-    ("method", "body_extra"),
+    ("method", "destination_code", "body_extra"),
     [
-        ("SELCOM_PESA", {"destination_phone": "+255700000001"}),
-        ("MOBILE_MONEY", {"destination_phone": "+255700000002"}),
-        ("BANK_ACCOUNT", {"bank_name": "CRDB", "bank_account_number": "1234567890", "bank_account_name": "Jane Doe"}),
+        ("SELCOM_PESA", "SELCOM", {"destination_phone": "+255700000001"}),
+        ("MOBILE_MONEY", "MPESA", {"destination_phone": "+255700000002"}),
+        (
+            "BANK_ACCOUNT",
+            "CRDB",
+            {"bank_name": "CRDB", "bank_account_number": "1234567890", "bank_account_name": "Jane Doe"},
+        ),
     ],
 )
-def test_withdrawal_dispatches_to_correct_method(fake_client, method, body_extra):
+def test_withdrawal_dispatches_to_correct_method(fake_client, method, destination_code, body_extra):
     merchant_id, user_id = _merchant_and_member(fake_client)
     _fund_wallet(fake_client, merchant_id, "100000")
 
     response = client.post(
         "/v1/merchant/withdrawals",
         headers={**auth_headers(user_id), "Idempotency-Key": _idem()},
-        json={"method": method, "amount": "10000", "destination_name": "Jane", **body_extra},
+        json={
+            "method": method,
+            "destination_code": destination_code,
+            "amount": "10000",
+            "destination_name": "Jane",
+            **body_extra,
+        },
     )
     assert response.status_code == 202
     body = response.json()["data"]
     assert body["method"] == method
     assert body["merchant_id"] == str(merchant_id)
+    # Every withdrawal now requires Super Admin approval before Selcom is
+    # ever called — never auto-processed, regardless of amount/method.
+    assert body["status"] == "PENDING_ADMIN_APPROVAL"
 
 
 def test_withdrawal_insufficient_balance_returns_409(fake_client):
@@ -642,6 +656,7 @@ def test_withdrawal_insufficient_balance_returns_409(fake_client):
             "amount": "50000",
             "destination_name": "Jane",
             "destination_phone": "+255700000003",
+            "destination_code": "MPESA",
         },
     )
     assert response.status_code == 409
@@ -653,7 +668,7 @@ def test_withdrawal_bank_account_requires_bank_fields(fake_client):
     response = client.post(
         "/v1/merchant/withdrawals",
         headers={**auth_headers(user_id), "Idempotency-Key": _idem()},
-        json={"method": "BANK_ACCOUNT", "amount": "10000", "destination_name": "Jane"},
+        json={"method": "BANK_ACCOUNT", "amount": "10000", "destination_name": "Jane", "destination_code": "CRDB"},
     )
     assert response.status_code == 422
 
@@ -670,15 +685,17 @@ def test_withdrawal_mobile_money_accepts_optional_network(fake_client):
             "amount": "10000",
             "destination_name": "Jane",
             "destination_phone": "+255700000003",
+            "destination_code": "MPESA",
             "network": "TIGO_PESA",
         },
     )
 
     assert response.status_code == 202, response.text
     body = response.json()["data"]
-    assert body["status"] == "SUCCESS"
-    assert body["transaction_reference"]
-    assert body["net_amount"] is not None
+    assert body["status"] == "PENDING_ADMIN_APPROVAL"
+    # Not reserved/settled yet — nothing until a Super Admin approves.
+    assert body["transaction_reference"] is None
+    assert body["total_reserved_amount"] is not None
 
 
 # --- Transactions by reference -----------------------------------------------

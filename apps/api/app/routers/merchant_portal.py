@@ -56,6 +56,7 @@ from app.schemas.notifications import NotificationResponse
 from app.schemas.payment_links import PaymentLinkResponse
 from app.schemas.refunds import RefundResponse
 from app.schemas.transactions import TransactionResponse
+from app.schemas.withdrawals import FeeBreakdown, WithdrawalQuoteRequest
 from app.services import disputes_service, document_requests_service
 from app.services.audit import write_audit_log
 from app.services.collections import initiate_collection, initiate_dynamic_qr_collection
@@ -66,7 +67,7 @@ from app.services.crud import (
     list_for_merchant,
     update_row,
 )
-from app.services.disbursements import execute_disbursement
+from app.services.disbursements import execute_disbursement, quote_withdrawal_fee
 from app.services.idempotency import run_idempotent
 from app.services.merchant_overview import get_merchant_overview
 from app.services.payment_links import (
@@ -638,6 +639,27 @@ async def create_my_dynamic_qr_collection(
 # --- Withdrawals (disbursements) --------------------------------------------
 
 
+@router.post("/withdrawals/quote", response_model=APIResponse[FeeBreakdown])
+def quote_my_withdrawal(
+    payload: WithdrawalQuoteRequest,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
+):
+    """Read-only fee calculation — no withdrawal is created, no funds are
+    reserved, Selcom is never called. Lets the merchant see the full charge
+    breakdown before submitting (POST /withdrawals below), which
+    recalculates and freezes the same breakdown server-side rather than
+    trusting whatever this call returned."""
+    client = get_supabase_admin()
+    breakdown = quote_withdrawal_fee(
+        client,
+        merchant_id=membership.merchant_id,
+        amount=payload.amount,
+        method=payload.method,
+        destination_code=payload.destination_code,
+    )
+    return APIResponse(data=breakdown)
+
+
 @router.get("/withdrawals", response_model=APIResponse[list[DisbursementResponse]])
 def list_my_withdrawals(
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
@@ -656,7 +678,12 @@ async def create_my_withdrawal(
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
 ):
     """Merchant-admin only — a deliberate tightening vs. the existing
-    /v1/disbursements/{method} routes, which also allow MERCHANT_STAFF."""
+    /v1/disbursements/{method} routes, which also allow MERCHANT_STAFF.
+
+    Always creates PENDING_ADMIN_APPROVAL, fee recalculated and frozen
+    server-side (never trusts a client-supplied fee) — Selcom is never
+    called from this path; only a Super Admin's approval
+    (app/routers/admin_withdrawals.py) ever reaches the provider."""
     client = get_supabase_admin()
 
     async def _handler() -> tuple[int, dict]:
@@ -668,6 +695,7 @@ async def create_my_withdrawal(
             currency=payload.currency,
             destination_name=payload.resolved_destination_name,
             destination_identifier=payload.destination_identifier,
+            destination_code=payload.destination_code,
             bank_name=payload.bank_name if payload.method.value == "BANK_ACCOUNT" else None,
             network=payload.network if payload.method.value == "MOBILE_MONEY" else None,
             description=payload.description,

@@ -16,11 +16,13 @@ from app.config import get_settings
 from app.main import app
 from app.services.selcom.client import get_selcom_client
 from app.services.selcom.webhooks import compute_selcom_signature
+from app.services.selcom_business.client import get_selcom_business_client
 from tests.factories import (
     TEST_JWT_SECRET,
     auth_headers,
     create_merchant,
     make_merchant_member,
+    make_super_admin,
 )
 
 client = TestClient(app)
@@ -31,14 +33,17 @@ _SELCOM_WEBHOOK_SECRET = "test-selcom-webhook-secret"
 @pytest.fixture(autouse=True)
 def _configure_settings(monkeypatch):
     monkeypatch.setenv("SUPABASE_JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("SELCOM_BUSINESS_MODE", "mock")
     monkeypatch.setenv("MOCK_PROVIDER_FAILURE_RATE", "0")
     monkeypatch.setenv("MOCK_PROVIDER_LATENCY_SECONDS", "0")
     monkeypatch.setenv("SELCOM_WEBHOOK_SECRET", _SELCOM_WEBHOOK_SECRET)
     get_settings.cache_clear()
     get_selcom_client.cache_clear()
+    get_selcom_business_client.cache_clear()
     yield
     get_settings.cache_clear()
     get_selcom_client.cache_clear()
+    get_selcom_business_client.cache_clear()
 
 
 def _merchant_and_admin(fake_client, **overrides):
@@ -88,12 +93,17 @@ def _wallet_balance(fake_client, merchant_id: uuid.UUID) -> Decimal:
     return Decimal(str(account["balance"]))
 
 
-def _request_disbursement(merchant_id: uuid.UUID, admin_id: uuid.UUID, amount: str, **overrides) -> dict:
+def _request_disbursement(fake_client, merchant_id: uuid.UUID, admin_id: uuid.UUID, amount: str, **overrides) -> dict:
+    """Creates a withdrawal and immediately approves it (as a freshly
+    seeded Super Admin) — every withdrawal now starts PENDING_ADMIN_APPROVAL
+    and only reaches Selcom once approved, so callers exercising the
+    provider/webhook-callback machinery need it approved first."""
     body = {
         "merchant_id": str(merchant_id),
         "amount": amount,
         "destination_name": "Jane Doe",
         "destination_identifier": "+255700000000",
+        "destination_code": "MPESA",
         **overrides,
     }
     response = client.post(
@@ -102,7 +112,15 @@ def _request_disbursement(merchant_id: uuid.UUID, admin_id: uuid.UUID, amount: s
         json=body,
     )
     assert response.status_code == 202, response.text
-    return response.json()["data"]
+    created = response.json()["data"]
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+    approved = client.post(
+        f"/v1/admin/withdrawals/{created['id']}/approve", headers=auth_headers(super_admin_id)
+    )
+    assert approved.status_code == 200, approved.text
+    return approved.json()["data"]
 
 
 def _post_selcom_webhook(*, event_id: str, event_type: str, provider_reference: str, failure_reason=None):
@@ -315,7 +333,7 @@ def test_withdrawal_reversed_webhook_reverses_successful_payout(fake_client):
     and is safe to retry without double-crediting."""
     merchant_id, admin_id = _merchant_and_admin(fake_client, webhook_url="https://merchant.example.com/hooks")
     _fund_wallet(fake_client, merchant_id, "10000.00")
-    disbursement = _request_disbursement(merchant_id, admin_id, "4000.00")
+    disbursement = _request_disbursement(fake_client, merchant_id, admin_id, "4000.00")
     assert disbursement["status"] == "SUCCESS"
     assert _wallet_balance(fake_client, merchant_id) == Decimal("6000.00")
 

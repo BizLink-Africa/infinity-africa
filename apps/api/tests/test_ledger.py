@@ -163,6 +163,80 @@ def test_reverse_disbursement_entries_restores_balance():
     assert debits == credits == Decimal("600.00")  # nets to zero movement overall
 
 
+def test_post_disbursement_entries_with_fee_adds_revenue_leg():
+    client = FakeSupabaseClient()
+    merchant_id = uuid.uuid4()
+    transaction_id = uuid.uuid4()
+
+    post_collection_entries(
+        client,
+        transaction_id=uuid.uuid4(),
+        merchant_id=merchant_id,
+        gross_amount=Decimal("1000.00"),
+        fee_amount=Decimal(0),
+        net_amount=Decimal("1000.00"),
+        currency="TZS",
+    )
+
+    post_disbursement_entries(
+        client,
+        transaction_id=transaction_id,
+        merchant_id=merchant_id,
+        amount=Decimal("500.00"),
+        fee_amount=Decimal("20.00"),
+        currency="TZS",
+    )
+
+    entries = _entries_for(client, transaction_id)
+    assert len(entries) == 3  # wallet debit, settlement credit, platform revenue credit
+    debits = sum(Decimal(e["amount"]) for e in entries if e["direction"] == "debit")
+    credits = sum(Decimal(e["amount"]) for e in entries if e["direction"] == "credit")
+    assert debits == credits == Decimal("520.00")
+    # Wallet debited for amount + fee, not just amount.
+    assert get_wallet_balance(client, merchant_id=merchant_id, currency="TZS") == Decimal("480.00")
+
+
+def test_reverse_disbursement_entries_with_fee_restores_full_balance():
+    client = FakeSupabaseClient()
+    merchant_id = uuid.uuid4()
+    transaction_id = uuid.uuid4()
+
+    post_collection_entries(
+        client,
+        transaction_id=uuid.uuid4(),
+        merchant_id=merchant_id,
+        gross_amount=Decimal("1000.00"),
+        fee_amount=Decimal(0),
+        net_amount=Decimal("1000.00"),
+        currency="TZS",
+    )
+    post_disbursement_entries(
+        client,
+        transaction_id=transaction_id,
+        merchant_id=merchant_id,
+        amount=Decimal("500.00"),
+        fee_amount=Decimal("20.00"),
+        currency="TZS",
+    )
+    assert get_wallet_balance(client, merchant_id=merchant_id, currency="TZS") == Decimal("480.00")
+
+    reverse_disbursement_entries(
+        client,
+        transaction_id=transaction_id,
+        merchant_id=merchant_id,
+        amount=Decimal("500.00"),
+        fee_amount=Decimal("20.00"),
+        currency="TZS",
+    )
+
+    assert get_wallet_balance(client, merchant_id=merchant_id, currency="TZS") == Decimal("1000.00")
+    entries = _entries_for(client, transaction_id)
+    assert len(entries) == 6  # 3-leg reservation + 3-leg reversal
+    debits = sum(Decimal(e["amount"]) for e in entries if e["direction"] == "debit")
+    credits = sum(Decimal(e["amount"]) for e in entries if e["direction"] == "credit")
+    assert debits == credits
+
+
 def test_ledger_accounts_are_reused_not_duplicated():
     client = FakeSupabaseClient()
     merchant_id = uuid.uuid4()

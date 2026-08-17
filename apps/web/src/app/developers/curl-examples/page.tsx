@@ -39,7 +39,7 @@ export default function CurlExamplesPage() {
   -d '{
     "merchant_id": "5c1f0b2a-3e21-4b9a-9c33-2f6a1d0e8b71",
     "amount": "25000.00",
-    "customer_phone": "+255712345678",
+    "customer_phone": "255712345678",
     "merchant_reference": "ORDER-4821"
   }'`}</CodeBlock>
       </section>
@@ -52,7 +52,7 @@ export default function CurlExamplesPage() {
   -d '{
     "merchant_id": "5c1f0b2a-3e21-4b9a-9c33-2f6a1d0e8b71",
     "customer_name": "Juma Traders Ltd",
-    "customer_phone": "+255712445310",
+    "customer_phone": "255712445310",
     "due_date": "2026-09-01",
     "items": [
       { "description": "Wholesale delivery", "quantity": "1", "unit_price": "320000.00" }
@@ -68,7 +68,13 @@ curl -X POST https://api.infinityafrica.net/v1/invoices/INVOICE_ID/payment-link 
       </section>
 
       <section className="mb-10">
-        <h2 className="text-xl font-semibold text-on-surface mb-3">Request a disbursement</h2>
+        <h2 className="text-xl font-semibold text-on-surface mb-3">Request a withdrawal (disbursement)</h2>
+        <p className="text-sm text-on-surface-variant leading-relaxed mb-3">
+          Always comes back <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">PENDING_ADMIN_APPROVAL</code> —
+          see the <a href="/developers/disbursements" className="text-primary hover:underline">Disbursements API</a> page
+          for the full status lifecycle and the phone-number format requirement (no leading{" "}
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">+</code>).
+        </p>
         <CodeBlock language="bash">{`curl -X POST https://api.infinityafrica.net/v1/disbursements/selcom-pesa \\
   -H "X-API-Key: $INFINITY_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -77,7 +83,8 @@ curl -X POST https://api.infinityafrica.net/v1/invoices/INVOICE_ID/payment-link 
     "merchant_id": "5c1f0b2a-3e21-4b9a-9c33-2f6a1d0e8b71",
     "amount": "150000.00",
     "destination_name": "Selcom Pesa Wallet",
-    "destination_identifier": "+255712345678"
+    "destination_identifier": "255712345678",
+    "destination_code": "SELCOM"
   }'`}</CodeBlock>
       </section>
 

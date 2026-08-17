@@ -9,25 +9,16 @@ app.auth.get_own_merchant). Response shapes are reused as-is from those
 modules wherever nothing about them is merchant_id-specific.
 """
 
-import re
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.schemas.enums import CollectionMethod, DisbursementMethod
+from app.core.phone import validate_and_normalize_phone
+from app.schemas.enums import CollectionMethod, DestinationCode, DisbursementMethod
 from app.schemas.invoices import InvoiceItemCreate
 from app.schemas.merchants import MerchantResponse
-
-_PHONE_PATTERN = re.compile(r"\+?[0-9]{9,15}")
-
-
-def _validate_phone(value: str) -> str:
-    if not _PHONE_PATTERN.fullmatch(value):
-        raise ValueError("must be a valid phone number (digits, optional leading +, 9-15 digits)")
-    return value
-
 
 # --- Overview ---------------------------------------------------------------
 
@@ -115,7 +106,7 @@ class MerchantPushCollectionRequest(BaseModel):
     @field_validator("customer_phone")
     @classmethod
     def _check_phone(cls, value: str) -> str:
-        return _validate_phone(value)
+        return validate_and_normalize_phone(value)
 
 
 class MerchantDynamicQrCollectionRequest(BaseModel):
@@ -136,7 +127,7 @@ class MerchantDynamicQrCollectionRequest(BaseModel):
     @field_validator("customer_phone")
     @classmethod
     def _check_phone(cls, value: str | None) -> str | None:
-        return _validate_phone(value) if value is not None else None
+        return validate_and_normalize_phone(value) if value is not None else None
 
 
 # --- Withdrawals (disbursements, user-facing name) -------------------------
@@ -146,6 +137,11 @@ class WithdrawalCreate(BaseModel):
     method: DisbursementMethod
     amount: Decimal = Field(gt=0)
     currency: str = "TZS"
+    # Which provider the fee/pricing rule lookup and Selcom payout resolve
+    # against (see app/services/withdrawals/fee_calculator.py) — required
+    # so the fee actually charged always matches what the merchant saw on
+    # the /quote call.
+    destination_code: DestinationCode
     # A generic recipient display name — optional since the literal spec
     # only names bank_account_name (bank transfers); kept here too so a
     # phone-based withdrawal doesn't lose the name a merchant already typed
@@ -169,7 +165,7 @@ class WithdrawalCreate(BaseModel):
         else:
             if not self.destination_phone:
                 raise ValueError("destination_phone is required for this withdrawal method")
-            _validate_phone(self.destination_phone)
+            self.destination_phone = validate_and_normalize_phone(self.destination_phone)
         return self
 
     @property

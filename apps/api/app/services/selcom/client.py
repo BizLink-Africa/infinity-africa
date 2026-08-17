@@ -1,17 +1,22 @@
-"""The Selcom adapter interface, and the one place mock vs. live is decided.
+"""The Selcom checkout/collections adapter interface, and the one place
+mock vs. live is decided.
 
 `PaymentProvider` is the contract both mock_client.py (MockSelcomClient) and
 live_client.py (LiveSelcomClient) implement identically — nothing above this
-layer (routers, app/services/collections.py, app/services/disbursements.py)
-constructs a client itself or needs to know which one is active; they all
-call get_selcom_client() and use it through this interface.
+layer (routers, app/services/collections.py) constructs a client itself or
+needs to know which one is active; they all call get_selcom_client() and
+use it through this interface.
 
 SELCOM_MODE controls which one that is: "mock" (the default — every
-collection/disbursement is simulated, no network call ever reaches Selcom)
-or "live" (calls app/services/selcom/live_client.py, which talks to Selcom's
-real API — see docs/selcom-live-go-live.md before ever setting this in a
-deployed environment; live traffic will fail until Selcom has whitelisted
-the backend's static outbound IP)."""
+collection is simulated, no network call ever reaches Selcom) or "live"
+(calls app/services/selcom/live_client.py, which talks to Selcom's real API
+— see docs/selcom-live-go-live.md before ever setting this in a deployed
+environment; live traffic will fail until Selcom has whitelisted the
+backend's static outbound IP).
+
+Withdrawals/disbursements are a different Selcom product — see
+app/services/selcom_business/client.py::get_selcom_business_client().
+"""
 
 from decimal import Decimal
 from functools import lru_cache
@@ -20,7 +25,6 @@ from typing import Protocol
 from app.config import get_settings
 from app.services.selcom.schemas import (
     CollectionResult,
-    DisbursementResult,
     DynamicQrResult,
 )
 
@@ -61,19 +65,6 @@ class PaymentProvider(Protocol):
         a push (check_collection_status / callback)."""
         ...
 
-    async def initiate_disbursement(
-        self,
-        *,
-        method: str,
-        amount: Decimal,
-        currency: str,
-        destination_identifier: str,
-        reference: str,
-        bank_name: str | None = None,
-        network: str | None = None,
-    ) -> DisbursementResult: ...
-
-
 @lru_cache
 def get_selcom_client() -> PaymentProvider:
     """FastAPI-callable (and plain function) returning the active Selcom
@@ -105,4 +96,4 @@ def get_selcom_client() -> PaymentProvider:
     )
 
 
-__all__ = ["CollectionResult", "DisbursementResult", "DynamicQrResult", "PaymentProvider", "get_selcom_client"]
+__all__ = ["CollectionResult", "DynamicQrResult", "PaymentProvider", "get_selcom_client"]

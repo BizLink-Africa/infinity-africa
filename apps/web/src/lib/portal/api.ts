@@ -31,6 +31,7 @@ import type {
   Dispute,
   DisputeWithMessages,
   DocumentRequest,
+  FeeBreakdown,
   FraudAlert,
   Invoice,
   InvoiceItem,
@@ -249,6 +250,7 @@ export interface CreateDisbursementInput {
   method: Disbursement["method"];
   destination_name: string;
   destination_identifier: string;
+  destination_code: string;
   bank_name: string | null;
   amount: string;
   network?: string | null;
@@ -265,6 +267,7 @@ export async function createDisbursement(input: CreateDisbursementInput): Promis
     amount: input.amount,
     currency: "TZS",
     destination_name: input.destination_name,
+    destination_code: input.destination_code,
     destination_phone: isBank ? null : input.destination_identifier,
     bank_name: isBank ? input.bank_name : null,
     bank_account_number: isBank ? input.destination_identifier : null,
@@ -282,6 +285,29 @@ export async function createDisbursement(input: CreateDisbursementInput): Promis
     }
     throw err;
   }
+}
+
+export interface QuoteWithdrawalChargesInput {
+  amount: string;
+  method: Disbursement["method"];
+  destination_code: string;
+  destination_identifier: string;
+  recipient_name?: string | null;
+}
+
+/** POST /v1/merchant/withdrawals/quote — read-only, no withdrawal created,
+ * no funds reserved, Selcom never called. Shows the merchant the full fee
+ * breakdown before they submit; the actual submission
+ * (createDisbursement, above) recalculates and freezes the same breakdown
+ * server-side rather than trusting this response. */
+export async function calculateWithdrawalCharges(input: QuoteWithdrawalChargesInput): Promise<FeeBreakdown> {
+  return apiWrite<FeeBreakdown>("/v1/merchant/withdrawals/quote", "POST", {
+    amount: input.amount,
+    method: input.method,
+    destination_code: input.destination_code,
+    destination_identifier: input.destination_identifier,
+    recipient_name: input.recipient_name ?? null,
+  });
 }
 
 // --- Transactions (LIVE) ----------------------------------------------------

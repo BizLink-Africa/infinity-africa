@@ -1,17 +1,10 @@
-import re
 import uuid
 from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator
 
-_PHONE_PATTERN = re.compile(r"\+?[0-9]{9,15}")
-
-
-def _validate_phone(value: str) -> str:
-    if not _PHONE_PATTERN.fullmatch(value):
-        raise ValueError("must be a valid phone number (digits, optional leading +, 9-15 digits)")
-    return value
+from app.core.phone import validate_and_normalize_phone
 
 
 class CollectionInitiateBase(BaseModel):
@@ -41,7 +34,7 @@ class PushCollectionRequest(CollectionInitiateBase):
     @field_validator("customer_phone")
     @classmethod
     def _check_phone(cls, value: str) -> str:
-        return _validate_phone(value)
+        return validate_and_normalize_phone(value)
 
 
 class DynamicQrCollectionRequest(CollectionInitiateBase):
@@ -52,7 +45,7 @@ class DynamicQrCollectionRequest(CollectionInitiateBase):
     @field_validator("customer_phone")
     @classmethod
     def _check_phone(cls, value: str | None) -> str | None:
-        return _validate_phone(value) if value is not None else None
+        return validate_and_normalize_phone(value) if value is not None else None
 
 
 class CollectionResponse(BaseModel):

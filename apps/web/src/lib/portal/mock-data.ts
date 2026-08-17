@@ -6,13 +6,12 @@
  * this UI was built from.
  */
 
-import { CollectionMethod, DisbursementMethod, DisbursementStatus, InvoiceStatus } from "@infinity/shared";
+import { CollectionMethod, DisbursementMethod, InvoiceStatus } from "@infinity/shared";
 
 import type {
   ApiKey,
   Collection,
   Customer,
-  Disbursement,
   Invoice,
   SupportTicket,
   TeamMember,
@@ -209,41 +208,6 @@ export function mockCollections(): Collection[] {
     expires_at: null,
     initiated_at,
     completed_at: status === "processing" ? null : initiated_at,
-    created_at: initiated_at,
-    updated_at: initiated_at,
-  }));
-}
-
-export function mockDisbursements(): Disbursement[] {
-  const rows: Array<
-    [string, DisbursementMethod, string, string, string | null, DisbursementStatus, string]
-  > = [
-    ["CRDB Bank •••• 4821", DisbursementMethod.BANK_ACCOUNT, "210000.00", "4821", "CRDB Bank", DisbursementStatus.PROCESSING, "2026-08-13T14:02:00Z"],
-    ["Selcom Pesa Wallet", DisbursementMethod.SELCOM_PESA, "450000.00", "SP-WALLET-01", null, DisbursementStatus.SUCCESS, "2026-08-12T09:47:00Z"],
-    ["+255 754 221 908", DisbursementMethod.MOBILE_MONEY, "80000.00", "+255754221908", null, DisbursementStatus.SUCCESS, "2026-08-10T17:23:00Z"],
-    ["NMB Bank •••• 1187", DisbursementMethod.BANK_ACCOUNT, "620000.00", "1187", "NMB Bank", DisbursementStatus.FAILED, "2026-08-08T11:10:00Z"],
-  ];
-
-  return rows.map(([destination_name, method, amount, destination_identifier, bank_name, status, initiated_at]) => ({
-    id: nextId("dis"),
-    merchant_id: MOCK_MERCHANT_ID,
-    settlement_account_id: null,
-    method,
-    amount,
-    currency: "TZS",
-    destination_name,
-    destination_identifier,
-    bank_name,
-    status,
-    requires_approval: false,
-    approved_by: null,
-    approved_at: null,
-    provider_reference: status === DisbursementStatus.PROCESSING ? null : `MOCK-SELCOM-${nextId("").slice(-8).toUpperCase()}`,
-    transaction_reference: status === DisbursementStatus.PROCESSING ? null : `TXN-${nextId("").slice(-8).toUpperCase()}`,
-    fee_amount: status === DisbursementStatus.PROCESSING ? null : "0.00",
-    net_amount: status === DisbursementStatus.PROCESSING ? null : amount,
-    initiated_at,
-    completed_at: status === DisbursementStatus.PROCESSING ? null : initiated_at,
     created_at: initiated_at,
     updated_at: initiated_at,
   }));

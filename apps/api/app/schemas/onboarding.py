@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from app.core.phone import validate_and_normalize_phone
 from app.schemas.enums import (
     AccountStatus,
     DocumentType,
@@ -26,6 +27,11 @@ class OnboardingMerchantAccountCreate(BaseModel):
     services_needed: list[ServiceNeeded] = Field(min_length=1)
     accepted_terms: bool
     accepted_privacy: bool
+
+    @field_validator("contact_phone")
+    @classmethod
+    def _check_phone(cls, value: str) -> str:
+        return validate_and_normalize_phone(value)
 
 
 class OnboardingMerchantAccountResponse(BaseModel):

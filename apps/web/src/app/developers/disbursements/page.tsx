@@ -7,6 +7,19 @@ export const metadata = {
   title: "Disbursements API",
 };
 
+const STATUSES: Array<[string, string]> = [
+  ["PENDING_ADMIN_APPROVAL", "Every withdrawal starts here — no amount is ever auto-processed. Nothing is reserved, Selcom is never called."],
+  ["INFO_REQUESTED", "A Super Admin asked for more information before deciding. You'll see this via a notification."],
+  ["PROCESSING", "Approved. Balance reserved, payout sent to Selcom, awaiting confirmation."],
+  ["SUCCESS", "Funds delivered. Terminal. (Sometimes called \"COMPLETED\" in prose — the API value is always SUCCESS.)"],
+  ["FAILED", "Selcom declined the payout — the balance reservation was automatically reversed."],
+  ["REJECTED", "A Super Admin declined the request outright. Nothing was ever reserved, so nothing to reverse."],
+  ["NEEDS_ADMIN_ATTENTION", "An anomaly needs a human look — rare, not a normal outcome."],
+  ["NEEDS_RECONCILIATION", "Selcom's response was ambiguous. Balance stays reserved pending manual resolution."],
+  ["BLOCKED_IP_WHITELIST", "Selcom rejected the request because the backend's IP isn't whitelisted — an operator problem, not a payout failure. Balance stays reserved."],
+  ["REVERSED", "A previously-SUCCESS payout was reversed after the fact by the provider."],
+];
+
 export default function DisbursementsApiPage() {
   return (
     <div>
@@ -14,39 +27,116 @@ export default function DisbursementsApiPage() {
       <h1 className="text-3xl md:text-4xl font-bold text-on-surface tracking-tight mb-4">Disbursements API</h1>
       <p className="text-lg text-on-surface-variant leading-relaxed mb-6 max-w-2xl">
         Send money out of your Infinity Africa balance — to a Selcom Pesa wallet, a mobile money number, or a bank account.
-        Available balance is validated before anything is created.
+        Available balance is validated before anything is created, and every withdrawal is reviewed by an Infinity Africa
+        Super Admin before it reaches Selcom.
       </p>
 
-      <div className="mb-10 max-w-2xl">
+      <div className="mb-10 max-w-2xl space-y-4">
         <Callout title="Withdrawals vs. Disbursements">
           In the Infinity Africa dashboard, merchants see this feature as <strong>Withdrawals</strong>. In the API, the
           technical endpoint may use <code className="font-mono text-xs">disbursements</code> for
-          payment-provider compatibility.
+          payment-provider compatibility. Internally, withdrawal approvals call the{" "}
+          <strong>Selcom Business Disbursement API</strong> — that name only ever appears in backend/internal
+          documentation, never in the dashboard or in merchant-facing copy.
+        </Callout>
+        <Callout tone="warning" title="Every withdrawal needs Super Admin approval — no exceptions">
+          Submitting a withdrawal never calls Selcom. It always comes back <code className="font-mono text-xs">PENDING_ADMIN_APPROVAL</code>,
+          regardless of amount or method. Selcom is only ever contacted once an Infinity Africa Super Admin approves the
+          request in the dashboard.
         </Callout>
       </div>
 
       <section className="mb-12">
         <h2 className="text-xl font-semibold text-on-surface mb-3">Endpoints</h2>
         <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl px-5">
-          <EndpointRow method="POST" path="/v1/disbursements/selcom-pesa" description="Payout to a Selcom Pesa wallet — fastest, zero-fee route." auth="Idempotency-Key required" />
-          <EndpointRow method="POST" path="/v1/disbursements/mobile-money" description="Payout to a mobile money number." auth="Idempotency-Key required" />
-          <EndpointRow method="POST" path="/v1/disbursements/bank-account" description="Payout to a bank account (bank_name required)." auth="Idempotency-Key required" />
+          <EndpointRow method="POST" path="/v1/merchant/withdrawals/quote" description="Calculate charges before submitting — no withdrawal is created, no funds are reserved." auth="dashboard" />
+          <EndpointRow method="POST" path="/v1/merchant/withdrawals" description="Submit a withdrawal request. Always PENDING_ADMIN_APPROVAL." auth="dashboard, Idempotency-Key required" />
+          <EndpointRow method="GET" path="/v1/merchant/withdrawals" description="List your own withdrawals." auth="dashboard" />
+          <EndpointRow method="POST" path="/v1/disbursements/selcom-pesa" description="Payout to a Selcom Pesa wallet — direct API-key integration." auth="dashboard or API key, Idempotency-Key required" />
+          <EndpointRow method="POST" path="/v1/disbursements/mobile-money" description="Payout to a mobile money number — direct API-key integration." auth="dashboard or API key, Idempotency-Key required" />
+          <EndpointRow method="POST" path="/v1/disbursements/bank-account" description="Payout to a bank account (bank_name required) — direct API-key integration." auth="dashboard or API key, Idempotency-Key required" />
           <EndpointRow method="GET" path="/v1/disbursements" description="List disbursements (merchant_id required as a query param)." auth="dashboard or API key" />
           <EndpointRow method="GET" path="/v1/disbursements/{id}" description="Get a disbursement." auth="dashboard or API key" />
-          <EndpointRow method="POST" path="/v1/disbursements/{id}/approve" description="Approve a payout held for high-value review." auth="super admin" />
-          <EndpointRow method="POST" path="/v1/disbursements/{id}/reject" description="Reject it." auth="super admin" />
+        </div>
+        <p className="text-sm text-on-surface-variant leading-relaxed mt-4">
+          Approval itself (<code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">approve</code>/
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">reject</code>/
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">request-info</code>) is a
+          Super Admin action, not something a merchant or API key ever calls — see the Super Admin console, not this API.
+        </p>
+      </section>
+
+      <section className="mb-12">
+        <h2 className="text-xl font-semibold text-on-surface mb-3">Phone number format</h2>
+        <p className="text-sm text-on-surface-variant leading-relaxed mb-4">
+          Any phone-based destination (Selcom Pesa, mobile money) must be a Tanzanian number in the form{" "}
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">255XXXXXXXXX</code> —
+          country code, no leading zero, <strong>no plus sign</strong>. Infinity Africa normalizes
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">0747730270</code>,{" "}
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">747730270</code>, and{" "}
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">+255747730270</code> to
+          the same canonical value automatically, but it&apos;s simplest to send it correctly already:
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-green-600/30 bg-green-600/5 p-4">
+            <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Correct</p>
+            <code className="font-mono text-sm">255747730270</code>
+          </div>
+          <div className="rounded-xl border border-error/30 bg-error/5 p-4">
+            <p className="text-xs font-semibold text-error uppercase tracking-wide mb-2">Wrong</p>
+            <code className="font-mono text-sm block">+255747730270</code>
+            <code className="font-mono text-sm block">0747730270</code>
+          </div>
         </div>
       </section>
 
       <section className="mb-12">
-        <h2 className="text-xl font-semibold text-on-surface mb-3">Request a payout</h2>
+        <h2 className="text-xl font-semibold text-on-surface mb-3">Calculate charges</h2>
+        <p className="text-sm text-on-surface-variant leading-relaxed mb-4">
+          Every merchant has their own negotiated fee — call this first to show the full breakdown before submitting.
+          It never creates a withdrawal or touches your balance.
+        </p>
         <div className="space-y-4">
-          <CodeBlock language="json — POST /v1/disbursements/mobile-money">{`{
-  "merchant_id": "5c1f0b2a-3e21-4b9a-9c33-2f6a1d0e8b71",
-  "amount": "80000.00",
+          <CodeBlock language="json — POST /v1/merchant/withdrawals/quote">{`{
+  "amount": "100000.00",
+  "method": "MOBILE_MONEY",
+  "destination_code": "MPESA",
+  "destination_identifier": "255747730270"
+}`}</CodeBlock>
+          <CodeBlock language="json — 200 OK">{`{
+  "success": true,
+  "data": {
+    "withdrawal_amount": "100000.00",
+    "processor_charge": "300.00",
+    "infinity_fee": "1500.00",
+    "percentage_fee": "1000.00",
+    "flat_fee": "500.00",
+    "total_charges": "1800.00",
+    "total_reserved_amount": "101800.00",
+    "recipient_net_amount": "100000.00",
+    "channel": "MOBILE_MONEY",
+    "destination_code": "MPESA",
+    "pricing_rule_id": "8f2c1a90-...",
+    "pricing_rule_label": "Negotiated enterprise rate",
+    "processor_fee_pass_through": true
+  }
+}`}</CodeBlock>
+        </div>
+      </section>
+
+      <section className="mb-12">
+        <h2 className="text-xl font-semibold text-on-surface mb-3">Submit a withdrawal</h2>
+        <p className="text-sm text-on-surface-variant leading-relaxed mb-4">
+          Charges are recalculated and frozen server-side at submission time — never trust a client-side quote. The
+          request always comes back <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">PENDING_ADMIN_APPROVAL</code>.
+        </p>
+        <div className="space-y-4">
+          <CodeBlock language="json — POST /v1/merchant/withdrawals">{`{
+  "method": "MOBILE_MONEY",
+  "amount": "100000.00",
+  "destination_code": "MPESA",
   "destination_name": "Grace Mwakalinga",
-  "destination_identifier": "+255754221908",
-  "network": "M-Pesa"
+  "destination_phone": "255747730270"
 }`}</CodeBlock>
           <CodeBlock language="json — 202 Accepted">{`{
   "success": true,
@@ -54,46 +144,54 @@ export default function DisbursementsApiPage() {
     "id": "c9d8e7f6-...",
     "merchant_id": "5c1f0b2a-3e21-4b9a-9c33-2f6a1d0e8b71",
     "method": "MOBILE_MONEY",
-    "amount": "80000.00",
+    "amount": "100000.00",
     "currency": "TZS",
     "destination_name": "Grace Mwakalinga",
-    "destination_identifier": "+255754221908",
-    "bank_name": null,
-    "status": "SUCCESS",
-    "requires_approval": false,
-    "approved_by": null,
-    "approved_at": null,
-    "provider_reference": "MOCK-SELCOM-9F3A1C2B",
-    "transaction_reference": "TXN-...",
-    "fee_amount": "0.00",
-    "net_amount": "80000.00",
+    "destination_identifier": "255747730270",
+    "destination_code": "MPESA",
+    "status": "PENDING_ADMIN_APPROVAL",
+    "requires_approval": true,
+    "total_charges": "1800.00",
+    "total_reserved_amount": "101800.00",
+    "recipient_net_amount": "100000.00",
+    "provider_reference": null,
+    "transaction_reference": null,
     "initiated_at": "2026-08-14T09:00:00Z",
-    "completed_at": "2026-08-14T09:00:02Z",
+    "completed_at": null,
     "created_at": "2026-08-14T09:00:00Z",
-    "updated_at": "2026-08-14T09:00:02Z"
+    "updated_at": "2026-08-14T09:00:00Z"
   }
 }`}</CodeBlock>
         </div>
         <p className="text-sm text-on-surface-variant leading-relaxed mt-4">
-          For a bank account payout, add <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">bank_name</code> and
-          set <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">destination_identifier</code> to
-          the account number. <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">network</code> is
-          optional and mobile-money-specific — omit it and Selcom detects the network automatically.
+          For a bank account payout, use the <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">bank_name</code>/
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">bank_account_number</code>/
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">bank_account_name</code> fields
+          instead of <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">destination_phone</code> — the
+          account number is never phone-normalized.
         </p>
+        <CodeBlock language="json — POST /v1/merchant/withdrawals (bank)">{`{
+  "method": "BANK_ACCOUNT",
+  "amount": "100000.00",
+  "destination_code": "CRDB",
+  "bank_name": "CRDB Bank",
+  "bank_account_number": "0151234567890",
+  "bank_account_name": "PAUL MASANJA"
+}`}</CodeBlock>
       </section>
 
       <section className="mb-12">
         <h2 className="text-xl font-semibold text-on-surface mb-3">Insufficient balance</h2>
         <p className="text-sm text-on-surface-variant leading-relaxed mb-4">
-          Before anything is created, Infinity Africa checks the amount against your current available balance. If it&apos;s
-          not enough, you get a <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">409</code> and
-          nothing is reserved or deducted:
+          Checked against the <strong>total reserved amount</strong> (withdrawal amount + all fees), not just the raw
+          amount. If it&apos;s not enough, you get a <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">409</code> and
+          nothing is created or reserved:
         </p>
         <CodeBlock language="json — 409 Conflict">{`{
   "success": false,
   "error": {
     "code": "insufficient_balance",
-    "message": "Insufficient balance: available TZS 45,000, requested TZS 80,000",
+    "message": "Insufficient balance: available TZS 45,000, requested TZS 80,000 (amount + fees)",
     "details": null
   }
 }`}</CodeBlock>
@@ -128,15 +226,9 @@ export default function DisbursementsApiPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/30">
-              {[
-                ["PENDING", "Created. Held for approval if above the high-value threshold."],
-                ["PROCESSING", "Balance reserved, payout sent to the provider."],
-                ["SUCCESS", "Funds delivered. Terminal."],
-                ["FAILED", "Provider declined — the balance reservation was automatically reversed."],
-                ["REVERSED", "A previously-SUCCESS payout was later reversed."],
-              ].map(([status, meaning]) => (
+              {STATUSES.map(([status, meaning]) => (
                 <tr key={status}>
-                  <td className="px-4 py-2.5 font-mono text-xs text-on-surface">{status}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-on-surface whitespace-nowrap">{status}</td>
                   <td className="px-4 py-2.5 text-on-surface-variant">{meaning}</td>
                 </tr>
               ))}
@@ -146,12 +238,12 @@ export default function DisbursementsApiPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-on-surface mb-3">High-value approval</h2>
-        <Callout title="Large payouts are held for manual review">
-          A disbursement above the platform&apos;s approval threshold comes back{" "}
-          <code className="font-mono text-xs">PENDING</code> with <code className="font-mono text-xs">requires_approval: true</code> and
-          is <em>not</em> sent to the provider until a super admin approves it. Poll{" "}
-          <code className="font-mono text-xs">GET .../disbursements/{"{id}"}</code> or listen for{" "}
+        <h2 className="text-xl font-semibold text-on-surface mb-3">Super Admin approval</h2>
+        <Callout title="Every withdrawal is held for manual review">
+          A withdrawal always comes back <code className="font-mono text-xs">PENDING_ADMIN_APPROVAL</code> with{" "}
+          <code className="font-mono text-xs">requires_approval: true</code> and is <em>not</em> sent to Selcom until
+          an Infinity Africa Super Admin approves it in the dashboard. Poll{" "}
+          <code className="font-mono text-xs">GET .../merchant/withdrawals</code> or listen for{" "}
           <code className="font-mono text-xs">disbursement.success</code>/<code className="font-mono text-xs">disbursement.failed</code> to
           know the outcome.
         </Callout>

@@ -7,14 +7,22 @@ import {
   approveDocumentRequest,
   approveMerchantOnboarding,
   approveWithdrawal,
+  createMerchantPricingRule,
+  createPlatformFallbackPricingRule,
+  deactivatePricingRule,
   rejectDocumentRequest,
   rejectWithdrawal,
+  reconcilePendingWithdrawals,
+  refreshWithdrawalStatus,
   requestDocumentsForAlert,
+  requestInfoWithdrawal,
   requestRefundForDispute,
   updateDisputeStatus,
   updateMerchantStatus,
+  updatePricingRule,
   updateRefundStatus,
   updateRiskAlertStatus,
+  type PricingRuleInput,
 } from "./live-api";
 import type { MerchantAccountStatus } from "./types";
 
@@ -33,8 +41,31 @@ export async function approveWithdrawalAction(withdrawalId: string) {
   revalidatePath("/super-admin/withdrawals");
 }
 
-export async function rejectWithdrawalAction(withdrawalId: string) {
-  await rejectWithdrawal(withdrawalId);
+export async function rejectWithdrawalAction(withdrawalId: string, formData: FormData) {
+  const rejectionReason = String(formData.get("rejection_reason") ?? "").trim();
+  if (!rejectionReason) return;
+  await rejectWithdrawal(withdrawalId, rejectionReason);
+  revalidatePath("/super-admin/withdrawals");
+}
+
+export async function requestInfoWithdrawalAction(withdrawalId: string, formData: FormData) {
+  const message = String(formData.get("message") ?? "").trim();
+  if (!message) return;
+  const requestedDocuments = String(formData.get("requested_documents") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  await requestInfoWithdrawal(withdrawalId, { message, requestedDocuments });
+  revalidatePath("/super-admin/withdrawals");
+}
+
+export async function refreshWithdrawalStatusAction(withdrawalId: string) {
+  await refreshWithdrawalStatus(withdrawalId);
+  revalidatePath("/super-admin/withdrawals");
+}
+
+export async function reconcilePendingWithdrawalsAction() {
+  await reconcilePendingWithdrawals();
   revalidatePath("/super-admin/withdrawals");
 }
 
@@ -100,4 +131,46 @@ export async function updateRefundStatusAction(disputeId: string, formData: Form
   if (!status) return;
   await updateRefundStatus(disputeId, status);
   revalidatePath("/super-admin/disputes");
+}
+
+// --- Pricing rules -------------------------------------------------------------
+
+function pricingRuleInputFromFormData(formData: FormData): PricingRuleInput {
+  const get = (key: string) => {
+    const value = String(formData.get(key) ?? "").trim();
+    return value ? value : undefined;
+  };
+  return {
+    channel: get("channel") ?? null,
+    destination_code: get("destination_code") ?? null,
+    percentage_fee: get("percentage_fee") ?? "0",
+    flat_fee: get("flat_fee") ?? "0",
+    minimum_fee: get("minimum_fee") ?? null,
+    maximum_fee: get("maximum_fee") ?? null,
+    processor_fee_flat: get("processor_fee_flat") ?? "0",
+    processor_fee_pass_through: formData.get("processor_fee_pass_through") === "on",
+    effective_from: get("effective_from") ?? null,
+    effective_to: get("effective_to") ?? null,
+    label: get("label") ?? null,
+  };
+}
+
+export async function createMerchantPricingRuleAction(merchantId: string, formData: FormData) {
+  await createMerchantPricingRule(merchantId, pricingRuleInputFromFormData(formData));
+  revalidatePath("/super-admin/pricing-rules");
+}
+
+export async function createPlatformFallbackPricingRuleAction(formData: FormData) {
+  await createPlatformFallbackPricingRule(pricingRuleInputFromFormData(formData));
+  revalidatePath("/super-admin/pricing-rules");
+}
+
+export async function updatePricingRuleAction(ruleId: string, formData: FormData) {
+  await updatePricingRule(ruleId, pricingRuleInputFromFormData(formData));
+  revalidatePath("/super-admin/pricing-rules");
+}
+
+export async function deactivatePricingRuleAction(ruleId: string) {
+  await deactivatePricingRule(ruleId);
+  revalidatePath("/super-admin/pricing-rules");
 }

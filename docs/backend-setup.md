@@ -122,9 +122,11 @@ branches on `SELCOM_MODE` — `"mock"` (the default) returns
 `MockSelcomClient` (`app/services/selcom/mock_client.py`) unchanged;
 `"live"` constructs `LiveSelcomClient` (`app/services/selcom/live_client.py`)
 from the `SELCOM_BASE_URL`/`SELCOM_API_KEY`/`SELCOM_API_SECRET`/
-`SELCOM_VENDOR_ID` vars above, which calls Selcom's Collection (and,
-minimally, Payout) API through the same file's `SelcomHTTPClient` — request
-signing lives in `app/services/selcom/signature.py`.
+`SELCOM_VENDOR_ID` vars above, which calls Selcom's checkout/collections
+API through the same file's `SelcomHTTPClient` — request signing lives in
+`app/services/selcom/signature.py`. This client is collections-only —
+withdrawals/disbursements call a different Selcom product entirely, see
+"Selcom Business Disbursement API (withdrawals)" below.
 
 **Important — unverified against Selcom's real API reference.** No Selcom
 API documentation was available when `app/services/selcom/` was written.
@@ -141,6 +143,38 @@ Until then, keep `SELCOM_MODE=mock` — every collection endpoint, payment
 link, and invoice behaves identically either way, since both clients
 implement the same `PaymentProvider` interface
 (`app/services/selcom/client.py`).
+
+## 3a. Selcom Business Disbursement API (withdrawals)
+
+A separate, real, documented Selcom product
+([developer.selcom.business](https://developer.selcom.business/)) that
+every withdrawal approval calls — see
+[`docs/withdrawal-pricing-and-approval.md`](./withdrawal-pricing-and-approval.md)
+for the approval flow itself. Own client
+(`app/services/selcom_business/`), own env-var namespace, own **RSA-SHA256**
+signing (distinct from the checkout API's HMAC-SHA256 above) — never
+reused/confused with `SELCOM_MODE`/`SELCOM_API_KEY`/etc.
+
+| Variable | Purpose |
+|---|---|
+| `SELCOM_BUSINESS_MODE` | `mock` (local dev only) / `sandbox` / `live`. **Default is `sandbox`, not `mock`** — a real withdrawal approval must never silently no-op against a fake client. |
+| `SELCOM_BUSINESS_SANDBOX_BASE_URL`, `SELCOM_BUSINESS_PRODUCTION_BASE_URL` | Selcom's sandbox/production base URLs — already correct in `.env.example`, only override if Selcom issues different ones for your account. |
+| `SELCOM_BUSINESS_API_KEY` | Issued by Selcom for your Business Disbursement API account — **Railway/backend only, never in `apps/web`/Vercel**. |
+| `SELCOM_BUSINESS_PRIVATE_KEY_BASE64` | Base64-encoded PEM RSA private key used to sign every request. Never commit the real key. |
+| `SELCOM_BUSINESS_ACCOUNT_NUMBER` | Your Selcom Business account number (used by the balance-query endpoint). |
+| `SELCOM_BUSINESS_TIMEOUT_SECONDS` | HTTP timeout for calls to Selcom (default 30). |
+| `SELCOM_BUSINESS_REQUIRE_IP_WHITELIST` | Informational flag — Selcom whitelists by source IP for this API too; see the Railway Static Outbound IP procedure in [`docs/selcom-live-go-live.md`](./selcom-live-go-live.md) if a request returns error code 611 / HTTP 403. |
+
+**Unverified against a real sandbox round-trip** — same honest caveat as
+the checkout API above, though this one starts from a meaningfully
+stronger position: the request shape (headers, RSA-SHA256 signing string,
+endpoint paths, field names) was fetched directly from
+developer.selcom.business's own current documentation, not guessed from
+scratch. The response body shape wasn't shown there, so
+`app/services/selcom_business/parsing.py`'s field-name guesses are the one
+thing to verify first once real sandbox credentials exist. Set
+`SELCOM_BUSINESS_MODE=sandbox` and test a real withdrawal end-to-end before
+ever setting it to `live`.
 
 ## 4. Run FastAPI locally
 

@@ -19,6 +19,7 @@ import type {
   Merchant,
   MerchantAccountStatus,
   MerchantUserRow,
+  PricingRuleRow,
 } from "./types";
 
 /**
@@ -150,11 +151,69 @@ export async function listAdminWithdrawals(filters?: {
 }
 
 export async function approveWithdrawal(disbursementId: string): Promise<void> {
-  await apiWrite(`/v1/disbursements/${disbursementId}/approve`, "POST");
+  await apiWrite(`/v1/admin/withdrawals/${disbursementId}/approve`, "POST");
 }
 
-export async function rejectWithdrawal(disbursementId: string): Promise<void> {
-  await apiWrite(`/v1/disbursements/${disbursementId}/reject`, "POST");
+export async function rejectWithdrawal(disbursementId: string, rejectionReason: string): Promise<void> {
+  await apiWrite(`/v1/admin/withdrawals/${disbursementId}/reject`, "POST", { rejection_reason: rejectionReason });
+}
+
+export async function requestInfoWithdrawal(
+  disbursementId: string,
+  input: { message: string; requestedDocuments: string[] },
+): Promise<void> {
+  await apiWrite(`/v1/admin/withdrawals/${disbursementId}/request-info`, "POST", {
+    message: input.message,
+    requested_documents: input.requestedDocuments,
+  });
+}
+
+export async function refreshWithdrawalStatus(disbursementId: string): Promise<void> {
+  await apiWrite(`/v1/admin/withdrawals/${disbursementId}/refresh-status`, "POST");
+}
+
+export async function reconcilePendingWithdrawals(): Promise<{ checked: number; resolved: number; still_pending: number }> {
+  return apiWrite(`/v1/admin/withdrawals/reconcile-pending`, "POST");
+}
+
+// --- Pricing rules -----------------------------------------------------------
+
+export async function listPricingRulesForMerchant(merchantId: string): Promise<PricingRuleRow[]> {
+  return apiList<PricingRuleRow>(`/v1/admin/merchants/${merchantId}/pricing-rules`);
+}
+
+export async function listPlatformFallbackPricingRules(): Promise<PricingRuleRow[]> {
+  return apiList<PricingRuleRow>(`/v1/admin/pricing-rules`);
+}
+
+export interface PricingRuleInput {
+  channel?: string | null;
+  destination_code?: string | null;
+  percentage_fee?: string;
+  flat_fee?: string;
+  minimum_fee?: string | null;
+  maximum_fee?: string | null;
+  processor_fee_flat?: string;
+  processor_fee_pass_through?: boolean;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  label?: string | null;
+}
+
+export async function createMerchantPricingRule(merchantId: string, input: PricingRuleInput): Promise<PricingRuleRow> {
+  return apiWrite<PricingRuleRow>(`/v1/admin/merchants/${merchantId}/pricing-rules`, "POST", input);
+}
+
+export async function createPlatformFallbackPricingRule(input: PricingRuleInput): Promise<PricingRuleRow> {
+  return apiWrite<PricingRuleRow>(`/v1/admin/pricing-rules/platform-fallback`, "POST", input);
+}
+
+export async function updatePricingRule(ruleId: string, input: Partial<PricingRuleInput>): Promise<PricingRuleRow> {
+  return apiWrite<PricingRuleRow>(`/v1/admin/pricing-rules/${ruleId}`, "PATCH", input);
+}
+
+export async function deactivatePricingRule(ruleId: string): Promise<PricingRuleRow> {
+  return apiWrite<PricingRuleRow>(`/v1/admin/pricing-rules/${ruleId}/deactivate`, "POST");
 }
 
 // --- Transactions / Webhooks / Audit Logs (read-only) ----------------------

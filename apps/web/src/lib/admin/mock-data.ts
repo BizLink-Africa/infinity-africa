@@ -13,9 +13,7 @@ import type {
   FailedCallbackRow,
   IncidentRow,
   KycReviewRow,
-  MerchantPricingOverride,
   PlatformApiKeyRow,
-  PlatformPricingRule,
   ProviderCallbackLogRow,
   ProviderHealth,
   SettlementAccountRow,
@@ -48,25 +46,6 @@ export function mockAdminCustomers(): AdminCustomerRow[] {
     last_transaction_at,
     status,
   }));
-}
-
-export function mockPlatformPricingRules(): PlatformPricingRule[] {
-  return [
-    { id: id("rule"), transaction_type: "Mobile Money Collections", fee_type: "Percentage", rate: "1.5%", free: false, applies_to: "All Merchants", enabled: true },
-    { id: id("rule"), transaction_type: "Payment Links", fee_type: "Percentage", rate: "1.5%", free: false, applies_to: "All Merchants", enabled: true },
-    { id: id("rule"), transaction_type: "Invoices (Pay Now)", fee_type: "Percentage", rate: "1.5%", free: false, applies_to: "All Merchants", enabled: true },
-    { id: id("rule"), transaction_type: "Selcom Pesa Withdrawals", fee_type: "Flat", rate: "TZS 0", free: true, applies_to: "All Merchants", enabled: true },
-    { id: id("rule"), transaction_type: "Mobile Money Withdrawals", fee_type: "Percentage", rate: "1%", free: false, applies_to: "All Merchants", enabled: true },
-    { id: id("rule"), transaction_type: "Bank Transfers", fee_type: "Flat", rate: "TZS 1,500", free: false, applies_to: "All Merchants", enabled: true },
-  ];
-}
-
-export function mockMerchantPricingOverrides(): MerchantPricingOverride[] {
-  return [
-    { id: id("ovr"), merchant_name: "Juma Traders Ltd", transaction_type: "Mobile Money Collections", rate: "1.1%", reason: "High-volume negotiated rate" },
-    { id: id("ovr"), merchant_name: "Kilimanjaro Cafe", transaction_type: "Payment Links", rate: "1.2%", reason: "Strategic partner discount" },
-    { id: id("ovr"), merchant_name: "Baraka Textiles", transaction_type: "Bank Transfers", rate: "TZS 800", reason: "Enterprise agreement — reduced flat fee" },
-  ];
 }
 
 export function mockPlatformApiKeys(): PlatformApiKeyRow[] {

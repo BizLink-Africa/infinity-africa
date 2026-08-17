@@ -18,7 +18,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { label: "Risk Monitoring", href: "/super-admin/risk-monitoring", icon: "gpp_maybe" },
   { label: "Document Requests", href: "/super-admin/document-requests", icon: "folder_shared" },
   { label: "Disputes", href: "/super-admin/disputes", icon: "gavel" },
-  { label: "Pricing Rules", href: "/admin/pricing-rules", icon: "sell" },
+  { label: "Pricing Rules", href: "/super-admin/pricing-rules", icon: "sell" },
   { label: "API Keys", href: "/admin/api-keys", icon: "api" },
   { label: "Webhooks", href: "/super-admin/webhooks", icon: "webhook" },
   { label: "Reconciliation Center", href: "/admin/reconciliation-center", icon: "account_balance" },

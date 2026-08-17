@@ -7,5 +7,6 @@ export * from "./transaction-status";
 export * from "./invoice-status";
 export * from "./payment-link-status";
 export * from "./disbursement-status";
+export * from "./destination-code";
 export * from "./service-needed";
 export * from "./webhook-events";

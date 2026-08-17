@@ -7,7 +7,9 @@ from app.routers import (
     admin,
     admin_disputes,
     admin_onboarding,
+    admin_pricing,
     admin_risk,
+    admin_withdrawals,
     collections,
     developer_docs,
     disbursements,
@@ -51,6 +53,8 @@ app.include_router(admin_onboarding.router, prefix="/v1")
 app.include_router(admin.router, prefix="/v1")
 app.include_router(admin_risk.router, prefix="/v1")
 app.include_router(admin_disputes.router, prefix="/v1")
+app.include_router(admin_withdrawals.router, prefix="/v1")
+app.include_router(admin_pricing.router, prefix="/v1")
 app.include_router(public_disputes.router, prefix="/v1")
 app.include_router(payment_links.router, prefix="/v1")
 app.include_router(payment_links.public_router)  # /public/payment-links — no /v1 prefix

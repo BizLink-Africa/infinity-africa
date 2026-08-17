@@ -1,22 +1,23 @@
-"""Disbursement lifecycle: validate balance -> reserve -> call the provider
--> settle or reverse.
+"""Withdrawal lifecycle: quote a fee, validate balance, freeze the fee
+snapshot, wait for Super Admin approval, then (only on approval) reserve
+funds and call the provider -> settle or reverse.
 
 Mirrors app.services.collections' create-transaction-up-front shape, with
-one addition disbursements need that collections don't: money has to
-actually leave the merchant's available balance, and it must never go
-negative. So instead of posting ledger entries only once a payout is
-confirmed, a disbursement reserves its amount (debits the wallet) the
-moment it starts processing — before the provider is even called — and
-reverses that reservation (credits the wallet back) if the provider
-declines. get_wallet_balance() is an up-front, friendly check; the
-post_ledger_entries Postgres function (called via services/ledger.py) is
-the atomic, race-proof one that actually enforces it.
+two additions withdrawals need that collections don't: money has to
+actually leave the merchant's available balance (reserved atomically, never
+allowed to go negative), and — as of this module's pricing/approval
+redesign — no withdrawal may ever reach the provider without a Super Admin
+explicitly approving it first, regardless of amount. get_wallet_balance()
+is an up-front, friendly check; the post_ledger_entries Postgres function
+(called via services/ledger.py) is the atomic, race-proof one that actually
+enforces both the no-negative-balance rule and (indirectly) the
+approval-before-Selcom rule, since reservation only ever happens from
+approve_disbursement.
 
-A disbursement at or above settings.disbursement_approval_threshold is
-held (status=PENDING, requires_approval=True) for a super admin to approve
-before any of that happens — see the super-admin "high-value disbursement
-approval queue". Rejecting one never reserved anything, so there's nothing
-to reverse.
+Every withdrawal is created PENDING_ADMIN_APPROVAL with its fee breakdown
+(see app/services/withdrawals/fee_calculator.py) frozen onto the row —
+approving it later uses that stored snapshot, never recalculates. Rejecting
+one never reserved anything, so there's nothing to reverse.
 """
 
 import uuid
@@ -24,7 +25,6 @@ from decimal import Decimal
 
 from supabase import Client
 
-from app.config import get_settings
 from app.core.errors import (
     ConflictError,
     InsufficientBalanceError,
@@ -32,9 +32,11 @@ from app.core.errors import (
     SelcomAPIError,
     WithdrawalRestrictedError,
 )
+from app.core.phone import InvalidPhoneNumberError, normalize_tz_phone
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
-from app.schemas.enums import DisbursementMethod
+from app.schemas.enums import DestinationCode, DisbursementMethod
+from app.schemas.withdrawals import FeeBreakdown
 from app.services.audit import write_audit_log
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
 from app.services.ledger import (
@@ -43,8 +45,12 @@ from app.services.ledger import (
     reverse_disbursement_entries,
 )
 from app.services.notifications_service import notify_merchant
-from app.services.selcom.client import get_selcom_client
+from app.services.selcom_business.client import get_selcom_business_client
 from app.services.webhooks import enqueue_webhook_event
+from app.services.withdrawals.fee_calculator import calculate_withdrawal_fee
+
+_BLOCKED_PROVIDER_STATUS_CODES = (403,)
+_AWAITING_ADMIN_STATUSES = ("PENDING_ADMIN_APPROVAL", "INFO_REQUESTED")
 
 
 def _check_merchant_is_verified(client: Client, *, merchant_id: uuid.UUID) -> None:
@@ -83,6 +89,22 @@ def _check_no_open_high_risk_alerts(client: Client, *, merchant_id: uuid.UUID) -
         )
 
 
+def quote_withdrawal_fee(
+    client: Client,
+    *,
+    merchant_id: uuid.UUID,
+    amount: Decimal,
+    method: DisbursementMethod,
+    destination_code: DestinationCode,
+) -> FeeBreakdown:
+    """POST /v1/merchant/withdrawals/quote — read-only, no side effects.
+    Never touches disbursements/ledger/Selcom; see
+    app/routers/merchant_portal.py."""
+    return calculate_withdrawal_fee(
+        client, merchant_id=merchant_id, amount=amount, channel=method, destination_code=destination_code
+    )
+
+
 async def execute_disbursement(
     client: Client,
     *,
@@ -92,22 +114,27 @@ async def execute_disbursement(
     currency: str,
     destination_name: str,
     destination_identifier: str,
+    destination_code: DestinationCode,
     bank_name: str | None = None,
     network: str | None = None,
     description: str | None = None,
 ) -> dict:
-    settings = get_settings()
-
+    """Every withdrawal request — any amount, any channel — lands here and
+    always ends up PENDING_ADMIN_APPROVAL. Selcom is never called from this
+    path; only approve_disbursement (below) ever reaches the provider."""
     _check_merchant_is_verified(client, merchant_id=merchant_id)
     _check_no_open_high_risk_alerts(client, merchant_id=merchant_id)
 
-    available = get_wallet_balance(client, merchant_id=merchant_id, currency=currency)
-    if amount > available:
-        raise InsufficientBalanceError(
-            f"Insufficient balance: available {available} {currency}, requested {amount} {currency}"
-        )
+    breakdown = calculate_withdrawal_fee(
+        client, merchant_id=merchant_id, amount=amount, channel=method, destination_code=destination_code
+    )
 
-    requires_approval = amount >= settings.disbursement_approval_threshold
+    available = get_wallet_balance(client, merchant_id=merchant_id, currency=currency)
+    if breakdown.total_reserved_amount > available:
+        raise InsufficientBalanceError(
+            f"Insufficient balance: available {available} {currency}, "
+            f"requested {breakdown.total_reserved_amount} {currency} (amount + fees)"
+        )
 
     metadata = {}
     if network:
@@ -125,18 +152,24 @@ async def execute_disbursement(
             "currency": currency,
             "destination_name": destination_name,
             "destination_identifier": destination_identifier,
+            "destination_code": breakdown.destination_code,
             "bank_name": bank_name,
-            "status": "PENDING",
-            "requires_approval": requires_approval,
+            "status": "PENDING_ADMIN_APPROVAL",
+            "requires_approval": True,
             "initiated_at": utc_now_iso(),
             "metadata": metadata,
+            "processor_charge": str(breakdown.processor_charge),
+            "infinity_fee": str(breakdown.infinity_fee),
+            "percentage_fee_component": str(breakdown.percentage_fee),
+            "flat_fee_component": str(breakdown.flat_fee),
+            "total_charges": str(breakdown.total_charges),
+            "total_reserved_amount": str(breakdown.total_reserved_amount),
+            "recipient_net_amount": str(breakdown.recipient_net_amount),
+            "pricing_rule_id": str(breakdown.pricing_rule_id) if breakdown.pricing_rule_id else None,
+            "pricing_snapshot_json": breakdown.model_dump(mode="json"),
         },
     )
-
-    if requires_approval:
-        return disbursement
-
-    return await _reserve_and_run_disbursement_provider(client, disbursement)
+    return disbursement
 
 
 async def approve_disbursement(
@@ -145,8 +178,8 @@ async def approve_disbursement(
     disbursement = get_by_id(client, "disbursements", disbursement_id)
     if not disbursement:
         raise NotFoundError("Disbursement not found")
-    if disbursement["status"] != "PENDING" or not disbursement["requires_approval"]:
-        raise ConflictError("This disbursement isn't awaiting approval")
+    if disbursement["status"] != "PENDING_ADMIN_APPROVAL":
+        raise ConflictError("This withdrawal isn't awaiting approval")
 
     disbursement = update_row(
         client,
@@ -157,12 +190,14 @@ async def approve_disbursement(
     return await _reserve_and_run_disbursement_provider(client, disbursement)
 
 
-def reject_disbursement(client: Client, *, disbursement_id: uuid.UUID, approver_id: uuid.UUID) -> dict:
+def reject_disbursement(
+    client: Client, *, disbursement_id: uuid.UUID, approver_id: uuid.UUID, rejection_reason: str
+) -> dict:
     disbursement = get_by_id(client, "disbursements", disbursement_id)
     if not disbursement:
         raise NotFoundError("Disbursement not found")
-    if disbursement["status"] != "PENDING" or not disbursement["requires_approval"]:
-        raise ConflictError("This disbursement isn't awaiting approval")
+    if disbursement["status"] not in _AWAITING_ADMIN_STATUSES:
+        raise ConflictError("This withdrawal isn't awaiting approval")
 
     # Never reached reservation (that only happens once approved), so
     # there's nothing to reverse in the ledger.
@@ -171,12 +206,49 @@ def reject_disbursement(client: Client, *, disbursement_id: uuid.UUID, approver_
         "disbursements",
         disbursement_id,
         {
-            "status": "FAILED",
-            "approved_by": str(approver_id),
-            "approved_at": utc_now_iso(),
+            "status": "REJECTED",
+            "rejected_by": str(approver_id),
+            "rejected_at": utc_now_iso(),
+            "rejection_reason": rejection_reason,
             "completed_at": utc_now_iso(),
         },
     )
+
+
+def request_more_info(
+    client: Client,
+    *,
+    disbursement_id: uuid.UUID,
+    admin_id: uuid.UUID,
+    message: str,
+    requested_documents: list[str],
+) -> dict:
+    disbursement = get_by_id(client, "disbursements", disbursement_id)
+    if not disbursement:
+        raise NotFoundError("Disbursement not found")
+    if disbursement["status"] != "PENDING_ADMIN_APPROVAL":
+        raise ConflictError("This withdrawal isn't awaiting approval")
+
+    disbursement = update_row(
+        client,
+        "disbursements",
+        disbursement_id,
+        {
+            "status": "INFO_REQUESTED",
+            "admin_status_reason": message,
+            "metadata": {**(disbursement.get("metadata") or {}), "requested_documents": requested_documents},
+        },
+    )
+    notify_merchant(
+        client,
+        merchant_id=uuid.UUID(disbursement["merchant_id"]),
+        notification_type="withdrawal_info_requested",
+        title="More information needed for your withdrawal",
+        body=message,
+        related_resource_type="disbursement",
+        related_resource_id=disbursement_id,
+    )
+    return disbursement
 
 
 def _find_transaction_for_disbursement(client: Client, disbursement_id: uuid.UUID) -> dict | None:
@@ -204,6 +276,7 @@ def _fail_and_reverse(
     disbursement_id: uuid.UUID,
     merchant_id: uuid.UUID,
     amount: Decimal,
+    fee_amount: Decimal,
     currency: str,
     provider_reference: str | None,
     reason: str | None,
@@ -213,10 +286,15 @@ def _fail_and_reverse(
     outright provider-call exception (SelcomAPIError — a live timeout/HTTP
     error, which used to propagate unhandled and leave the wallet debited
     forever), and an async callback reporting failure after the fact.
-    Reverses the reservation, marks both rows FAILED, audit-logs, notifies
-    the merchant, and enqueues the outbound webhook."""
+    Reverses the reservation (full amount + fee), marks both rows FAILED,
+    audit-logs, notifies the merchant, and enqueues the outbound webhook."""
     reverse_disbursement_entries(
-        client, transaction_id=transaction_id, merchant_id=merchant_id, amount=amount, currency=currency
+        client,
+        transaction_id=transaction_id,
+        merchant_id=merchant_id,
+        amount=amount,
+        fee_amount=fee_amount,
+        currency=currency,
     )
     update_row(
         client, "transactions", transaction_id, {"status": "reversed", "provider_reference": provider_reference}
@@ -255,9 +333,38 @@ def _fail_and_reverse(
     return disbursement
 
 
+def _block_ip_whitelist(
+    client: Client, *, disbursement_id: uuid.UUID, merchant_id: uuid.UUID, reason: str
+) -> dict:
+    """Selcom rejected the call as coming from a non-whitelisted IP (HTTP
+    403 — see docs/selcom-live-go-live.md's static-outbound-IP
+    requirement). Funds stay reserved; this needs an operator to fix the
+    whitelisting and then retry via POST .../refresh-status or a fresh
+    approval, not an automatic reversal — the withdrawal itself is still
+    perfectly valid, only this backend's network access is the problem."""
+    disbursement = update_row(
+        client,
+        "disbursements",
+        disbursement_id,
+        {"status": "BLOCKED_IP_WHITELIST", "admin_status_reason": reason},
+    )
+    write_audit_log(
+        client,
+        action="disbursement.blocked_ip_whitelist",
+        resource_type="disbursement",
+        resource_id=disbursement_id,
+        actor_type="system",
+        merchant_id=merchant_id,
+        metadata={"reason": reason},
+    )
+    return disbursement
+
+
 async def _reserve_and_run_disbursement_provider(client: Client, disbursement: dict) -> dict:
     merchant_id = uuid.UUID(disbursement["merchant_id"])
-    amount = Decimal(str(disbursement["amount"]))
+    amount = Decimal(str(disbursement["recipient_net_amount"] or disbursement["amount"]))
+    fee_amount = Decimal(str(disbursement.get("total_charges") or "0"))
+    total_reserved = Decimal(str(disbursement.get("total_reserved_amount") or disbursement["amount"]))
     currency = disbursement["currency"]
     disbursement_id = uuid.UUID(disbursement["id"])
 
@@ -270,8 +377,8 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
             "type": "disbursement",
             "method": disbursement["method"],
             "disbursement_id": disbursement["id"],
-            "gross_amount": str(amount),
-            "fee_amount": "0",
+            "gross_amount": str(total_reserved),
+            "fee_amount": str(fee_amount),
             "net_amount": str(amount),
             "currency": currency,
             "status": "processing",
@@ -283,10 +390,15 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
 
     try:
         post_disbursement_entries(
-            client, transaction_id=transaction_id, merchant_id=merchant_id, amount=amount, currency=currency
+            client,
+            transaction_id=transaction_id,
+            merchant_id=merchant_id,
+            amount=amount,
+            fee_amount=fee_amount,
+            currency=currency,
         )
     except InsufficientBalanceError:
-        # A concurrent disbursement won the race between our up-front
+        # A concurrent withdrawal won the race between our up-front
         # get_wallet_balance() check and this atomic reservation. Nothing
         # was posted (the RPC's whole batch rolled back), so there's
         # nothing to reverse — just record the outcome.
@@ -294,30 +406,59 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
         update_row(client, "disbursements", disbursement_id, {"status": "FAILED", "completed_at": utc_now_iso()})
         raise
 
-    provider = get_selcom_client()
-    metadata = disbursement.get("metadata") or {}
+    provider = get_selcom_business_client()
 
     try:
-        result = await provider.initiate_disbursement(
-            method=disbursement["method"],
-            amount=amount,
-            currency=currency,
-            destination_identifier=disbursement["destination_identifier"],
-            reference=generate_reference("DIS"),
-            bank_name=disbursement.get("bank_name"),
-            network=metadata.get("network"),
+        recipient_account = disbursement["destination_identifier"]
+        if disbursement["method"] != "BANK_ACCOUNT":
+            # Normalized once already at submission — normalized again here
+            # as defense-in-depth per the requirement, since data can't be
+            # assumed immutable between submission and approval.
+            recipient_account = normalize_tz_phone(recipient_account)
+    except InvalidPhoneNumberError as exc:
+        # Funds stay reserved — this is a data-integrity anomaly needing a
+        # human look, not a payout failure to reverse.
+        disbursement = update_row(
+            client,
+            "disbursements",
+            disbursement_id,
+            {
+                "status": "NEEDS_ADMIN_ATTENTION",
+                "admin_status_reason": f"Recipient account failed re-normalization at approval time: {exc}",
+            },
+        )
+        return _stamp_response_fields(disbursement, transaction)
+
+    trans_id = generate_reference("DIS")
+
+    try:
+        result = await provider.process_transaction(
+            trans_id=trans_id,
+            recipient_fi_code=disbursement.get("destination_code") or disbursement["method"],
+            recipient_account=recipient_account,
+            recipient_name=disbursement.get("destination_name") or "",
+            amount=str(amount),
+            purpose="withdrawal",
         )
     except SelcomAPIError as exc:
+        if exc.provider_status_code in _BLOCKED_PROVIDER_STATUS_CODES:
+            # Funds stay reserved deliberately — see _block_ip_whitelist.
+            disbursement = _block_ip_whitelist(
+                client, disbursement_id=disbursement_id, merchant_id=merchant_id, reason=str(exc)
+            )
+            return _stamp_response_fields(disbursement, transaction)
+
         # A live provider call that failed outright (timeout/connection/
-        # non-2xx) — money was already reserved above, so this must be
-        # reversed exactly like a clean rejection below, not left debited
-        # with a stuck PROCESSING row and an unhandled 502.
+        # non-2xx, not a whitelist rejection) — money was already reserved
+        # above, so this must be reversed exactly like a clean rejection
+        # below, not left debited with a stuck PROCESSING row.
         disbursement = _fail_and_reverse(
             client,
             transaction_id=transaction_id,
             disbursement_id=disbursement_id,
             merchant_id=merchant_id,
             amount=amount,
+            fee_amount=fee_amount,
             currency=currency,
             provider_reference=None,
             reason=str(exc),
@@ -326,15 +467,36 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
 
     if result.status == "processing":
         # A real payout the provider hasn't resolved synchronously yet
-        # (MockSelcomClient never returns this — it always settles in
-        # one call). Leave PROCESSING; resolve_disbursement_from_callback
-        # (the /v1/webhooks/selcom callback) is what resolves it later.
+        # (MockSelcomBusinessClient never returns this — it always settles
+        # in one call). Leave PROCESSING; an admin-triggered
+        # refresh_disbursement_status is what resolves it later (the
+        # Business API is request/response + a query endpoint, not a
+        # webhook-driven flow).
         disbursement = update_row(
-            client, "disbursements", disbursement_id, {"provider_reference": result.provider_reference}
+            client,
+            "disbursements",
+            disbursement_id,
+            {"provider_reference": trans_id, "selcom_trans_id": result.transaction_id},
         )
-        transaction = update_row(
-            client, "transactions", transaction_id, {"provider_reference": result.provider_reference}
+        transaction = update_row(client, "transactions", transaction_id, {"provider_reference": trans_id})
+        return _stamp_response_fields(disbursement, transaction)
+
+    if result.status == "ambiguous":
+        # Selcom's response couldn't be confidently resolved to success or
+        # failure — funds stay reserved (not reversed: we don't yet know
+        # the payout didn't happen) pending manual reconciliation.
+        disbursement = update_row(
+            client,
+            "disbursements",
+            disbursement_id,
+            {
+                "status": "NEEDS_RECONCILIATION",
+                "provider_reference": trans_id,
+                "selcom_trans_id": result.transaction_id,
+                "admin_status_reason": result.failure_reason,
+            },
         )
+        transaction = update_row(client, "transactions", transaction_id, {"provider_reference": trans_id})
         return _stamp_response_fields(disbursement, transaction)
 
     if result.status == "successful":
@@ -342,13 +504,20 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
             client,
             "transactions",
             transaction_id,
-            {"status": "successful", "provider_reference": result.provider_reference},
+            {"status": "successful", "provider_reference": trans_id},
         )
         disbursement = update_row(
             client,
             "disbursements",
             disbursement_id,
-            {"status": "SUCCESS", "provider_reference": result.provider_reference, "completed_at": utc_now_iso()},
+            {
+                "status": "SUCCESS",
+                "provider_reference": trans_id,
+                "selcom_trans_id": result.transaction_id,
+                "selcom_receipt": result.receipt,
+                "selcom_status": result.raw_status,
+                "completed_at": utc_now_iso(),
+            },
         )
         enqueue_webhook_event(
             client,
@@ -364,8 +533,9 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
         disbursement_id=disbursement_id,
         merchant_id=merchant_id,
         amount=amount,
+        fee_amount=fee_amount,
         currency=currency,
-        provider_reference=result.provider_reference,
+        provider_reference=trans_id,
         reason=result.failure_reason,
     )
     return _stamp_response_fields(disbursement, transaction)
@@ -391,9 +561,16 @@ def resolve_disbursement_from_callback(
     if not existing:
         return None
 
+    return _resolve_processing_disbursement(client, existing, status=status, failure_reason=failure_reason)
+
+
+def _resolve_processing_disbursement(
+    client: Client, existing: dict, *, status: str, failure_reason: str | None
+) -> dict:
     disbursement_id = uuid.UUID(existing["id"])
     merchant_id = uuid.UUID(existing["merchant_id"])
-    amount = Decimal(str(existing["amount"]))
+    amount = Decimal(str(existing.get("recipient_net_amount") or existing["amount"]))
+    fee_amount = Decimal(str(existing.get("total_charges") or "0"))
     currency = existing["currency"]
     transaction = _find_transaction_for_disbursement(client, disbursement_id)
     transaction_id = uuid.UUID(transaction["id"])
@@ -417,11 +594,69 @@ def resolve_disbursement_from_callback(
         disbursement_id=disbursement_id,
         merchant_id=merchant_id,
         amount=amount,
+        fee_amount=fee_amount,
         currency=currency,
         provider_reference=existing.get("provider_reference"),
         reason=failure_reason,
     )
     return _stamp_response_fields(disbursement, transaction)
+
+
+async def refresh_disbursement_status(client: Client, *, disbursement_id: uuid.UUID) -> dict:
+    """Admin-triggered manual refresh for a withdrawal stuck PROCESSING or
+    NEEDS_RECONCILIATION after approval — never called automatically by any
+    background worker (none exists in this codebase), and never reachable
+    before approval, since only an approved (and therefore already-reserved)
+    withdrawal has a provider_reference to check."""
+    disbursement = get_by_id(client, "disbursements", disbursement_id)
+    if not disbursement:
+        raise NotFoundError("Disbursement not found")
+    if disbursement["status"] not in ("PROCESSING", "NEEDS_RECONCILIATION"):
+        raise ConflictError("This withdrawal isn't awaiting a status refresh")
+    if not disbursement.get("provider_reference"):
+        raise ConflictError("This withdrawal has no provider reference to check yet")
+
+    provider = get_selcom_business_client()
+    result = await provider.query_transaction(trans_id=disbursement["provider_reference"])
+
+    if result.status == "processing":
+        return disbursement
+    if result.status == "ambiguous":
+        return update_row(
+            client,
+            "disbursements",
+            disbursement_id,
+            {"status": "NEEDS_RECONCILIATION", "admin_status_reason": result.failure_reason},
+        )
+    return _resolve_processing_disbursement(
+        client, disbursement, status=result.status, failure_reason=result.failure_reason
+    )
+
+
+async def reconcile_pending_disbursements(client: Client) -> dict:
+    """POST /v1/admin/withdrawals/reconcile-pending — admin-triggered batch
+    refresh over every stuck PROCESSING/NEEDS_RECONCILIATION withdrawal.
+    Not a cron/background job (none exists in this codebase, and the
+    business rule against unattended Selcom calls before approval doesn't
+    apply here — these are all already-approved withdrawals) — only ever
+    runs when a Super Admin clicks the button."""
+    rows = (
+        client.table("disbursements")
+        .select("id, status")
+        .in_("status", ["PROCESSING", "NEEDS_RECONCILIATION"])
+        .execute()
+    ).data or []
+
+    resolved = 0
+    still_pending = 0
+    for row in rows:
+        outcome = await refresh_disbursement_status(client, disbursement_id=uuid.UUID(row["id"]))
+        if outcome["status"] in ("PROCESSING", "NEEDS_RECONCILIATION"):
+            still_pending += 1
+        else:
+            resolved += 1
+
+    return {"checked": len(rows), "resolved": resolved, "still_pending": still_pending}
 
 
 def reverse_successful_disbursement_from_callback(
@@ -430,8 +665,6 @@ def reverse_successful_disbursement_from_callback(
     """Reverses an already-SUCCESS payout after Selcom reports it bounced
     after the fact (e.g. an invalid bank account only discovered once
     settlement was attempted) — credits the merchant's wallet back.
-    REVERSED has existed as a DisbursementStatus since day one with no code
-    path that ever set it; this is that path.
 
     Guarded by requiring status == "SUCCESS": a retried/duplicate
     'withdrawal.reversed' delivery finds the disbursement already REVERSED
@@ -450,13 +683,19 @@ def reverse_successful_disbursement_from_callback(
 
     disbursement_id = uuid.UUID(existing["id"])
     merchant_id = uuid.UUID(existing["merchant_id"])
-    amount = Decimal(str(existing["amount"]))
+    amount = Decimal(str(existing.get("recipient_net_amount") or existing["amount"]))
+    fee_amount = Decimal(str(existing.get("total_charges") or "0"))
     currency = existing["currency"]
     transaction = _find_transaction_for_disbursement(client, disbursement_id)
     transaction_id = uuid.UUID(transaction["id"])
 
     reverse_disbursement_entries(
-        client, transaction_id=transaction_id, merchant_id=merchant_id, amount=amount, currency=currency
+        client,
+        transaction_id=transaction_id,
+        merchant_id=merchant_id,
+        amount=amount,
+        fee_amount=fee_amount,
+        currency=currency,
     )
     transaction = update_row(client, "transactions", transaction_id, {"status": "reversed"})
     disbursement = update_row(

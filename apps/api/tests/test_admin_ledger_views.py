@@ -136,7 +136,7 @@ def test_list_admin_withdrawals_filters_pending_approval_queue(fake_client):
             "currency": "TZS",
             "destination_name": "Baraka Ltd",
             "destination_identifier": "0123456789",
-            "status": "PENDING",
+            "status": "PENDING_ADMIN_APPROVAL",
             "requires_approval": True,
             "initiated_at": "2026-08-16T00:00:00+00:00",
         },
@@ -147,10 +147,12 @@ def test_list_admin_withdrawals_filters_pending_approval_queue(fake_client):
     assert len(all_rows) == 2
 
     queue = client.get(
-        "/v1/admin/withdrawals", headers=headers, params={"status": "PENDING", "requires_approval": True}
+        "/v1/admin/withdrawals",
+        headers=headers,
+        params={"status": "PENDING_ADMIN_APPROVAL", "requires_approval": True},
     ).json()["data"]
     assert len(queue) == 1
-    assert queue[0]["status"] == "PENDING"
+    assert queue[0]["status"] == "PENDING_ADMIN_APPROVAL"
     assert queue[0]["destination"] == "Baraka Ltd"
 
 

@@ -114,8 +114,7 @@ def get_admin_overview(client: Client) -> dict:
     pending_withdrawals = (
         client.table("disbursements")
         .select("id", count="exact")
-        .eq("status", "PENDING")
-        .eq("requires_approval", True)
+        .eq("status", "PENDING_ADMIN_APPROVAL")
         .execute()
     ).count or 0
 

@@ -1,11 +1,11 @@
-import re
 import uuid
 from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator
 
-_PHONE_PATTERN = re.compile(r"\+?[0-9]{9,15}")
+from app.core.phone import validate_and_normalize_phone
+from app.schemas.enums import DestinationCode
 
 
 class DisbursementInitiateBase(BaseModel):
@@ -17,6 +17,7 @@ class DisbursementInitiateBase(BaseModel):
     amount: Decimal = Field(gt=0)
     currency: str = "TZS"
     destination_name: str
+    destination_code: DestinationCode
 
 
 class PhoneDisbursementRequest(DisbursementInitiateBase):
@@ -27,9 +28,7 @@ class PhoneDisbursementRequest(DisbursementInitiateBase):
     @field_validator("destination_identifier")
     @classmethod
     def _check_phone(cls, value: str) -> str:
-        if not _PHONE_PATTERN.fullmatch(value):
-            raise ValueError("must be a valid phone number (digits, optional leading +, 9-15 digits)")
-        return value
+        return validate_and_normalize_phone(value)
 
 
 class BankAccountDisbursementRequest(DisbursementInitiateBase):
@@ -48,15 +47,35 @@ class DisbursementResponse(BaseModel):
     currency: str
     destination_name: str
     destination_identifier: str
+    destination_code: str | None = None
     bank_name: str | None = None
     status: str
     requires_approval: bool
     approved_by: uuid.UUID | None = None
     approved_at: datetime | None = None
+    rejected_by: uuid.UUID | None = None
+    rejected_at: datetime | None = None
+    rejection_reason: str | None = None
+    admin_status_reason: str | None = None
     provider_reference: str | None = None
+    selcom_trans_id: str | None = None
+    selcom_receipt: str | None = None
+    selcom_status: str | None = None
+    # Fee snapshot — calculated once at request time and frozen here; a
+    # later merchant_pricing_rules edit never changes an already-submitted
+    # withdrawal. See app/services/withdrawals/fee_calculator.py.
+    processor_charge: Decimal = Decimal(0)
+    infinity_fee: Decimal = Decimal(0)
+    percentage_fee_component: Decimal = Decimal(0)
+    flat_fee_component: Decimal = Decimal(0)
+    total_charges: Decimal = Decimal(0)
+    total_reserved_amount: Decimal | None = None
+    recipient_net_amount: Decimal | None = None
+    pricing_rule_id: uuid.UUID | None = None
+    pricing_snapshot_json: dict = Field(default_factory=dict)
     # Response-only enrichment stamped on by services/disbursements.py once
-    # a transaction exists — null while a high-value withdrawal still sits
-    # PENDING approval, since nothing's been reserved yet.
+    # a transaction exists — null while a withdrawal still sits pending
+    # approval, since nothing's been reserved yet.
     transaction_reference: str | None = None
     fee_amount: Decimal | None = None
     net_amount: Decimal | None = None

@@ -65,7 +65,7 @@ def test_list_returns_submitted_merchant(fake_client):
     row = rows[0]
     assert row["business_name"] == "Kilimanjaro Fresh Produce"
     assert row["owner_email"] == "user@example.com"
-    assert row["contact_phone"] == "+255712345678"
+    assert row["contact_phone"] == "255712345678"  # normalized, no leading +
     assert row["nature_of_business"] == "Agriculture"
     assert row["physical_address"] == "Njiro Road"
     assert row["services_needed"] == ["PAYMENT_COLLECTION"]

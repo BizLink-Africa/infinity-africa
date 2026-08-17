@@ -83,14 +83,24 @@ export function adminInvoiceBadge(status: AdminInvoiceRow["status"]): BadgeProps
 
 export function adminWithdrawalBadge(status: AdminWithdrawalRow["status"]): BadgeProps {
   switch (status) {
-    case "PENDING":
-      return { label: "Pending", tone: "pending" };
+    case "PENDING_ADMIN_APPROVAL":
+      return { label: "Pending Approval", tone: "pending" };
+    case "INFO_REQUESTED":
+      return { label: "Information Requested", tone: "pending", icon: "info" };
     case "PROCESSING":
       return { label: "Processing", tone: "pending" };
     case "SUCCESS":
       return { label: "Successful", tone: "positive-solid", icon: "check" };
     case "FAILED":
       return { label: "Failed", tone: "negative" };
+    case "REJECTED":
+      return { label: "Rejected", tone: "negative" };
+    case "NEEDS_ADMIN_ATTENTION":
+      return { label: "Needs Admin Attention", tone: "negative", icon: "warning" };
+    case "NEEDS_RECONCILIATION":
+      return { label: "Needs Reconciliation", tone: "negative", icon: "warning" };
+    case "BLOCKED_IP_WHITELIST":
+      return { label: "Blocked (IP Whitelist)", tone: "negative", icon: "warning" };
     case "REVERSED":
       return { label: "Reversed", tone: "neutral" };
   }

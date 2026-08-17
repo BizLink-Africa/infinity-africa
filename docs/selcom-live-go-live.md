@@ -2,10 +2,18 @@
 
 How to move `apps/api` from the mock Selcom client to live Selcom API
 calls. **Do not start this until you're ready to actually go live** — every
-collection/disbursement flow (payment links, invoices, `/v1/collections/*`,
-withdrawals) already works end-to-end today against
-`app/services/selcom/mock_client.py`; nothing about the frontend, the
-payment-link flow, or the customer payment page is blocked on this.
+collection flow (payment links, invoices, `/v1/collections/*`) already
+works end-to-end today against `app/services/selcom/mock_client.py`;
+nothing about the frontend, the payment-link flow, or the customer payment
+page is blocked on this.
+
+**Withdrawals are a separate integration** — Selcom's Business
+Disbursement API, not the checkout API this document covers. Own client
+(`app/services/selcom_business/`), own env vars (`SELCOM_BUSINESS_*`), own
+RSA-SHA256 signing. See "Selcom Business Disbursement API (withdrawals)"
+near the end of this document, and
+[`docs/withdrawal-pricing-and-approval.md`](./withdrawal-pricing-and-approval.md)
+for the approval flow itself.
 
 ## Why this waits
 
@@ -69,9 +77,12 @@ environment variables only — never to Vercel, never to any `apps/web` file:
 | `SELCOM_VENDOR_ID` | Issued by Selcom |
 | `SELCOM_WEBHOOK_SECRET` | Shared secret for verifying inbound webhook signatures (agree this with Selcom, or generate one and share it with them if they support caller-provided secrets) |
 
-Leave `SELCOM_MODE=mock` and both `SELCOM_COLLECTION_ENABLED`/
-`SELCOM_WITHDRAWAL_ENABLED` at `false` until the next step — adding
-credentials alone doesn't switch anything over.
+Leave `SELCOM_MODE=mock` and `SELCOM_COLLECTION_ENABLED` at `false` until
+the next step — adding credentials alone doesn't switch anything over.
+`SELCOM_WITHDRAWAL_ENABLED` is informational-only today (surfaced via
+`GET /v1/system/selcom-config-status`, doesn't gate any code path) — the
+real withdrawal on/off switch is `SELCOM_BUSINESS_MODE`, covered separately
+below.
 
 ### 6. Change `SELCOM_MODE=live`
 
@@ -111,10 +122,18 @@ without ever exposing the secret values themselves — via
     "base_url_configured": true,
     "api_key_configured": true,
     "api_secret_configured": true,
-    "vendor_id_configured": true
+    "vendor_id_configured": true,
+    "business_mode": "sandbox",
+    "business_api_key_configured": true,
+    "business_private_key_configured": true,
+    "business_account_number_configured": true
   }
 }
 ```
+
+The `business_*` fields report the separate Selcom Business Disbursement
+API config (withdrawals) — see below; they're independent of the
+`collection_enabled`/`mock_mode`/etc. fields above.
 
 ### 7. Test STK Push, Push USSD, Dynamic QR, Push to Selcom Pesa
 
@@ -144,21 +163,90 @@ that resolves asynchronously and confirm:
   logged to `selcom_webhook_events`.
 - A duplicate delivery (same `event_id`) short-circuits with
   `{"status": "duplicate"}` instead of reprocessing.
-- The linked collection/disbursement and its transaction move out of
-  `processing` correctly (`resolve_collection_from_callback`/
-  `resolve_disbursement_from_callback` in
-  `app/services/collections.py`/`app/services/disbursements.py`), ledger
-  entries post on success, and a `payment_link`/`invoice` linked to a
-  collection updates accordingly.
+- The linked collection and its transaction move out of `processing`
+  correctly (`resolve_collection_from_callback` in
+  `app/services/collections.py`), ledger entries post on success, and a
+  `payment_link`/`invoice` linked to a collection updates accordingly.
+  (`resolve_disbursement_from_callback` in `app/services/disbursements.py`
+  still exists for a withdrawal left `PROCESSING`, but the Selcom Business
+  Disbursement API's documented shape is request/response + a query
+  endpoint, not a webhook — an admin-triggered refresh/reconcile action in
+  the Super Admin console is the real path for that now, not this
+  callback. See the Business API section below.)
 
 If Selcom's real callback payload shape differs from what
 `app/routers/webhooks.py`/`app/schemas/webhooks.py` currently expect,
 that's the other placeholder to fix before relying on this in production —
 same caveat as `live_client.py`/`parsing.py` above.
 
+## Selcom Business Disbursement API (withdrawals)
+
+A separate, real, documented Selcom product
+([developer.selcom.business](https://developer.selcom.business/)) that
+every withdrawal approval calls — see `app/services/selcom_business/` and
+[`docs/withdrawal-pricing-and-approval.md`](./withdrawal-pricing-and-approval.md).
+Independent of every step above: its own client, its own env-var
+namespace, its own **RSA-SHA256** signing (not the checkout API's
+HMAC-SHA256).
+
+### 1. Configure sandbox
+
+Set these in Railway (or locally in `.env` for development against
+Selcom's real sandbox):
+
+```
+SELCOM_BUSINESS_MODE=sandbox
+SELCOM_BUSINESS_SANDBOX_BASE_URL=https://sandbox.selcom.business
+SELCOM_BUSINESS_API_KEY=<issued by Selcom for your sandbox account>
+SELCOM_BUSINESS_PRIVATE_KEY_BASE64=<base64-encoded PEM RSA private key>
+SELCOM_BUSINESS_ACCOUNT_NUMBER=<your Selcom Business account number>
+```
+
+Test a full withdrawal round-trip against the real sandbox: submit a
+withdrawal (`POST /v1/merchant/withdrawals` — stays
+`PENDING_ADMIN_APPROVAL`, never touches Selcom), then approve it as a
+Super Admin (`POST /v1/admin/withdrawals/{id}/approve` — this is the one
+and only call site that reaches Selcom). Confirm the response shape
+`app/services/selcom_business/parsing.py` expects actually matches what
+sandbox returns — that module's field-name guesses are the one piece not
+yet verified against a real response (the request shape, headers, and
+signing scheme were fetched directly from Selcom's own current docs, so
+those should already be correct).
+
+### 2. If Selcom returns error 611 / HTTP 403 (IP not whitelisted)
+
+Same static-IP requirement as the checkout API above — Selcom whitelists
+this API by source IP too. If sandbox or production calls come back 403
+with error code 611, follow steps 2–4 above (enable Railway Static
+Outbound IP, copy it, send it to Selcom) — the withdrawal itself is fine;
+this backend's outbound IP just isn't whitelisted yet. A withdrawal that
+hits this while `NEEDS_ADMIN_ATTENTION`/`BLOCKED_IP_WHITELIST` doesn't lose
+its reserved funds — retry via the Super Admin console's refresh action
+once whitelisting is confirmed.
+
+### 3. Configure production
+
+Once Selcom issues live credentials for your production account:
+
+```
+SELCOM_BUSINESS_MODE=live
+SELCOM_BUSINESS_PRODUCTION_BASE_URL=https://api.selcom.business/v1
+SELCOM_BUSINESS_API_KEY=<production key>
+SELCOM_BUSINESS_PRIVATE_KEY_BASE64=<production private key, base64>
+SELCOM_BUSINESS_ACCOUNT_NUMBER=<production account number>
+```
+
+**Never** set any `SELCOM_BUSINESS_*` variable in Vercel/`apps/web` —
+same rule as every other Selcom credential in this document. Confirm what
+Railway actually has configured (without exposing the secret values) via
+`GET /v1/system/selcom-config-status`'s `business_*` fields.
+
 ## Rolling back
 
-Set `SELCOM_MODE=mock` (and both `SELCOM_*_ENABLED` flags back to `false`)
-in Railway and redeploy — every collection/disbursement immediately goes
-back through `MockSelcomClient`. No code change, no data migration; this is
-the same switch used throughout local development.
+Checkout API: set `SELCOM_MODE=mock` (and `SELCOM_COLLECTION_ENABLED` back
+to `false`) in Railway and redeploy — every collection immediately goes
+back through `MockSelcomClient`. Business Disbursement API: set
+`SELCOM_BUSINESS_MODE=mock` — every withdrawal approval immediately goes
+back through `MockSelcomBusinessClient`. Neither needs a code change or a
+data migration; these are the same switches used throughout local
+development.

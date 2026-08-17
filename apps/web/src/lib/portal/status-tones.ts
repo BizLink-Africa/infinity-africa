@@ -53,14 +53,24 @@ export function invoiceBadge(status: InvoiceStatus): BadgeProps {
 export function disbursementBadge(status: DisbursementStatus): BadgeProps {
   const label = DISBURSEMENT_STATUS_LABELS[status];
   switch (status) {
-    case DisbursementStatus.PENDING:
+    case DisbursementStatus.PENDING_ADMIN_APPROVAL:
       return { label, tone: "pending" };
+    case DisbursementStatus.INFO_REQUESTED:
+      return { label, tone: "pending", icon: "info" };
     case DisbursementStatus.PROCESSING:
       return { label, tone: "pending" };
     case DisbursementStatus.SUCCESS:
       return { label: "Completed", tone: "positive", dot: true };
     case DisbursementStatus.FAILED:
       return { label, tone: "negative" };
+    case DisbursementStatus.REJECTED:
+      return { label, tone: "negative" };
+    case DisbursementStatus.NEEDS_ADMIN_ATTENTION:
+      return { label, tone: "negative", icon: "warning" };
+    case DisbursementStatus.NEEDS_RECONCILIATION:
+      return { label, tone: "negative", icon: "warning" };
+    case DisbursementStatus.BLOCKED_IP_WHITELIST:
+      return { label, tone: "negative", icon: "warning" };
     case DisbursementStatus.REVERSED:
       return { label, tone: "neutral" };
   }

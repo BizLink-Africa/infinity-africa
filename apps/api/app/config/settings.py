@@ -70,6 +70,23 @@ class Settings(BaseSettings):
     # a deployed environment.
     selcom_mode: str = "mock"
 
+    # Selcom Business Disbursement API (developer.selcom.business) — the
+    # real, documented API withdrawals are approved against, distinct from
+    # the checkout/collections API above (different product, different
+    # RSA-SHA256 signing scheme — see app/services/selcom_business/).
+    # "mock" is local-development-only; the shipped default here is
+    # "sandbox", never "mock" — a real withdrawal approval must never
+    # silently no-op against a fake client. Backend/Railway env vars only,
+    # NEVER set any of these in apps/web/Vercel.
+    selcom_business_mode: str = "sandbox"
+    selcom_business_sandbox_base_url: str = "https://sandbox.selcom.business"
+    selcom_business_production_base_url: str = "https://api.selcom.business/v1"
+    selcom_business_api_key: str = ""
+    selcom_business_private_key_base64: str = ""
+    selcom_business_account_number: str = ""
+    selcom_business_timeout_seconds: int = 30
+    selcom_business_require_ip_whitelist: bool = False
+
     # Platform economics — simple placeholders until real pricing rules exist.
     platform_fee_percentage: Decimal = Decimal("1.5")
     disbursement_approval_threshold: Decimal = Decimal(1000000)  # TZS

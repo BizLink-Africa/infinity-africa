@@ -10,6 +10,8 @@ import uuid
 
 import jwt
 
+from app.core.time import utc_now_iso
+
 TEST_JWT_SECRET = "test-secret-do-not-use-in-production"
 
 
@@ -51,6 +53,32 @@ def create_merchant(fake_client, **overrides) -> dict:
         **overrides,
     }
     return fake_client.seed("merchants", data)
+
+
+def create_pricing_rule(fake_client, *, merchant_id: uuid.UUID | None = None, **overrides) -> dict:
+    """Seeds a merchant_pricing_rules row. merchant_id=None means a
+    platform fallback rule. Defaults to a zero-fee, always-active,
+    no-scope (channel/destination_code both null) rule — override
+    whichever fields a given test needs to exercise precedence/fee math."""
+    now = utc_now_iso()
+    data = {
+        "merchant_id": str(merchant_id) if merchant_id else None,
+        "channel": None,
+        "destination_code": None,
+        "percentage_fee": "0",
+        "flat_fee": "0",
+        "minimum_fee": None,
+        "maximum_fee": None,
+        "processor_fee_flat": "0",
+        "processor_fee_pass_through": False,
+        "effective_from": now,
+        "effective_to": None,
+        "is_active": True,
+        "label": None,
+        "created_by": None,
+        **overrides,
+    }
+    return fake_client.seed("merchant_pricing_rules", data)
 
 
 def seed_fraud_rules(fake_client, *rule_codes: str, config_overrides: dict | None = None) -> None:

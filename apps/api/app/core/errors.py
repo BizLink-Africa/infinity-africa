@@ -60,10 +60,20 @@ class SelcomAPIError(APIError):
     """Selcom returned a non-2xx response, an unparseable body, or the
     request failed outright (timeout/connection error). 502, not 409/500 —
     this is an upstream provider failure, not a conflict in our own data or
-    a bug in our own code. See app/services/selcom/client.py."""
+    a bug in our own code. See app/services/selcom/client.py.
+
+    `provider_status_code` (when known — a live HTTP error, not a
+    connection failure) is Selcom's own response status, e.g. 403 for an
+    IP-whitelist rejection — deliberately a different attribute from
+    `status_code`, which is always 502 (this app's own response code to
+    *its* caller, unrelated to what Selcom returned)."""
 
     status_code = status.HTTP_502_BAD_GATEWAY
     code = "selcom_api_error"
+
+    def __init__(self, message: str, *, details: list | dict | None = None, provider_status_code: int | None = None):
+        super().__init__(message, details=details)
+        self.provider_status_code = provider_status_code
 
 
 def _error_content(code: str, message: str, details=None) -> dict:

@@ -164,10 +164,14 @@ def post_disbursement_entries(
     merchant_id: uuid.UUID,
     amount: Decimal,
     currency: str,
+    fee_amount: Decimal = Decimal(0),
 ) -> None:
-    """A payout draws down the merchant's wallet and leaves Infinity Africa's
-    settlement account. No disbursement fee modeled yet.
-    """
+    """A payout draws down the merchant's wallet by `amount + fee_amount`
+    (the total reserved), sends `amount` out through Infinity Africa's
+    settlement account to the recipient, and books `fee_amount` (when > 0)
+    as platform revenue — the withdrawal-side mirror of
+    post_collection_entries' existing fee leg. Debit (wallet) == credits
+    (settlement + revenue)."""
     wallet_account_id = _get_or_create_ledger_account(
         client,
         merchant_id=merchant_id,
@@ -184,9 +188,9 @@ def post_disbursement_entries(
             "transaction_id": str(transaction_id),
             "ledger_account_id": str(wallet_account_id),
             "direction": "debit",
-            "amount": str(amount),
+            "amount": str(amount + fee_amount),
             "currency": currency,
-            "description": "Merchant wallet debited for payout",
+            "description": "Merchant wallet debited for payout + fees",
         },
         {
             "transaction_id": str(transaction_id),
@@ -197,6 +201,21 @@ def post_disbursement_entries(
             "description": "Payout disbursed from settlement",
         },
     ]
+
+    if fee_amount > 0:
+        revenue_account_id = _get_or_create_ledger_account(
+            client, merchant_id=None, purpose="platform_revenue", account_type="revenue", currency=currency
+        )
+        entries.append(
+            {
+                "transaction_id": str(transaction_id),
+                "ledger_account_id": str(revenue_account_id),
+                "direction": "credit",
+                "amount": str(fee_amount),
+                "currency": currency,
+                "description": "Withdrawal fee revenue",
+            }
+        )
 
     _post_entries(client, entries)
 
@@ -255,13 +274,14 @@ def reverse_disbursement_entries(
     merchant_id: uuid.UUID,
     amount: Decimal,
     currency: str,
+    fee_amount: Decimal = Decimal(0),
 ) -> None:
     """Reverses a disbursement reservation that didn't go through: the
-    opposite pair of entries against the *same* transaction_id, so the
-    transaction nets to zero — exactly what a reserved-then-failed payout
-    should look like in the ledger. Crediting the wallet back only
-    increases its balance, so this never trips the insufficient-balance
-    guard."""
+    opposite entries against the *same* transaction_id (full amount +
+    fee_amount credited back to the wallet), so the transaction nets to
+    zero — exactly what a reserved-then-failed payout should look like in
+    the ledger. Crediting the wallet back only increases its balance, so
+    this never trips the insufficient-balance guard."""
     wallet_account_id = _get_or_create_ledger_account(
         client,
         merchant_id=merchant_id,
@@ -278,7 +298,7 @@ def reverse_disbursement_entries(
             "transaction_id": str(transaction_id),
             "ledger_account_id": str(wallet_account_id),
             "direction": "credit",
-            "amount": str(amount),
+            "amount": str(amount + fee_amount),
             "currency": currency,
             "description": "Merchant wallet reservation reversed (payout failed)",
         },
@@ -291,5 +311,20 @@ def reverse_disbursement_entries(
             "description": "Settlement clearing reversed (payout failed)",
         },
     ]
+
+    if fee_amount > 0:
+        revenue_account_id = _get_or_create_ledger_account(
+            client, merchant_id=None, purpose="platform_revenue", account_type="revenue", currency=currency
+        )
+        entries.append(
+            {
+                "transaction_id": str(transaction_id),
+                "ledger_account_id": str(revenue_account_id),
+                "direction": "debit",
+                "amount": str(fee_amount),
+                "currency": currency,
+                "description": "Withdrawal fee revenue reversed (payout failed)",
+            }
+        )
 
     _post_entries(client, entries)

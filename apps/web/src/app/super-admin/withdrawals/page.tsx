@@ -9,7 +9,7 @@ export const metadata = {
 export default async function SuperAdminWithdrawalsPage() {
   const [withdrawals, queue] = await Promise.all([
     listAdminWithdrawals(),
-    listAdminWithdrawals({ status: "PENDING", requiresApproval: true }),
+    listAdminWithdrawals({ status: "PENDING_ADMIN_APPROVAL", requiresApproval: true }),
   ]);
 
   return (

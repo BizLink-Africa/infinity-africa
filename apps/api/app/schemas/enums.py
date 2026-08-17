@@ -77,15 +77,48 @@ class PaymentLinkStatus(StrEnum):
 class DisbursementStatus(StrEnum):
     """Lifecycle status of a payout. Distinct from (uppercase, and without
     CANCELLED) the lowercase TransactionStatus its settling transaction row
-    uses — REVERSED is reserved for reversing an already-SUCCESS payout
-    (no endpoint triggers it yet); a failed attempt whose reservation was
-    given back is FAILED, not REVERSED."""
+    uses. Every withdrawal starts at PENDING_ADMIN_APPROVAL — there is no
+    amount-based auto-processing. REJECTED (a Super Admin's deliberate
+    decision, nothing was ever reserved) is distinct from FAILED (a
+    reserved payout the provider declined, reversed). REVERSED is for
+    reversing an already-SUCCESS payout after the fact."""
 
-    PENDING = "PENDING"
+    PENDING_ADMIN_APPROVAL = "PENDING_ADMIN_APPROVAL"
+    INFO_REQUESTED = "INFO_REQUESTED"
     PROCESSING = "PROCESSING"
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
+    REJECTED = "REJECTED"
+    NEEDS_ADMIN_ATTENTION = "NEEDS_ADMIN_ATTENTION"
+    NEEDS_RECONCILIATION = "NEEDS_RECONCILIATION"
+    BLOCKED_IP_WHITELIST = "BLOCKED_IP_WHITELIST"
     REVERSED = "REVERSED"
+
+
+class DestinationCode(StrEnum):
+    """Withdrawal destination providers — mobile money telcos and banks —
+    supported for merchant_pricing_rules.destination_code and a withdrawal's
+    own destination_code snapshot. Mirrors the CHECK constraint in
+    supabase/migrations/20260820090000_merchant_pricing_rules.sql."""
+
+    SELCOM = "SELCOM"
+    MPESA = "MPESA"
+    AIRTELMONEY = "AIRTELMONEY"
+    HALOPESA = "HALOPESA"
+    MIXXBYYAS = "MIXXBYYAS"
+    TTCLPESA = "TTCLPESA"
+    CRDB = "CRDB"
+    NMB = "NMB"
+    NBC = "NBC"
+    ABSA = "ABSA"
+    BOA = "BOA"
+    DTB = "DTB"
+    EQUITY = "EQUITY"
+    EXIM = "EXIM"
+    KCB = "KCB"
+    STANBIC = "STANBIC"
+    SCB = "SCB"
+    TCB = "TCB"
 
 
 class WebhookEvent(StrEnum):

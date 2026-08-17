@@ -13,6 +13,7 @@ routers/admin_onboarding.py, not here — untouched by this router.
 """
 
 import uuid
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -249,7 +250,7 @@ def list_admin_collections(
 def list_admin_withdrawals(
     _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
-    status: Annotated[str | None, Query(description="Filter by disbursement status, e.g. PENDING")] = None,
+    status: Annotated[str | None, Query(description="Filter by disbursement status, e.g. PENDING_ADMIN_APPROVAL")] = None,
     requires_approval: Annotated[bool | None, Query()] = None,
 ):
     client = get_supabase_admin()
@@ -271,9 +272,17 @@ def list_admin_withdrawals(
             amount=row["amount"],
             currency=row["currency"],
             destination=row["destination_name"],
+            destination_code=row.get("destination_code"),
+            destination_identifier=row["destination_identifier"],
             status=row["status"],
             requires_approval=row["requires_approval"],
             provider_reference=row.get("provider_reference"),
+            total_charges=row.get("total_charges") or Decimal(0),
+            total_reserved_amount=row.get("total_reserved_amount"),
+            recipient_net_amount=row.get("recipient_net_amount"),
+            pricing_rule_id=row.get("pricing_rule_id"),
+            rejection_reason=row.get("rejection_reason"),
+            admin_status_reason=row.get("admin_status_reason"),
             created_at=row["created_at"],
         )
         for row in rows

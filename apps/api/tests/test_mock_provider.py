@@ -43,37 +43,6 @@ async def test_check_collection_status_fails_at_full_failure_rate():
 
 
 @pytest.mark.asyncio
-async def test_disbursement_always_succeeds_at_zero_failure_rate():
-    provider = MockSelcomClient(failure_rate=0.0, latency_seconds=0)
-
-    result = await provider.initiate_disbursement(
-        method="MOBILE_MONEY",
-        amount=Decimal(500),
-        currency="TZS",
-        destination_identifier="+255700000000",
-        reference="X",
-    )
-
-    assert result.status == "successful"
-
-
-@pytest.mark.asyncio
-async def test_disbursement_always_fails_at_full_failure_rate():
-    provider = MockSelcomClient(failure_rate=1.0, latency_seconds=0)
-
-    result = await provider.initiate_disbursement(
-        method="BANK_ACCOUNT",
-        amount=Decimal(500),
-        currency="TZS",
-        destination_identifier="1234567890",
-        reference="X",
-    )
-
-    assert result.status == "failed"
-    assert result.failure_reason is not None
-
-
-@pytest.mark.asyncio
 async def test_provider_references_are_unique():
     provider = MockSelcomClient(failure_rate=0.0, latency_seconds=0)
 

@@ -16,9 +16,7 @@ import {
   mockFailedCallbacks,
   mockIncidents,
   mockKycQueue,
-  mockMerchantPricingOverrides,
   mockPlatformApiKeys,
-  mockPlatformPricingRules,
   mockProviderCallbackLogs,
   mockProviderHealth,
   mockSettlementAccounts,
@@ -33,9 +31,7 @@ import type {
   FailedCallbackRow,
   IncidentRow,
   KycReviewRow,
-  MerchantPricingOverride,
   PlatformApiKeyRow,
-  PlatformPricingRule,
   ProviderCallbackLogRow,
   ProviderHealth,
   SettlementAccountRow,
@@ -45,8 +41,6 @@ import type {
 
 const store = {
   customers: mockAdminCustomers(),
-  pricingRules: mockPlatformPricingRules(),
-  pricingOverrides: mockMerchantPricingOverrides(),
   apiKeys: mockPlatformApiKeys(),
   failedCallbacks: mockFailedCallbacks(),
   unmatchedTransactions: mockUnmatchedTransactions(),
@@ -90,23 +84,6 @@ function appendAuditLog(action: string, target: string) {
 
 export async function listAdminCustomers(): Promise<AdminCustomerRow[]> {
   return store.customers;
-}
-
-// --- Pricing ---------------------------------------------------------------
-
-export async function listPlatformPricingRules(): Promise<PlatformPricingRule[]> {
-  return store.pricingRules;
-}
-
-export async function listMerchantPricingOverrides(): Promise<MerchantPricingOverride[]> {
-  return store.pricingOverrides;
-}
-
-export async function togglePricingRule(ruleId: string, enabled: boolean): Promise<void> {
-  const rule = store.pricingRules.find((r) => r.id === ruleId);
-  if (!rule) return;
-  rule.enabled = enabled;
-  appendAuditLog("Pricing Rule Changed", `Pricing Rule: ${rule.transaction_type}`);
 }
 
 // --- API Keys ------------------------------------------------------------

@@ -98,9 +98,23 @@ class AdminWithdrawalResponse(BaseModel):
     amount: Decimal
     currency: str
     destination: str
+    destination_code: str | None = None
+    # Raw account/phone number — the frontend masks this for display
+    # (see apps/web/src/lib/format.ts::maskAccountIdentifier); never masked
+    # here, since masking is a presentation concern, not a data-access one.
+    destination_identifier: str
     status: str
     requires_approval: bool
     provider_reference: str | None = None
+    # Fee snapshot, so the approval queue can show total charges/reserved/
+    # recipient-receives without a second lookup — see
+    # app/schemas/withdrawals.py::FeeBreakdown for the full breakdown shape.
+    total_charges: Decimal = Decimal(0)
+    total_reserved_amount: Decimal | None = None
+    recipient_net_amount: Decimal | None = None
+    pricing_rule_id: uuid.UUID | None = None
+    rejection_reason: str | None = None
+    admin_status_reason: str | None = None
     created_at: datetime
 
 

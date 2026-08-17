@@ -112,10 +112,48 @@ export interface AdminWithdrawalRow {
   amount: string;
   currency: string;
   destination: string;
-  status: "PENDING" | "PROCESSING" | "SUCCESS" | "FAILED" | "REVERSED";
+  destination_code: string | null;
+  destination_identifier: string;
+  status:
+    | "PENDING_ADMIN_APPROVAL"
+    | "INFO_REQUESTED"
+    | "PROCESSING"
+    | "SUCCESS"
+    | "FAILED"
+    | "REJECTED"
+    | "NEEDS_ADMIN_ATTENTION"
+    | "NEEDS_RECONCILIATION"
+    | "BLOCKED_IP_WHITELIST"
+    | "REVERSED";
   requires_approval: boolean;
   provider_reference: string | null;
+  total_charges: string;
+  total_reserved_amount: string | null;
+  recipient_net_amount: string | null;
+  pricing_rule_id: string | null;
+  rejection_reason: string | null;
+  admin_status_reason: string | null;
   created_at: string;
+}
+
+export interface PricingRuleRow {
+  id: string;
+  merchant_id: string | null;
+  channel: "SELCOM_PESA" | "MOBILE_MONEY" | "BANK_ACCOUNT" | null;
+  destination_code: string | null;
+  percentage_fee: string;
+  flat_fee: string;
+  minimum_fee: string | null;
+  maximum_fee: string | null;
+  processor_fee_flat: string;
+  processor_fee_pass_through: boolean;
+  effective_from: string;
+  effective_to: string | null;
+  is_active: boolean;
+  label: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface AdminTransactionRow {
@@ -131,24 +169,6 @@ export interface AdminTransactionRow {
   currency: string;
   status: "successful" | "pending" | "processing" | "failed" | "reversed" | "cancelled";
   created_at: string;
-}
-
-export interface PlatformPricingRule {
-  id: string;
-  transaction_type: string;
-  fee_type: "Percentage" | "Flat";
-  rate: string;
-  free: boolean;
-  applies_to: string;
-  enabled: boolean;
-}
-
-export interface MerchantPricingOverride {
-  id: string;
-  merchant_name: string;
-  transaction_type: string;
-  rate: string;
-  reason: string;
 }
 
 export interface PlatformApiKeyRow {

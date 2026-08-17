@@ -6,6 +6,12 @@ payment_links/invoices/collections pattern: the caller's merchant is
 resolved from their API key, or checked against merchant_id in the request
 body/a fetched row for a dashboard JWT caller — see
 app.auth.get_authenticated_caller / authorize_merchant_action.
+
+Super Admin approval/reject/request-info/refresh-status actions live in
+app/routers/admin_withdrawals.py, not here — this router is purely the
+merchant/API-key-facing create/list/get surface. Every disbursement created
+here always lands PENDING_ADMIN_APPROVAL; Selcom is never called from this
+router (see app/services/disbursements.py::execute_disbursement).
 """
 
 import uuid
@@ -16,12 +22,11 @@ from fastapi import APIRouter, Depends, Header, Query, status
 from app.auth import (
     authorize_merchant_action,
     get_authenticated_caller,
-    require_super_admin,
 )
 from app.core.errors import NotFoundError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
 from app.database.session import get_supabase_admin
-from app.schemas.auth import AuthenticatedCaller, AuthenticatedUser
+from app.schemas.auth import AuthenticatedCaller
 from app.schemas.common import APIResponse
 from app.schemas.disbursements import (
     BankAccountDisbursementRequest,
@@ -31,11 +36,7 @@ from app.schemas.disbursements import (
 from app.schemas.enums import DisbursementMethod, UserRole
 from app.services.audit import write_audit_log
 from app.services.crud import get_by_id, list_for_merchant
-from app.services.disbursements import (
-    approve_disbursement,
-    execute_disbursement,
-    reject_disbursement,
-)
+from app.services.disbursements import execute_disbursement
 from app.services.idempotency import run_idempotent
 
 router = APIRouter(prefix="/disbursements", tags=["disbursements"])
@@ -67,6 +68,7 @@ async def _create_disbursement(
             currency=payload.currency,
             destination_name=payload.destination_name,
             destination_identifier=payload.destination_identifier,
+            destination_code=payload.destination_code,
             bank_name=getattr(payload, "bank_name", None),
         )
         write_audit_log(
@@ -151,43 +153,3 @@ def get_disbursement(
 
     authorize_merchant_action(caller, uuid.UUID(row["merchant_id"]), *_DASHBOARD_ROLES)
     return APIResponse(data=DisbursementResponse(**row))
-
-
-@router.post("/{disbursement_id}/approve", response_model=APIResponse[DisbursementResponse])
-async def approve_disbursement_route(
-    disbursement_id: uuid.UUID,
-    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
-):
-    client = get_supabase_admin()
-    disbursement = await approve_disbursement(client, disbursement_id=disbursement_id, approver_id=admin.id)
-
-    write_audit_log(
-        client,
-        actor_id=admin.id,
-        merchant_id=uuid.UUID(disbursement["merchant_id"]),
-        action="disbursement.approved",
-        resource_type="disbursement",
-        resource_id=disbursement_id,
-    )
-
-    return APIResponse(data=DisbursementResponse(**disbursement))
-
-
-@router.post("/{disbursement_id}/reject", response_model=APIResponse[DisbursementResponse])
-def reject_disbursement_route(
-    disbursement_id: uuid.UUID,
-    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
-):
-    client = get_supabase_admin()
-    disbursement = reject_disbursement(client, disbursement_id=disbursement_id, approver_id=admin.id)
-
-    write_audit_log(
-        client,
-        actor_id=admin.id,
-        merchant_id=uuid.UUID(disbursement["merchant_id"]),
-        action="disbursement.rejected",
-        resource_type="disbursement",
-        resource_id=disbursement_id,
-    )
-
-    return APIResponse(data=DisbursementResponse(**disbursement))

@@ -1,4 +1,4 @@
-"""Simulates Selcom's collection/disbursement APIs — the default client
+"""Simulates Selcom's checkout/collections API — the default client
 (SELCOM_MODE=mock) for local development and for production until Selcom
 whitelists this backend's Railway static outbound IP (see
 docs/selcom-live-go-live.md). It takes the same inputs live_client.py's
@@ -10,8 +10,11 @@ Collections model the realistic two-step shape of a push/QR payment: the
 initiate/generate calls ack fast with "processing" (a real push API
 responds near-instantly — it's the customer's approval that takes time);
 check_collection_status simulates that approval delay and applies the
-failure rate. Disbursements resolve in one call — there's no customer
-approval step for a payout.
+failure rate.
+
+Withdrawals/disbursements are a different Selcom product (the Business
+Disbursement API) with their own mock client — see
+app/services/selcom_business/mock_client.py.
 """
 
 import asyncio
@@ -22,7 +25,6 @@ from decimal import Decimal
 
 from app.services.selcom.schemas import (
     CollectionResult,
-    DisbursementResult,
     DynamicQrResult,
 )
 
@@ -101,34 +103,6 @@ class MockSelcomClient:
             provider_reference=provider_reference,
             qr_payload=qr_payload,
             qr_expires_at=expires_at,
-        )
-
-    async def initiate_disbursement(
-        self,
-        *,
-        method: str,
-        amount: Decimal,
-        currency: str,
-        destination_identifier: str,
-        reference: str,
-        bank_name: str | None = None,
-        network: str | None = None,
-    ) -> DisbursementResult:
-        await asyncio.sleep(self.latency_seconds)
-        provider_reference = _generate_provider_reference()
-
-        if random.random() < self.failure_rate:
-            return DisbursementResult(
-                provider=_CLIENT_NAME,
-                provider_reference=provider_reference,
-                status="failed",
-                failure_reason=random.choice(
-                    ["Invalid destination account", "Provider network timeout", "Payout limit exceeded"]
-                ),
-            )
-
-        return DisbursementResult(
-            provider=_CLIENT_NAME, provider_reference=provider_reference, status="successful"
         )
 
 

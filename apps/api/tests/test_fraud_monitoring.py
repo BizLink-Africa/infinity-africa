@@ -75,7 +75,7 @@ def test_same_phone_same_amount_within_seconds_creates_fraud_alert(fake_client):
     matching = [a for a in alerts if a["rule_code"] == "SAME_PHONE_SAME_AMOUNT_SECONDS" and a["merchant_id"] == str(merchant_id)]
     assert len(matching) == 1
     assert matching[0]["status"] == "OPEN"
-    assert matching[0]["customer_phone"] == "+255700000001"
+    assert matching[0]["customer_phone"] == "255700000001"  # normalized, no leading +
 
 
 def test_different_amounts_do_not_trigger_same_phone_same_amount(fake_client):
@@ -249,7 +249,12 @@ def test_withdrawal_restricted_while_high_risk_alert_open(fake_client):
     response = client.post(
         "/v1/merchant/withdrawals",
         headers={**auth_headers(user_id), "Idempotency-Key": str(uuid.uuid4())},
-        json={"method": "SELCOM_PESA", "amount": "1000.00", "destination_phone": "+255700000000"},
+        json={
+            "method": "SELCOM_PESA",
+            "amount": "1000.00",
+            "destination_phone": "+255700000000",
+            "destination_code": "SELCOM",
+        },
     )
 
     assert response.status_code == 409
@@ -284,7 +289,12 @@ def test_withdrawal_allowed_when_only_low_risk_alerts_open(fake_client):
     response = client.post(
         "/v1/merchant/withdrawals",
         headers={**auth_headers(user_id), "Idempotency-Key": str(uuid.uuid4())},
-        json={"method": "SELCOM_PESA", "amount": "1000.00", "destination_phone": "+255700000000"},
+        json={
+            "method": "SELCOM_PESA",
+            "amount": "1000.00",
+            "destination_phone": "+255700000000",
+            "destination_code": "SELCOM",
+        },
     )
 
     assert response.status_code == 202, response.text

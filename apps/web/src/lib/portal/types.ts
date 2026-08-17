@@ -113,12 +113,27 @@ export interface Disbursement {
   currency: string;
   destination_name: string;
   destination_identifier: string;
+  destination_code: string | null;
   bank_name: string | null;
   status: DisbursementStatus;
   requires_approval: boolean;
   approved_by: string | null;
   approved_at: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  admin_status_reason: string | null;
   provider_reference: string | null;
+  // Fee snapshot — calculated once at submission time and frozen; see
+  // lib/portal/api.ts's calculateWithdrawalCharges for the pre-submit quote.
+  processor_charge: string;
+  infinity_fee: string;
+  percentage_fee_component: string;
+  flat_fee_component: string;
+  total_charges: string;
+  total_reserved_amount: string | null;
+  recipient_net_amount: string | null;
+  pricing_rule_id: string | null;
   transaction_reference: string | null;
   fee_amount: string | null;
   net_amount: string | null;
@@ -126,6 +141,22 @@ export interface Disbursement {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface FeeBreakdown {
+  withdrawal_amount: string;
+  processor_charge: string;
+  infinity_fee: string;
+  percentage_fee: string;
+  flat_fee: string;
+  total_charges: string;
+  total_reserved_amount: string;
+  recipient_net_amount: string;
+  channel: string;
+  destination_code: string;
+  pricing_rule_id: string | null;
+  pricing_rule_label: string | null;
+  processor_fee_pass_through: boolean;
 }
 
 export type TransactionType = "collection" | "disbursement" | "fee" | "refund" | "reversal" | "adjustment";
