@@ -61,6 +61,11 @@ class DisbursementResponse(BaseModel):
     selcom_trans_id: str | None = None
     selcom_receipt: str | None = None
     selcom_status: str | None = None
+    # Full raw Selcom Business API response body from the last
+    # transaction/process or transaction/query call — see
+    # app.services.selcom_business.parsing. Empty until a real (non-mock)
+    # provider call resolves this withdrawal.
+    selcom_raw_response: dict = Field(default_factory=dict)
     # Fee snapshot — calculated once at request time and frozen here; a
     # later merchant_pricing_rules edit never changes an already-submitted
     # withdrawal. See app/services/withdrawals/fee_calculator.py.

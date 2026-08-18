@@ -12,7 +12,14 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app.config import get_settings
-from app.services.selcom_business.client import get_selcom_business_client
+from app.core.errors import SelcomAPIError
+from app.services.selcom_business import (
+    live_client as selcom_business_live_client_module,
+)
+from app.services.selcom_business.client import (
+    SelcomBusinessMisconfiguredError,
+    get_selcom_business_client,
+)
 from app.services.selcom_business.live_client import SelcomBusinessClient
 from app.services.selcom_business.mock_client import MockSelcomBusinessClient
 from app.services.selcom_business.signing import sign_request
@@ -68,6 +75,25 @@ def test_live_mode_never_constructs_the_mock_client(monkeypatch):
 
     assert isinstance(provider, SelcomBusinessClient)
     assert not isinstance(provider, MockSelcomBusinessClient)
+
+
+def test_mock_mode_refused_outside_development(monkeypatch):
+    monkeypatch.setenv("SELCOM_BUSINESS_MODE", "mock")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    get_settings.cache_clear()
+
+    with pytest.raises(SelcomBusinessMisconfiguredError):
+        get_selcom_business_client()
+
+
+def test_mock_mode_allowed_in_development(monkeypatch):
+    monkeypatch.setenv("SELCOM_BUSINESS_MODE", "mock")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    get_settings.cache_clear()
+
+    provider = get_selcom_business_client()
+
+    assert isinstance(provider, MockSelcomBusinessClient)
 
 
 def test_sandbox_and_live_point_at_different_base_urls(monkeypatch):
@@ -180,3 +206,102 @@ async def test_mock_query_transaction_resolves_successfully():
 
     assert result.status == "successful"
     assert result.transaction_id == "INF-3"
+
+
+# --- IP whitelist (403 / error code 611) detection ------------------------------
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, json_body: dict | None = None):
+        self.status_code = status_code
+        self._json_body = json_body
+
+    def json(self):
+        if self._json_body is None:
+            raise ValueError("not json")
+        return self._json_body
+
+
+class _FakeAsyncClient:
+    """Stands in for httpx.AsyncClient — mirrors test_selcom_live_client.py's
+    identical fake for the (unrelated) checkout/collections client."""
+
+    _next_response: _FakeResponse | None = None
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url, *, params, headers):
+        return _FakeAsyncClient._next_response
+
+    async def post(self, url, *, json, headers):
+        return _FakeAsyncClient._next_response
+
+
+@pytest.fixture(autouse=True)
+def _patch_httpx(monkeypatch):
+    monkeypatch.setattr(selcom_business_live_client_module.httpx, "AsyncClient", _FakeAsyncClient)
+    yield
+    _FakeAsyncClient._next_response = None
+
+
+def _client() -> SelcomBusinessClient:
+    private_key_base64 = _generate_test_private_key_base64()
+    return SelcomBusinessClient(
+        base_url="https://sandbox.selcom.business", api_key="key", private_key_base64=private_key_base64
+    )
+
+
+@pytest.mark.asyncio
+async def test_http_403_is_flagged_as_ip_whitelist_error():
+    _FakeAsyncClient._next_response = _FakeResponse(403, {"message": "Forbidden"})
+
+    with pytest.raises(SelcomAPIError) as exc_info:
+        await _client().query_transaction(trans_id="INF-1")
+
+    assert exc_info.value.is_ip_whitelist_error is True
+    assert exc_info.value.provider_status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_error_code_611_is_flagged_as_ip_whitelist_error_even_without_403():
+    _FakeAsyncClient._next_response = _FakeResponse(400, {"code": "611", "message": "IP address not whitelisted"})
+
+    with pytest.raises(SelcomAPIError) as exc_info:
+        await _client().query_transaction(trans_id="INF-1")
+
+    assert exc_info.value.is_ip_whitelist_error is True
+
+
+@pytest.mark.asyncio
+async def test_unrelated_4xx_error_is_not_flagged_as_ip_whitelist_error():
+    _FakeAsyncClient._next_response = _FakeResponse(400, {"code": "999", "message": "Invalid recipient account"})
+
+    with pytest.raises(SelcomAPIError) as exc_info:
+        await _client().query_transaction(trans_id="INF-1")
+
+    assert exc_info.value.is_ip_whitelist_error is False
+
+
+@pytest.mark.asyncio
+async def test_process_transaction_stores_raw_response_on_the_parsed_result():
+    _FakeAsyncClient._next_response = _FakeResponse(
+        200, {"status": "success", "transId": "INF-1", "receipt": "RCPT-1"}
+    )
+
+    result = await _client().process_transaction(
+        trans_id="INF-1",
+        recipient_fi_code="MPESA",
+        recipient_account="255747730270",
+        recipient_name="Jane Doe",
+        amount="1000",
+        purpose="withdrawal",
+    )
+
+    assert result.raw_response == {"status": "success", "transId": "INF-1", "receipt": "RCPT-1"}

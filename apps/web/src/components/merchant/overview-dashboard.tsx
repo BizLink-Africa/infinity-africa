@@ -57,13 +57,13 @@ export function OverviewDashboard({ overview }: { overview: MerchantOverview }) 
             Create Payment Link
           </Link>
           <Link
-            href="/portal/invoices"
+            href="/merchant/invoices"
             className="flex items-center gap-2 rounded-lg border border-outline-variant px-4 py-3 text-sm text-on-surface hover:bg-surface-container transition-colors"
           >
             Create Invoice
           </Link>
           <Link
-            href="/portal/disbursements"
+            href="/merchant/withdrawals"
             className="flex items-center gap-2 rounded-lg border border-outline-variant px-4 py-3 text-sm text-on-surface hover:bg-surface-container transition-colors"
           >
             Request Withdrawal

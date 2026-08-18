@@ -62,12 +62,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             );
           })}
         </nav>
-
-        <div className="mt-auto pt-6 shrink-0">
-          <button className="w-full bg-white text-sidebar text-sm font-bold py-3 px-4 rounded-lg hover:opacity-90 transition-opacity">
-            Upgrade Plan
-          </button>
-        </div>
       </aside>
     </>
   );

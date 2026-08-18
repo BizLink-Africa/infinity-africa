@@ -253,6 +253,10 @@ wrappers, no reimplemented logic) — see `app/routers/merchant_portal.py`.
 | GET | `/v1/merchant/transactions/{reference}` | MERCHANT_ADMIN, MERCHANT_STAFF | By the human-readable reference (`TXN-...`), not the internal UUID — new, doesn't exist on the `/v1/merchants/{id}/transactions/*` routes |
 | GET/POST | `/v1/merchant/api-keys` | MERCHANT_ADMIN, DEVELOPER | |
 | PATCH | `/v1/merchant/api-keys/{id}/revoke` | MERCHANT_ADMIN, DEVELOPER | Same effect as the existing `DELETE`, new verb/path |
+| GET | `/v1/merchant/users/me` | any member | Own `merchant_users` row + `full_name`/`email` joined from Supabase Auth — what the portal topbar reads |
+| GET/POST | `/v1/merchant/users` | **MERCHANT_ADMIN only** | POST invites a brand new Supabase Auth user (`auth.admin.invite_user_by_email`, `full_name` required) and links them to the merchant as `invited`; `409` if the email is already registered |
+| PATCH | `/v1/merchant/users/{id}` | **MERCHANT_ADMIN only** | `role`/`status` only; `409` if targeting your own membership |
+| POST | `/v1/merchant/users/{id}/deactivate` | **MERCHANT_ADMIN only** | Sets `status: suspended`; `409` if targeting yourself |
 
 Collections/disbursements/transactions/webhook events are read-only via the
 API — every row is written by `apps/api`'s own services (the provider

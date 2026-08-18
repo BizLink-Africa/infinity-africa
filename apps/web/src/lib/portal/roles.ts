@@ -17,12 +17,14 @@ export const ROLE_ALLOWED_PATHS: Record<UserRole, string[] | "*"> = {
     "/portal",
     "/portal/collections",
     "/merchant/payment-links",
-    "/portal/invoices",
+    "/merchant/invoices",
     "/portal/customers",
     "/portal/transactions",
     "/portal/support",
     "/merchant/risk-monitoring",
     "/merchant/disputes",
+    "/merchant/profile",
+    "/merchant/settings",
   ],
   [UserRole.DEVELOPER]: [
     "/merchant/overview",
@@ -30,7 +32,8 @@ export const ROLE_ALLOWED_PATHS: Record<UserRole, string[] | "*"> = {
     "/merchant/api-keys",
     "/merchant/developer-docs",
     "/portal/webhooks",
-    "/portal/settings",
+    "/merchant/profile",
+    "/merchant/settings",
   ],
 };
 

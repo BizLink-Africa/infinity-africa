@@ -49,7 +49,6 @@ from app.services.selcom_business.client import get_selcom_business_client
 from app.services.webhooks import enqueue_webhook_event
 from app.services.withdrawals.fee_calculator import calculate_withdrawal_fee
 
-_BLOCKED_PROVIDER_STATUS_CODES = (403,)
 _AWAITING_ADMIN_STATUSES = ("PENDING_ADMIN_APPROVAL", "INFO_REQUESTED")
 
 
@@ -280,6 +279,7 @@ def _fail_and_reverse(
     currency: str,
     provider_reference: str | None,
     reason: str | None,
+    raw_response: dict | None = None,
 ) -> dict:
     """Shared by every way a reservation can fail to become a successful
     payout: a clean provider rejection (result.status == "failed"), an
@@ -299,12 +299,10 @@ def _fail_and_reverse(
     update_row(
         client, "transactions", transaction_id, {"status": "reversed", "provider_reference": provider_reference}
     )
-    disbursement = update_row(
-        client,
-        "disbursements",
-        disbursement_id,
-        {"status": "FAILED", "provider_reference": provider_reference, "completed_at": utc_now_iso()},
-    )
+    update_data = {"status": "FAILED", "provider_reference": provider_reference, "completed_at": utc_now_iso()}
+    if raw_response is not None:
+        update_data["selcom_raw_response"] = raw_response
+    disbursement = update_row(client, "disbursements", disbursement_id, update_data)
     write_audit_log(
         client,
         action="disbursement.failed",
@@ -441,7 +439,7 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
             purpose="withdrawal",
         )
     except SelcomAPIError as exc:
-        if exc.provider_status_code in _BLOCKED_PROVIDER_STATUS_CODES:
+        if exc.is_ip_whitelist_error:
             # Funds stay reserved deliberately — see _block_ip_whitelist.
             disbursement = _block_ip_whitelist(
                 client, disbursement_id=disbursement_id, merchant_id=merchant_id, reason=str(exc)
@@ -476,7 +474,11 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
             client,
             "disbursements",
             disbursement_id,
-            {"provider_reference": trans_id, "selcom_trans_id": result.transaction_id},
+            {
+                "provider_reference": trans_id,
+                "selcom_trans_id": result.transaction_id,
+                "selcom_raw_response": result.raw_response,
+            },
         )
         transaction = update_row(client, "transactions", transaction_id, {"provider_reference": trans_id})
         return _stamp_response_fields(disbursement, transaction)
@@ -494,6 +496,7 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
                 "provider_reference": trans_id,
                 "selcom_trans_id": result.transaction_id,
                 "admin_status_reason": result.failure_reason,
+                "selcom_raw_response": result.raw_response,
             },
         )
         transaction = update_row(client, "transactions", transaction_id, {"provider_reference": trans_id})
@@ -516,6 +519,7 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
                 "selcom_trans_id": result.transaction_id,
                 "selcom_receipt": result.receipt,
                 "selcom_status": result.raw_status,
+                "selcom_raw_response": result.raw_response,
                 "completed_at": utc_now_iso(),
             },
         )
@@ -537,6 +541,7 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
         currency=currency,
         provider_reference=trans_id,
         reason=result.failure_reason,
+        raw_response=result.raw_response,
     )
     return _stamp_response_fields(disbursement, transaction)
 
@@ -565,8 +570,20 @@ def resolve_disbursement_from_callback(
 
 
 def _resolve_processing_disbursement(
-    client: Client, existing: dict, *, status: str, failure_reason: str | None
+    client: Client,
+    existing: dict,
+    *,
+    status: str,
+    failure_reason: str | None,
+    receipt: str | None = None,
+    raw_status: str | None = None,
+    raw_response: dict | None = None,
 ) -> dict:
+    """receipt/raw_status/raw_response are only ever populated when this is
+    called from refresh_disbursement_status (a real SelcomBusinessResult
+    from query_transaction) — resolve_disbursement_from_callback above only
+    has a bare status string from the manual test-webhook endpoint, with no
+    parsed provider result to enrich these from."""
     disbursement_id = uuid.UUID(existing["id"])
     merchant_id = uuid.UUID(existing["merchant_id"])
     amount = Decimal(str(existing.get("recipient_net_amount") or existing["amount"]))
@@ -577,9 +594,14 @@ def _resolve_processing_disbursement(
 
     if status == "successful":
         transaction = update_row(client, "transactions", transaction_id, {"status": "successful"})
-        disbursement = update_row(
-            client, "disbursements", disbursement_id, {"status": "SUCCESS", "completed_at": utc_now_iso()}
-        )
+        update_data = {"status": "SUCCESS", "completed_at": utc_now_iso()}
+        if receipt is not None:
+            update_data["selcom_receipt"] = receipt
+        if raw_status is not None:
+            update_data["selcom_status"] = raw_status
+        if raw_response is not None:
+            update_data["selcom_raw_response"] = raw_response
+        disbursement = update_row(client, "disbursements", disbursement_id, update_data)
         enqueue_webhook_event(
             client,
             merchant_id=merchant_id,
@@ -598,6 +620,7 @@ def _resolve_processing_disbursement(
         currency=currency,
         provider_reference=existing.get("provider_reference"),
         reason=failure_reason,
+        raw_response=raw_response,
     )
     return _stamp_response_fields(disbursement, transaction)
 
@@ -626,10 +649,20 @@ async def refresh_disbursement_status(client: Client, *, disbursement_id: uuid.U
             client,
             "disbursements",
             disbursement_id,
-            {"status": "NEEDS_RECONCILIATION", "admin_status_reason": result.failure_reason},
+            {
+                "status": "NEEDS_RECONCILIATION",
+                "admin_status_reason": result.failure_reason,
+                "selcom_raw_response": result.raw_response,
+            },
         )
     return _resolve_processing_disbursement(
-        client, disbursement, status=result.status, failure_reason=result.failure_reason
+        client,
+        disbursement,
+        status=result.status,
+        failure_reason=result.failure_reason,
+        receipt=result.receipt,
+        raw_status=result.raw_status,
+        raw_response=result.raw_response,
     )
 
 

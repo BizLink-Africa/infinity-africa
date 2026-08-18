@@ -254,6 +254,20 @@ class _FakeAuthAdmin:
             raise Exception(f"User {user_id} not found")  # noqa: TRY002
         return _FakeGetUserResult(user)
 
+    def invite_user_by_email(self, email: str, options: dict | None = None) -> _FakeGetUserResult:
+        """Mirrors the real Supabase Auth admin API closely enough for
+        app/routers/merchant_portal.py::create_my_merchant_user: rejects an
+        email already used by a seeded/invited user (real Supabase Auth
+        errors on a duplicate email the same way), otherwise creates a new
+        user with user_metadata.full_name from options["data"]["full_name"].
+        """
+        if any(user.email == email for user in self._users.values()):
+            raise Exception(f"A user with email {email} already exists")  # noqa: TRY002
+        user_id = str(uuid.uuid4())
+        full_name = ((options or {}).get("data") or {}).get("full_name")
+        self.seed_user(user_id, email=email, full_name=full_name)
+        return _FakeGetUserResult(self._users[user_id])
+
 
 class _FakeAuth:
     def __init__(self):

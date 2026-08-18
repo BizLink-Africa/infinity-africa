@@ -48,6 +48,12 @@ class FeeBreakdown(BaseModel):
     pricing_rule_id: uuid.UUID | None = None
     pricing_rule_label: str | None = None
     processor_fee_pass_through: bool = False
+    # True when the applied rule is a platform fallback (merchant_pricing_rules
+    # row with merchant_id IS NULL) rather than one scoped to this merchant —
+    # see app.services.withdrawals.fee_calculator.find_pricing_rule's
+    # precedence tiers. False both when a merchant-specific rule applied and
+    # when no rule matched at all (pricing_rule_id is None).
+    is_platform_fallback: bool = False
 
 
 # --- Super Admin pricing-rule management ------------------------------------

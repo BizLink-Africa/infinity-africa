@@ -56,4 +56,5 @@ def parse_transaction_result(response: dict, *, trans_id: str) -> SelcomBusiness
         receipt=_extract_receipt(response),
         failure_reason=failure_reason,
         raw_status=str(response.get("status") or response.get("result") or ""),
+        raw_response=response,
     )

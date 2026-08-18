@@ -11,6 +11,7 @@ import type {
   DisbursementStatus,
   InvoiceStatus,
   PaymentLinkStatus,
+  UserRole,
 } from "@infinity/shared";
 
 /** Mirrors apps/api's {success, data} / {success, error} envelope. */
@@ -157,6 +158,9 @@ export interface FeeBreakdown {
   pricing_rule_id: string | null;
   pricing_rule_label: string | null;
   processor_fee_pass_through: boolean;
+  /** True when the applied rule is a platform fallback (no merchant-specific
+   * rule matched) rather than one scoped to this merchant. */
+  is_platform_fallback: boolean;
 }
 
 export type TransactionType = "collection" | "disbursement" | "fee" | "refund" | "reversal" | "adjustment";
@@ -237,12 +241,36 @@ export interface WalletLedgerEntry {
   balance_after: string;
 }
 
-export interface TeamMember {
+/** apps/api's MerchantUserResponse (merchant_users row + the invited
+ * person's full_name/email, joined from Supabase Auth — see
+ * app.services.admin_directory.best_effort_user_profile). */
+export interface MerchantUser {
   id: string;
-  name: string;
-  email: string;
-  role: "Owner" | "Admin" | "Finance";
-  status: "active" | "pending";
+  user_id: string;
+  merchant_id: string;
+  full_name: string | null;
+  email: string | null;
+  role: UserRole;
+  status: "invited" | "active" | "suspended";
+  created_at: string;
+  updated_at: string;
+}
+
+/** apps/api's MerchantResponse — the merchant's own business profile
+ * (GET/PATCH /v1/merchant/me, /v1/merchants/{id}). */
+export interface MerchantProfile {
+  id: string;
+  business_name: string;
+  legal_name: string | null;
+  country: string;
+  currency: string;
+  contact_email: string;
+  contact_phone: string | null;
+  status: string;
+  kyc_status: string;
+  webhook_url: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface SupportTicket {

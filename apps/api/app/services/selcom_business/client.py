@@ -5,9 +5,13 @@ checkout/collections API.
 
 SELCOM_BUSINESS_MODE controls which client get_selcom_business_client()
 returns:
-  - "mock"    -> MockSelcomBusinessClient. Local development only. Never
-                 reachable when mode is "sandbox" or "live" — there is no
-                 code path that falls back to the mock client from either.
+  - "mock"    -> MockSelcomBusinessClient. Local development ONLY — refused
+                 with a RuntimeError unless ENVIRONMENT=development, so a
+                 stray SELCOM_BUSINESS_MODE=mock in Railway can never
+                 silently fake a real payout as "successful" (a merchant
+                 would believe they were paid; they weren't). There is no
+                 code path that falls back to the mock client from
+                 "sandbox" or "live" either way.
   - "sandbox" -> SelcomBusinessClient pointed at
                  SELCOM_BUSINESS_SANDBOX_BASE_URL. Real HTTP calls to
                  Selcom's sandbox environment.
@@ -27,6 +31,13 @@ from typing import Protocol
 
 from app.config import get_settings
 from app.services.selcom_business.schemas import SelcomBusinessResult
+
+
+class SelcomBusinessMisconfiguredError(RuntimeError):
+    """SELCOM_BUSINESS_MODE=mock outside a development environment — refused
+    outright rather than silently faking a real merchant payout. If a
+    deployed environment needs withdrawal approval paused, do that at the
+    Super Admin workflow level (stop approving), not by mocking Selcom."""
 
 
 class SelcomBusinessProvider(Protocol):
@@ -53,6 +64,12 @@ def get_selcom_business_client() -> SelcomBusinessProvider:
     settings = get_settings()
 
     if settings.selcom_business_mode == "mock":
+        if settings.environment != "development":
+            raise SelcomBusinessMisconfiguredError(
+                "SELCOM_BUSINESS_MODE=mock is only allowed when ENVIRONMENT=development — "
+                f"refusing to fake real withdrawal payouts in a '{settings.environment}' environment."
+            )
+
         from app.services.selcom_business.mock_client import MockSelcomBusinessClient
 
         return MockSelcomBusinessClient(
@@ -75,4 +92,9 @@ def get_selcom_business_client() -> SelcomBusinessProvider:
     )
 
 
-__all__ = ["SelcomBusinessProvider", "SelcomBusinessResult", "get_selcom_business_client"]
+__all__ = [
+    "SelcomBusinessMisconfiguredError",
+    "SelcomBusinessProvider",
+    "SelcomBusinessResult",
+    "get_selcom_business_client",
+]

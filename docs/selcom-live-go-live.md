@@ -189,64 +189,198 @@ Independent of every step above: its own client, its own env-var
 namespace, its own **RSA-SHA256** signing (not the checkout API's
 HMAC-SHA256).
 
-### 1. Configure sandbox
+Merchant-facing UI (and the Super Admin console) always say
+**"Withdrawal"** — `DisbursementMethod`/`Disbursement`/"Selcom Business
+Disbursement API" are internal/backend vocabulary only, used in code,
+comments, and this document, never surfaced to a merchant.
 
-Set these in Railway (or locally in `.env` for development against
-Selcom's real sandbox):
+### Required Railway env variables
 
-```
-SELCOM_BUSINESS_MODE=sandbox
-SELCOM_BUSINESS_SANDBOX_BASE_URL=https://sandbox.selcom.business
-SELCOM_BUSINESS_API_KEY=<issued by Selcom for your sandbox account>
-SELCOM_BUSINESS_PRIVATE_KEY_BASE64=<base64-encoded PEM RSA private key>
-SELCOM_BUSINESS_ACCOUNT_NUMBER=<your Selcom Business account number>
-```
+Backend/Railway only — **never** set any of these in Vercel or any
+`apps/web` file. `apps/web` only ever reads `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `NEXT_PUBLIC_API_URL` (see
+`apps/web/.env.example`) — if a `SELCOM_BUSINESS_*` value ever shows up in
+a Vercel env var or an `apps/web` file, treat that as a credential leak:
+remove it immediately and rotate the key with Selcom.
 
-Test a full withdrawal round-trip against the real sandbox: submit a
-withdrawal (`POST /v1/merchant/withdrawals` — stays
-`PENDING_ADMIN_APPROVAL`, never touches Selcom), then approve it as a
-Super Admin (`POST /v1/admin/withdrawals/{id}/approve` — this is the one
-and only call site that reaches Selcom). Confirm the response shape
-`app/services/selcom_business/parsing.py` expects actually matches what
-sandbox returns — that module's field-name guesses are the one piece not
-yet verified against a real response (the request shape, headers, and
-signing scheme were fetched directly from Selcom's own current docs, so
-those should already be correct).
+| Variable | Sandbox | Production |
+|---|---|---|
+| `SELCOM_BUSINESS_MODE` | `sandbox` | `live` |
+| `SELCOM_BUSINESS_SANDBOX_BASE_URL` | `https://sandbox.selcom.business` | *(unused in `live` mode)* |
+| `SELCOM_BUSINESS_PRODUCTION_BASE_URL` | *(unused in `sandbox` mode)* | `https://api.selcom.business/v1` |
+| `SELCOM_BUSINESS_API_KEY` | sandbox key from Selcom | production key from Selcom |
+| `SELCOM_BUSINESS_PRIVATE_KEY_BASE64` | sandbox RSA private key, base64-encoded PEM | production RSA private key, base64-encoded PEM |
+| `SELCOM_BUSINESS_ACCOUNT_NUMBER` | sandbox Selcom Business account number | production account number |
+| `SELCOM_BUSINESS_TIMEOUT_SECONDS` | `30` (default; raise if sandbox responses are slow) | `30` (default) |
 
-### 2. If Selcom returns error 611 / HTTP 403 (IP not whitelisted)
+`SELCOM_BUSINESS_MODE=mock` also exists, but is **local-development-only**
+and enforced as such: `get_selcom_business_client()` raises
+`SelcomBusinessMisconfiguredError` if `SELCOM_BUSINESS_MODE=mock` while
+`ENVIRONMENT` is anything other than `development` — a stray mock setting
+can no longer silently fake a real merchant payout as "successful" in a
+deployed sandbox/production Railway environment. See "Rolling back" below
+for what to do instead if a deployed environment needs withdrawal payouts
+paused.
+
+### Sandbox setup
+
+1. Generate sandbox test credentials from the Selcom developer portal — an
+   API key plus an RSA key pair (keep the private key; provide the public
+   key to Selcom per their onboarding instructions).
+2. Set the **Sandbox** column of the table above in Railway's environment
+   variables (or locally in `apps/api/.env`, git-ignored, for development
+   against Selcom's real sandbox — not the same as
+   `SELCOM_BUSINESS_MODE=mock`, which never calls Selcom at all).
+3. Confirm Railway's static outbound IP (steps 2–4 near the top of this
+   document) has already been sent to Selcom for whitelisting — sandbox
+   enforces the same source-IP allowlist as production.
+4. Test a full withdrawal round-trip against the real sandbox: submit a
+   withdrawal (`POST /v1/merchant/withdrawals` — stays
+   `PENDING_ADMIN_APPROVAL`, never touches Selcom), then approve it as a
+   Super Admin (`POST /v1/admin/withdrawals/{id}/approve` — the one and
+   only call site that reaches Selcom; see "Withdrawal approval flow"
+   below). Confirm the response shape `app/services/selcom_business/parsing.py`
+   expects actually matches what sandbox returns — see "Selcom readiness"
+   below for exactly what's unverified.
+
+### Production setup
+
+Once Selcom issues live credentials for your production account, set the
+**Production** column of the table above in Railway. **Never** set any
+`SELCOM_BUSINESS_*` variable in Vercel/`apps/web`. Confirm what Railway
+actually has configured (without exposing the secret values) via
+`GET /v1/system/selcom-config-status`'s `business_*` fields. Do not switch
+`SELCOM_BUSINESS_MODE=live` until a real sandbox round-trip has confirmed
+the response parsing is correct (see "Selcom readiness" below).
+
+### Selcom credential placement
+
+- `SELCOM_BUSINESS_API_KEY`, `SELCOM_BUSINESS_PRIVATE_KEY_BASE64`,
+  `SELCOM_BUSINESS_ACCOUNT_NUMBER` live in Railway environment variables on
+  the `apps/api` service only.
+- Never commit them to the repo — `apps/api/.env` is git-ignored; use it
+  only for a local sandbox test, never for production credentials.
+- Never in `apps/web`/Vercel or any frontend/client-side code path — the
+  frontend only ever calls `apps/api`, which is the sole caller of Selcom
+  (see "Architecture recap" above).
+- The private key is read once per request from
+  `SELCOM_BUSINESS_PRIVATE_KEY_BASE64`, base64-decoded, and loaded as a PEM
+  RSA private key (`app/services/selcom_business/signing.py`). It is never
+  logged, never returned in an API response, and never persisted to the
+  database — `app/services/selcom_business/live_client.py` only ever logs
+  `path`/`status`/`latency_ms`, never the request body, headers, API key,
+  private key, or a raw recipient account number.
+
+### Withdrawal approval flow
+
+1. Merchant submits a withdrawal (`POST /v1/merchant/withdrawals`) — this
+   creates a `disbursements` row with `status: PENDING_ADMIN_APPROVAL` and
+   **never calls Selcom**. The fee breakdown is calculated once and frozen
+   onto the row at this point (`pricing_snapshot_json`).
+2. A Super Admin reviews the pending withdrawal in the console and clicks
+   **Approve** (`POST /v1/admin/withdrawals/{id}/approve`) — this is the
+   only code path anywhere in the codebase that calls
+   `get_selcom_business_client().process_transaction(...)`. Rejecting
+   (`.../reject`) or requesting more information (`.../request-info`)
+   never reaches Selcom.
+3. On approval: funds are reserved from the merchant's wallet first (atomic
+   ledger entries), then Selcom is called. Selcom's `transId`, `receipt`,
+   `status`, and the full raw response body are stored on the disbursement
+   row (`selcom_trans_id` / `selcom_receipt` / `selcom_status` /
+   `selcom_raw_response`) whenever a real response was received, regardless
+   of outcome — kept for support/reconciliation debugging even when the
+   parsed fields alone don't explain what happened.
+4. Outcomes:
+   - **Success** → `status: SUCCESS`, funds stay debited, merchant notified.
+   - **Clean failure** (Selcom rejects the payout) → funds reversed,
+     `status: FAILED`, merchant notified.
+   - **Processing** (Selcom hasn't resolved synchronously) → `status:
+     PROCESSING`; a Super Admin later calls
+     `POST /v1/admin/withdrawals/{id}/refresh-status` to poll
+     `transaction/query` and resolve it. Not automatic — no background
+     worker exists in this codebase.
+   - **Ambiguous** response → `status: NEEDS_RECONCILIATION`, funds stay
+     reserved (not reversed — we don't yet know the payout didn't happen)
+     pending manual refresh/investigation.
+   - **IP not whitelisted** (HTTP 403 and/or Selcom's own error code 611 —
+     see below) → `status: BLOCKED_IP_WHITELIST`, funds stay reserved (an
+     operator/network problem, not a payout failure).
+   - **Outright provider failure** (timeout/connection error/other HTTP
+     error) → funds reversed, `status: FAILED`.
+
+### If Selcom returns error 611 / HTTP 403 (IP not whitelisted)
 
 Same static-IP requirement as the checkout API above — Selcom whitelists
-this API by source IP too. If sandbox or production calls come back 403
-with error code 611, follow steps 2–4 above (enable Railway Static
-Outbound IP, copy it, send it to Selcom) — the withdrawal itself is fine;
-this backend's outbound IP just isn't whitelisted yet. A withdrawal that
-hits this while `NEEDS_ADMIN_ATTENTION`/`BLOCKED_IP_WHITELIST` doesn't lose
-its reserved funds — retry via the Super Admin console's refresh action
-once whitelisting is confirmed.
+this API by source IP too. `app/services/selcom_business/live_client.py`
+detects this from **either** signal — an HTTP 403 status, or Selcom's own
+error code `611` appearing in the response body under a `code` /
+`errorCode` / `resultcode` field, regardless of HTTP status — and raises
+`SelcomAPIError(is_ip_whitelist_error=True)`, which
+`app/services/disbursements.py` routes to `BLOCKED_IP_WHITELIST` instead of
+treating it as a normal payout failure (deliberately *not* just "any HTTP
+403", since a bare 403 could also mean a bad API key). If sandbox or
+production calls come back this way, follow steps 2–4 near the top of
+this document (enable Railway Static Outbound IP, copy it, send it to
+Selcom) — the withdrawal itself is fine; this backend's outbound IP just
+isn't whitelisted yet. A withdrawal that hits this doesn't lose its
+reserved funds — retry via the Super Admin console's refresh action once
+whitelisting is confirmed.
 
-### 3. Configure production
+### Phone number format
 
-Once Selcom issues live credentials for your production account:
+Wallet/mobile-money destinations (`MOBILE_MONEY`, `SELCOM_PESA`) are
+normalized to **`255XXXXXXXXX`** — country code `255`, no leading `+`, no
+leading `0` — by `app/core/phone.py::normalize_tz_phone()`, both at
+withdrawal submission (`PhoneDisbursementRequest`'s validator) and again at
+approval time as defense-in-depth (data isn't assumed immutable between the
+two). **Bank account numbers (`BANK_ACCOUNT`, `destination_identifier` with
+a `bank_name`) are never run through phone normalization** at either point
+— they reach Selcom exactly as the merchant entered them.
 
-```
-SELCOM_BUSINESS_MODE=live
-SELCOM_BUSINESS_PRODUCTION_BASE_URL=https://api.selcom.business/v1
-SELCOM_BUSINESS_API_KEY=<production key>
-SELCOM_BUSINESS_PRIVATE_KEY_BASE64=<production private key, base64>
-SELCOM_BUSINESS_ACCOUNT_NUMBER=<production account number>
-```
+### Selcom readiness — what's confirmed vs. still unverified
 
-**Never** set any `SELCOM_BUSINESS_*` variable in Vercel/`apps/web` —
-same rule as every other Selcom credential in this document. Confirm what
-Railway actually has configured (without exposing the secret values) via
-`GET /v1/system/selcom-config-status`'s `business_*` fields.
+- **Confirmed**: RSA-SHA256 signing shape, request field names, and
+  endpoint paths (`transId` / `recipientFiCode` / `recipientAccount` /
+  etc. for `POST /transaction/process`, `GET /transaction/query`,
+  `GET /account/lookup`, `POST /balance`) — sourced directly from
+  developer.selcom.business's own current documentation, not guessed.
+- **Not yet confirmed — response body field names.** Selcom's docs didn't
+  show a full example response, so `app/services/selcom_business/parsing.py`
+  guesses at reasonable, industry-standard field names
+  (`status` / `transactionStatus` / `result` for the outcome;
+  `transId` / `transactionId` / `reference` for the transaction id;
+  `receipt` / `receiptNumber` / `selcomReceipt` for the receipt). **Verify
+  this against a real sandbox transaction before ever setting
+  `SELCOM_BUSINESS_MODE=live`** — if the real field names differ, a
+  successful payout could be misparsed as `ambiguous`/`failed`.
+- **Implemented but not yet wired into the approval flow**:
+  `SelcomBusinessClient.account_lookup()` (recipient name/account
+  verification) and `.balance()` (account balance check) both exist and
+  are directly callable, but `_reserve_and_run_disbursement_provider` only
+  calls `process_transaction`/`query_transaction` today — available for a
+  future pre-payout recipient-verification or balance-reconciliation step.
+- **Blocked on Selcom**: no real sandbox round-trip has been exercised yet
+  — this integration is waiting on Selcom to issue sandbox test
+  credentials (API key + RSA key pair). Everything above is exercised
+  against a fake HTTP layer instead (`tests/test_selcom_business_client.py`,
+  `tests/test_admin_withdrawals.py`), which proves the signing/error-
+  handling/state-machine logic is correct in isolation but cannot prove
+  Selcom's actual response shape matches `parsing.py`'s guesses.
 
 ## Rolling back
 
 Checkout API: set `SELCOM_MODE=mock` (and `SELCOM_COLLECTION_ENABLED` back
 to `false`) in Railway and redeploy — every collection immediately goes
-back through `MockSelcomClient`. Business Disbursement API: set
-`SELCOM_BUSINESS_MODE=mock` — every withdrawal approval immediately goes
-back through `MockSelcomBusinessClient`. Neither needs a code change or a
-data migration; these are the same switches used throughout local
-development.
+back through `MockSelcomClient`.
+
+Business Disbursement API: **`SELCOM_BUSINESS_MODE=mock` is no longer a
+valid rollback in a deployed environment.** `get_selcom_business_client()`
+raises `SelcomBusinessMisconfiguredError` unless `ENVIRONMENT=development`,
+specifically so a stray mock-mode setting can never silently fake a real
+merchant payout as "successful" in sandbox or production. To pause
+withdrawal payouts in a deployed environment instead: stop approving
+pending withdrawals in the Super Admin console — they stay safely
+`PENDING_ADMIN_APPROVAL` (nothing times out or auto-approves) — or
+temporarily revoke the Super Admin role from whoever would otherwise
+approve them. This is a deliberate process-level pause, not a code/env-var
+switch.

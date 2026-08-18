@@ -16,7 +16,12 @@ from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.phone import validate_and_normalize_phone
-from app.schemas.enums import CollectionMethod, DestinationCode, DisbursementMethod
+from app.schemas.enums import (
+    CollectionMethod,
+    DestinationCode,
+    DisbursementMethod,
+    UserRole,
+)
 from app.schemas.invoices import InvoiceItemCreate
 from app.schemas.merchants import MerchantResponse
 
@@ -182,3 +187,64 @@ class WithdrawalCreate(BaseModel):
         if self.method == DisbursementMethod.BANK_ACCOUNT:
             return self.bank_account_name or self.bank_account_number or "Bank withdrawal"
         return self.destination_name or self.destination_phone or "Withdrawal"
+
+
+# --- Team / Users ------------------------------------------------------------
+
+_EMAIL_PATTERN = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+
+
+class MerchantUserCreate(BaseModel):
+    """Inviting a new teammate onto the caller's own merchant. A brand new
+    Supabase Auth user is created (invited) for this email — see
+    create_my_merchant_user — so full_name is required up front and stored
+    on that user's user_metadata.full_name, the same place every other
+    person's display name in this codebase is read from (see
+    app.services.admin_directory)."""
+
+    full_name: str = Field(min_length=1, max_length=200)
+    email: str = Field(pattern=_EMAIL_PATTERN)
+    role: UserRole
+
+    @field_validator("full_name")
+    @classmethod
+    def _strip_full_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("full_name cannot be blank")
+        return stripped
+
+    @field_validator("role")
+    @classmethod
+    def _check_merchant_role(cls, value: UserRole) -> UserRole:
+        if value == UserRole.SUPER_ADMIN:
+            raise ValueError("role must be one of MERCHANT_ADMIN, MERCHANT_STAFF, DEVELOPER")
+        return value
+
+
+class MerchantUserUpdate(BaseModel):
+    """Only role/status are editable here — full_name/email live on Supabase
+    Auth's own user record, not merchant_users, and changing another
+    person's isn't something this endpoint does."""
+
+    role: UserRole | None = None
+    status: str | None = Field(default=None, pattern="^(invited|active|suspended)$")
+
+    @field_validator("role")
+    @classmethod
+    def _check_merchant_role(cls, value: UserRole | None) -> UserRole | None:
+        if value == UserRole.SUPER_ADMIN:
+            raise ValueError("role must be one of MERCHANT_ADMIN, MERCHANT_STAFF, DEVELOPER")
+        return value
+
+
+class MerchantUserResponse(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    merchant_id: uuid.UUID
+    full_name: str | None = None
+    email: str | None = None
+    role: UserRole
+    status: str
+    created_at: datetime
+    updated_at: datetime

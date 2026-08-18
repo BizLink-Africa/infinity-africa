@@ -1,16 +1,33 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { Icon } from "@/components/portal/icon";
-import { logout } from "@/lib/supabase/logout";
+import { adminLogout } from "@/lib/supabase/logout";
+
+function initials(name: string | null, email: string): string {
+  if (name) {
+    const parts = name.split(" ").filter(Boolean);
+    return parts
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase();
+  }
+  return email ? email[0].toUpperCase() : "?";
+}
 
 export function AdminTopbar({
   onOpenSidebar,
   notificationCount = 0,
+  adminEmail = "",
+  adminFullName = null,
 }: {
   onOpenSidebar: () => void;
   notificationCount?: number;
+  adminEmail?: string;
+  adminFullName?: string | null;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -50,15 +67,38 @@ export function AdminTopbar({
             aria-label="Account menu"
           >
             <div className="w-8 h-8 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-sm border border-outline-variant shrink-0">
-              A
+              {initials(adminFullName, adminEmail)}
             </div>
-            <span className="text-sm font-medium text-on-surface hidden lg:block">Admin User</span>
+            <span className="text-sm font-medium text-on-surface hidden lg:block truncate max-w-[140px]">
+              {adminFullName ?? adminEmail ?? "Super Admin"}
+            </span>
           </button>
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden />
-              <div className="absolute right-0 top-11 z-50 w-40 bg-surface border border-surface-container-highest rounded-lg shadow-ambient overflow-hidden">
-                <form action={logout}>
+              <div className="absolute right-0 top-11 z-50 w-64 bg-surface border border-surface-container-highest rounded-lg shadow-ambient overflow-hidden">
+                <div className="px-4 py-3 border-b border-surface-container-highest">
+                  <p className="text-sm font-semibold text-on-background truncate">{adminFullName ?? "Signed in"}</p>
+                  <p className="text-xs text-on-surface-variant truncate">{adminEmail}</p>
+                  <span className="inline-block mt-1.5 text-[11px] font-semibold bg-primary-container/10 text-primary px-2 py-0.5 rounded-full">
+                    Super Admin
+                  </span>
+                </div>
+                <Link
+                  href="/super-admin/profile"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors"
+                >
+                  Profile
+                </Link>
+                <Link
+                  href="/super-admin/settings"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors"
+                >
+                  Change Password
+                </Link>
+                <form action={adminLogout}>
                   <button
                     type="submit"
                     className="w-full text-left px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors"

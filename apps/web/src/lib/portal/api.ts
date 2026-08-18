@@ -16,7 +16,6 @@ import { getAccessTokenClient } from "@/lib/supabase/client-session";
 import {
   mockCustomers,
   mockSupportTickets,
-  mockTeamMembers,
   mockWalletAccounts,
   mockWalletLedger,
   MOCK_MERCHANT_ID,
@@ -35,10 +34,11 @@ import type {
   FraudAlert,
   Invoice,
   InvoiceItem,
+  MerchantProfile,
+  MerchantUser,
   PaymentLink,
   Refund,
   SupportTicket,
-  TeamMember,
   Transaction,
   WalletAccount,
   WalletLedgerEntry,
@@ -187,6 +187,12 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
     return apiWrite<Invoice>(`/v1/merchant/invoices/${invoice.id}/send`, "POST", {});
   }
   return invoice;
+}
+
+/** Generates (or returns the existing) Pay Now payment link for a sent
+ * invoice — backs the invoices table's "Copy Pay Now link" action. */
+export async function generateInvoicePaymentLink(invoiceId: string): Promise<PaymentLink> {
+  return apiWrite<PaymentLink>(`/v1/merchant/invoices/${invoiceId}/payment-link`, "POST", {});
 }
 
 // --- Collections (LIVE) ----------------------------------------------------
@@ -356,16 +362,71 @@ export async function getMerchantOverview(): Promise<MerchantOverview | null> {
   return apiGet<MerchantOverview>("/v1/merchant/overview");
 }
 
+// --- Business profile (LIVE) -------------------------------------------------
+
+export async function getMyMerchant(): Promise<MerchantProfile | null> {
+  return apiGet<MerchantProfile>("/v1/merchant/me");
+}
+
+export interface UpdateMerchantProfileInput {
+  business_name?: string;
+  legal_name?: string;
+  contact_phone?: string;
+}
+
+export async function updateMyMerchantProfile(
+  merchantId: string,
+  input: UpdateMerchantProfileInput,
+): Promise<MerchantProfile> {
+  return apiWrite<MerchantProfile>(`/v1/merchants/${merchantId}`, "PATCH", input);
+}
+
+// --- Team / Users (LIVE) ------------------------------------------------------
+
+/** The signed-in user's own membership (name/email/role) — what the
+ * portal topbar's account menu reads from. Available to every merchant
+ * role, not admin-only. */
+export async function getMyMembership(): Promise<MerchantUser | null> {
+  return apiGet<MerchantUser>("/v1/merchant/users/me");
+}
+
+/** Admin-only — every other function in this section is too. */
+export async function listMerchantUsers(): Promise<MerchantUser[]> {
+  return (await apiGet<MerchantUser[]>("/v1/merchant/users")) ?? [];
+}
+
+export interface CreateMerchantUserInput {
+  full_name: string;
+  email: string;
+  role: MerchantUser["role"];
+}
+
+export async function createMerchantUser(input: CreateMerchantUserInput): Promise<MerchantUser> {
+  return apiWrite<MerchantUser>("/v1/merchant/users", "POST", input);
+}
+
+export interface UpdateMerchantUserInput {
+  role?: MerchantUser["role"];
+  status?: MerchantUser["status"];
+}
+
+export async function updateMerchantUser(userRowId: string, input: UpdateMerchantUserInput): Promise<MerchantUser> {
+  return apiWrite<MerchantUser>(`/v1/merchant/users/${userRowId}`, "PATCH", input);
+}
+
+export async function deactivateMerchantUser(userRowId: string): Promise<MerchantUser> {
+  return apiWrite<MerchantUser>(`/v1/merchant/users/${userRowId}/deactivate`, "POST", {});
+}
+
 // ============================================================================
 // Everything below is still MOCK — no /v1/merchant/* endpoint exists yet for
-// customers, wallet, team, support, or webhooks.
+// customers, wallet, or support.
 // ============================================================================
 
 const mockStore = {
   customers: mockCustomers(),
   walletAccounts: mockWalletAccounts(),
   walletLedger: mockWalletLedger(),
-  teamMembers: mockTeamMembers(),
   supportTickets: mockSupportTickets(),
 };
 
@@ -417,11 +478,7 @@ export async function listWalletLedger(): Promise<WalletLedgerEntry[]> {
   return mockStore.walletLedger;
 }
 
-// --- Team / Support (MOCK) ----------------------------------------------------
-
-export async function listTeamMembers(): Promise<TeamMember[]> {
-  return mockStore.teamMembers;
-}
+// --- Support (MOCK) ------------------------------------------------------------
 
 export async function listSupportTickets(): Promise<SupportTicket[]> {
   return mockStore.supportTickets;

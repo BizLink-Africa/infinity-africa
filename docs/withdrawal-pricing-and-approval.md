@@ -118,8 +118,8 @@ Super Admin Console
 POST /v1/admin/withdrawals/{id}/approve ──▶ approve_disbursement()
                                               - reserves funds (uses the
                                                 STORED snapshot)
-                                              - calls Selcom              ──▶ initiate_disbursement()
-                                                                          ◀── successful / processing / ambiguous / failed / 403
+                                              - calls Selcom              ──▶ process_transaction()
+                                                                          ◀── successful / processing / ambiguous / failed / 403 or 611
                                               - updates status accordingly
      ◀── 200 { status: SUCCESS | PROCESSING | ... }
 
@@ -159,7 +159,7 @@ Admin explicitly approves it.
 | `REJECTED` | A Super Admin declined the request. Nothing was ever reserved, so nothing to release. |
 | `NEEDS_ADMIN_ATTENTION` | Reserved for cases that need a human look outside the automatic branches. |
 | `NEEDS_RECONCILIATION` | Selcom's response was ambiguous — funds stay reserved pending manual resolution. |
-| `BLOCKED_IP_WHITELIST` | Selcom returned 403 (this backend's outbound IP isn't whitelisted) — funds stay reserved; this is an operator problem, not a payout failure. |
+| `BLOCKED_IP_WHITELIST` | Selcom returned HTTP 403 and/or its own error code 611 (this backend's outbound IP isn't whitelisted) — funds stay reserved; this is an operator problem, not a payout failure. See `docs/selcom-live-go-live.md`. |
 | `REVERSED` | An already-`SUCCESS` payout was reversed after the fact (e.g. Selcom reports it bounced post-settlement). |
 
 ## Configuring a merchant's pricing

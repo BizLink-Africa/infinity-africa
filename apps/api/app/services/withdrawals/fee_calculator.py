@@ -158,4 +158,5 @@ def calculate_withdrawal_fee(
         pricing_rule_id=uuid.UUID(rule["id"]),
         pricing_rule_label=rule.get("label"),
         processor_fee_pass_through=processor_pass_through,
+        is_platform_fallback=rule.get("merchant_id") is None,
     )

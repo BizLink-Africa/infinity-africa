@@ -14,7 +14,6 @@ import type {
   Customer,
   Invoice,
   SupportTicket,
-  TeamMember,
   Transaction,
   WalletAccount,
   WalletLedgerEntry,
@@ -274,14 +273,6 @@ export function mockWalletLedger(): WalletLedgerEntry[] {
     { id: nextId("wl"), date: "2026-08-12T14:05:00Z", description: "Invoice payment from Amani Store", direction: "credit", amount: "2150000.00", balance_after: "5548400.00" },
     { id: nextId("wl"), date: "2026-08-11T19:22:00Z", description: "Payment link collection — Neema Salon", direction: "credit", amount: "96000.00", balance_after: "3398400.00" },
     { id: nextId("wl"), date: "2026-08-11T11:58:00Z", description: "Withdrawal to NMB Bank — Grace Mwakalinga", direction: "debit", amount: "640000.00", balance_after: "3302400.00" },
-  ];
-}
-
-export function mockTeamMembers(): TeamMember[] {
-  return [
-    { id: nextId("team"), name: "Sarah Mushi", email: "sarah@merchant.co.tz", role: "Owner", status: "active" },
-    { id: nextId("team"), name: "David Komba", email: "david.komba@merchant.co.tz", role: "Admin", status: "active" },
-    { id: nextId("team"), name: "Rehema Ally", email: "rehema.ally@merchant.co.tz", role: "Finance", status: "pending" },
   ];
 }
 

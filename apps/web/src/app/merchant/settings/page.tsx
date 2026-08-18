@@ -1,0 +1,29 @@
+import { redirect } from "next/navigation";
+
+import { requireCurrentUser } from "@/lib/auth/current-user";
+import { getOnboardingStatus } from "@/lib/onboarding/api";
+import { PageHeader } from "@/components/portal/page-header";
+import { PortalShell } from "@/components/portal/portal-shell";
+import { UpdatePasswordForm } from "@/components/auth/update-password-form";
+
+export const metadata = {
+  title: "Settings | Infinity Africa",
+};
+
+export default async function MerchantSettingsPage() {
+  const user = await requireCurrentUser("/merchant/login");
+
+  const onboarding = await getOnboardingStatus();
+  if (!onboarding || onboarding.next_path === "/onboarding") {
+    redirect("/onboarding");
+  }
+
+  return (
+    <PortalShell>
+      <div className="space-y-8">
+        <PageHeader title="Settings" description="Manage your account security." />
+        <UpdatePasswordForm email={user.email} source={user.source} />
+      </div>
+    </PortalShell>
+  );
+}

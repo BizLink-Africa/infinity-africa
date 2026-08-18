@@ -8,7 +8,7 @@ import { ACCOUNT_STATUS_LABELS, AccountStatus } from "@infinity/shared";
 
 const CHECKLIST_ITEMS: { label: string; href?: string; icon: string }[] = [
   { label: "Create your first payment link", href: "/merchant/payment-links", icon: "link" },
-  { label: "Create your first invoice", href: "/portal/invoices", icon: "description" },
+  { label: "Create your first invoice", href: "/merchant/invoices", icon: "description" },
   { label: "Generate an API key", href: "/merchant/api-keys", icon: "api" },
   { label: "Read the API docs", href: "/merchant/developer-docs", icon: "menu_book" },
   { label: "Wait for account verification", icon: "verified_user" },

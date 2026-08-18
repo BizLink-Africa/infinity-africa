@@ -39,9 +39,19 @@ export function LoginForm({ variant }: { variant: "public" | "merchant" | "admin
       </div>
 
       <div>
-        <label htmlFor="password" className={labelClass}>
-          Password
-        </label>
+        <div className="flex items-center justify-between">
+          <label htmlFor="password" className={labelClass}>
+            Password
+          </label>
+          {(variant === "merchant" || variant === "admin") && (
+            <Link
+              href={variant === "merchant" ? "/merchant/forgot-password" : "/admin-login/forgot-password"}
+              className="text-xs font-semibold text-primary-container hover:underline"
+            >
+              Forgot password?
+            </Link>
+          )}
+        </div>
         <input id="password" name="password" type="password" className={inputClass} />
         {state?.errors?.password?.map((msg) => (
           <p key={msg} className={errorClass}>

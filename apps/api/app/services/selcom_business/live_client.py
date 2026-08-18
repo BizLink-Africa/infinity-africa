@@ -41,6 +41,27 @@ def generate_trans_id() -> str:
     return f"INF-{uuid.uuid4().hex[:16].upper()}"
 
 
+_IP_WHITELIST_ERROR_CODE = "611"
+
+
+def _is_ip_whitelist_error_code(response: httpx.Response) -> bool:
+    """Selcom's own error code for a non-whitelisted caller IP is 611,
+    which may arrive either in an error response body's `code`/`errorCode`/
+    `resultcode` field, or (per their landing page's mention of it) as
+    HTTP 403 with no parseable body at all — this only handles the
+    former; the 403 status itself is checked separately by the caller. A
+    non-JSON or empty body (e.g. a gateway-level rejection before Selcom's
+    own app was reached) is not an error here, just "no code to find"."""
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    if not isinstance(body, dict):
+        return False
+    code = str(body.get("code") or body.get("errorCode") or body.get("resultcode") or "").strip()
+    return code == _IP_WHITELIST_ERROR_CODE
+
+
 class SelcomBusinessClient:
     def __init__(self, *, base_url: str, api_key: str, private_key_base64: str, timeout_seconds: int = 30):
         self._base_url = base_url.rstrip("/")
@@ -91,9 +112,12 @@ class SelcomBusinessClient:
         )
 
         if response.status_code >= 400:
+            is_ip_whitelist_error = response.status_code == 403 or _is_ip_whitelist_error_code(response)
             raise SelcomAPIError(
-                f"Selcom Business API returned HTTP {response.status_code} for {path}",
+                f"Selcom Business API returned HTTP {response.status_code} for {path}"
+                + (" (IP not whitelisted — see docs/selcom-live-go-live.md)" if is_ip_whitelist_error else ""),
                 provider_status_code=response.status_code,
+                is_ip_whitelist_error=is_ip_whitelist_error,
             )
 
         try:

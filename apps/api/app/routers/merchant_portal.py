@@ -24,6 +24,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, Header, UploadFile, status
 
 from app.auth import hash_api_key, require_own_merchant_role
+from app.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
 from app.core.references import generate_reference
@@ -49,6 +50,9 @@ from app.schemas.merchant_portal import (
     MerchantPaymentLinkCreate,
     MerchantPaymentLinkUpdate,
     MerchantPushCollectionRequest,
+    MerchantUserCreate,
+    MerchantUserResponse,
+    MerchantUserUpdate,
     WithdrawalCreate,
 )
 from app.schemas.merchants import MerchantResponse
@@ -58,6 +62,7 @@ from app.schemas.refunds import RefundResponse
 from app.schemas.transactions import TransactionResponse
 from app.schemas.withdrawals import FeeBreakdown, WithdrawalQuoteRequest
 from app.services import disputes_service, document_requests_service
+from app.services.admin_directory import batch_user_profiles, best_effort_user_profile
 from app.services.audit import write_audit_log
 from app.services.collections import initiate_collection, initiate_dynamic_qr_collection
 from app.services.crud import (
@@ -970,3 +975,203 @@ def list_my_notifications(
         .execute()
     ).data or []
     return APIResponse(data=[NotificationResponse(**row) for row in rows])
+
+
+# --- Team / Users -------------------------------------------------------------
+
+
+def _merchant_user_response(client, row: dict) -> MerchantUserResponse:
+    profile = best_effort_user_profile(client, row["user_id"])
+    return MerchantUserResponse(
+        id=row["id"],
+        user_id=row["user_id"],
+        merchant_id=row["merchant_id"],
+        full_name=profile.get("full_name"),
+        email=profile.get("email"),
+        role=row["role"],
+        status=row["status"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+@router.get("/users/me", response_model=APIResponse[MerchantUserResponse])
+def get_my_membership(
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role())],
+):
+    """Any active member, any role — no admin gate — since this is what the
+    Merchant Portal's own topbar account menu reads its signed-in name,
+    email, and role from."""
+    client = get_supabase_admin()
+    row = execute_maybe_single(
+        client.table("merchant_users")
+        .select("*")
+        .eq("merchant_id", str(membership.merchant_id))
+        .eq("user_id", str(membership.user_id))
+        .maybe_single()
+    )
+    if not row:
+        raise NotFoundError("Membership not found")
+    return APIResponse(data=_merchant_user_response(client, row))
+
+
+@router.get("/users", response_model=APIResponse[list[MerchantUserResponse]])
+def list_my_merchant_users(
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_ONLY))],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+):
+    client = get_supabase_admin()
+    rows, total = list_for_merchant(
+        client, "merchant_users", merchant_id=membership.merchant_id, pagination=pagination
+    )
+    profiles = batch_user_profiles(client, {row["user_id"] for row in rows})
+    data = [
+        MerchantUserResponse(
+            id=row["id"],
+            user_id=row["user_id"],
+            merchant_id=row["merchant_id"],
+            full_name=profiles.get(row["user_id"], {}).get("full_name"),
+            email=profiles.get(row["user_id"], {}).get("email"),
+            role=row["role"],
+            status=row["status"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+        for row in rows
+    ]
+    return APIResponse(data=data, meta=build_page_meta(pagination, total))
+
+
+@router.post("/users", response_model=APIResponse[MerchantUserResponse], status_code=status.HTTP_201_CREATED)
+def create_my_merchant_user(
+    payload: MerchantUserCreate,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_ONLY))],
+):
+    """Invites a brand new Supabase Auth user by email (never reuses or
+    silently attaches an already-registered account to this merchant) and
+    links it to the caller's merchant with the requested role. The invited
+    person receives a real Supabase Auth email to set their own password —
+    this endpoint never handles a plaintext password for anyone but the
+    caller themself."""
+    client = get_supabase_admin()
+    settings = get_settings()
+
+    try:
+        result = client.auth.admin.invite_user_by_email(
+            payload.email,
+            {
+                "data": {"full_name": payload.full_name},
+                "redirect_to": f"{settings.public_app_url}/merchant/login",
+            },
+        )
+    except Exception as exc:
+        # supabase-py raises a generic AuthApiError for every rejection
+        # (duplicate email, invalid email, rate limit, etc) with no stable
+        # subclass to catch narrowly.
+        raise ConflictError(
+            f"Couldn't invite this person — the email may already be registered with Infinity Africa. ({exc})"
+        ) from exc
+
+    invited_user = result.user
+    if not invited_user or not invited_user.id:
+        raise ConflictError("Couldn't invite this person — no user was returned by Supabase Auth")
+
+    row = insert_row(
+        client,
+        "merchant_users",
+        {
+            "merchant_id": str(membership.merchant_id),
+            "user_id": invited_user.id,
+            "role": payload.role.value,
+            "status": "invited",
+            "invited_by": str(membership.user_id),
+        },
+    )
+
+    write_audit_log(
+        client,
+        actor_id=membership.user_id,
+        actor_type="user",
+        merchant_id=membership.merchant_id,
+        action="merchant_user.invited",
+        resource_type="merchant_user",
+        resource_id=uuid.UUID(row["id"]),
+        metadata={"role": payload.role.value, "email": payload.email},
+    )
+
+    return APIResponse(
+        data=MerchantUserResponse(
+            id=row["id"],
+            user_id=row["user_id"],
+            merchant_id=row["merchant_id"],
+            full_name=payload.full_name,
+            email=payload.email,
+            role=row["role"],
+            status=row["status"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+    )
+
+
+@router.patch("/users/{user_row_id}", response_model=APIResponse[MerchantUserResponse])
+def update_my_merchant_user(
+    user_row_id: uuid.UUID,
+    payload: MerchantUserUpdate,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_ONLY))],
+):
+    client = get_supabase_admin()
+    row = get_by_id(client, "merchant_users", user_row_id)
+    if not row or uuid.UUID(row["merchant_id"]) != membership.merchant_id:
+        raise NotFoundError("Merchant user not found")
+
+    if row["user_id"] == str(membership.user_id):
+        raise ConflictError("Use your own account settings to change your role or status")
+
+    update_data = payload.model_dump(mode="json", exclude_unset=True)
+    if not update_data:
+        raise ValidationAPIError("No fields to update")
+
+    row = update_row(client, "merchant_users", user_row_id, update_data, merchant_id=membership.merchant_id) or row
+
+    write_audit_log(
+        client,
+        actor_id=membership.user_id,
+        actor_type="user",
+        merchant_id=membership.merchant_id,
+        action="merchant_user.updated",
+        resource_type="merchant_user",
+        resource_id=user_row_id,
+        metadata={"fields": sorted(update_data.keys())},
+    )
+    return APIResponse(data=_merchant_user_response(client, row))
+
+
+@router.post("/users/{user_row_id}/deactivate", response_model=APIResponse[MerchantUserResponse])
+def deactivate_my_merchant_user(
+    user_row_id: uuid.UUID,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_ONLY))],
+):
+    client = get_supabase_admin()
+    row = get_by_id(client, "merchant_users", user_row_id)
+    if not row or uuid.UUID(row["merchant_id"]) != membership.merchant_id:
+        raise NotFoundError("Merchant user not found")
+
+    if row["user_id"] == str(membership.user_id):
+        raise ConflictError("You cannot deactivate your own account")
+
+    if row["status"] != "suspended":
+        row = (
+            update_row(client, "merchant_users", user_row_id, {"status": "suspended"}, merchant_id=membership.merchant_id)
+            or row
+        )
+        write_audit_log(
+            client,
+            actor_id=membership.user_id,
+            actor_type="user",
+            merchant_id=membership.merchant_id,
+            action="merchant_user.deactivated",
+            resource_type="merchant_user",
+            resource_id=user_row_id,
+        )
+    return APIResponse(data=_merchant_user_response(client, row))

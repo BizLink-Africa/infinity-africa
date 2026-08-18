@@ -1,4 +1,18 @@
 /**
+ * The same policy as validatePassword() below, broken into individually
+ * labeled/testable rules — for a live "met/unmet" checklist next to a
+ * password field (e.g. the Update Password form) rather than a flat error
+ * list shown only after submit.
+ */
+export const PASSWORD_RULES: Array<{ label: string; test: (password: string) => boolean }> = [
+  { label: "At least 8 characters", test: (password) => password.length >= 8 },
+  { label: "One uppercase letter", test: (password) => /[A-Z]/.test(password) },
+  { label: "One lowercase letter", test: (password) => /[a-z]/.test(password) },
+  { label: "One number", test: (password) => /[0-9]/.test(password) },
+  { label: "One special character", test: (password) => /[^A-Za-z0-9]/.test(password) },
+];
+
+/**
  * Password policy: min 8 chars, at least one uppercase, lowercase, number,
  * and symbol. Every violated rule is checked independently (not short
  * circuited) so the form can show all of them at once.

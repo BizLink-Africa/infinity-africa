@@ -1,7 +1,6 @@
 import { Card, tdClass, thClass } from "@/components/portal/card";
 import { Icon } from "@/components/portal/icon";
 import { PageHeader } from "@/components/portal/page-header";
-import { formatCurrency } from "@/lib/format";
 
 export const metadata = {
   title: "Pricing | Infinity Africa Merchant Portal",
@@ -20,28 +19,6 @@ export default function PricingPage() {
   return (
     <div className="space-y-8">
       <PageHeader title="Pricing" description="Transparent, pay-as-you-go fees. No hidden charges." />
-
-      <Card>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h3 className="text-2xl font-semibold text-on-background">Growth Plan</h3>
-              <span className="bg-primary-container/10 text-primary px-2.5 py-1 rounded-full text-xs font-semibold">
-                Current Plan
-              </span>
-            </div>
-            <p className="text-sm text-on-surface-variant mt-1">{formatCurrency("12450000", "TZS")} processed this month</p>
-          </div>
-          <div className="flex gap-3 shrink-0">
-            <button className="border border-outline-variant text-on-surface text-sm font-medium py-2.5 px-5 rounded-lg hover:bg-surface-container-low transition-colors">
-              View Plan Options
-            </button>
-            <button className="bg-primary-container text-on-primary text-sm font-medium py-2.5 px-5 rounded-lg hover:opacity-90 transition-opacity">
-              Upgrade Plan
-            </button>
-          </div>
-        </div>
-      </Card>
 
       <Card padded={false}>
         <div className="p-5 pb-3">

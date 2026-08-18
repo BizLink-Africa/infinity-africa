@@ -17,6 +17,14 @@ const breakdown: FeeBreakdown = {
   pricing_rule_id: "rule-1",
   pricing_rule_label: "Negotiated rate",
   processor_fee_pass_through: true,
+  is_platform_fallback: false,
+};
+
+const platformFallbackBreakdown: FeeBreakdown = {
+  ...breakdown,
+  pricing_rule_id: "rule-platform",
+  pricing_rule_label: "Platform default",
+  is_platform_fallback: true,
 };
 
 const calculateWithdrawalCharges = vi.fn().mockResolvedValue(breakdown);
@@ -54,6 +62,34 @@ describe("WithdrawalsView", () => {
     await waitFor(() => expect(calculateWithdrawalCharges).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByText("Recipient Receives")).toBeInTheDocument());
     expect(screen.getByText("Negotiated rate", { exact: false })).toBeInTheDocument();
+  });
+
+  it("shows 'Platform fallback rule applied' when the quote used the platform fallback rule", async () => {
+    calculateWithdrawalCharges.mockResolvedValueOnce(platformFallbackBreakdown);
+    const { WithdrawalsView } = await import("./withdrawals-view");
+    render(<WithdrawalsView />);
+
+    fireEvent.change(screen.getByPlaceholderText("+255 7XX XXX XXX or account no."), {
+      target: { value: "+255700000000" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("500,000"), { target: { value: "100000" } });
+    fireEvent.click(screen.getByText("Calculate Charges"));
+
+    await waitFor(() => expect(screen.getByText("Platform fallback rule applied")).toBeInTheDocument());
+  });
+
+  it("does not show the platform fallback notice for a merchant-specific rule", async () => {
+    const { WithdrawalsView } = await import("./withdrawals-view");
+    render(<WithdrawalsView />);
+
+    fireEvent.change(screen.getByPlaceholderText("+255 7XX XXX XXX or account no."), {
+      target: { value: "+255700000000" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("500,000"), { target: { value: "100000" } });
+    fireEvent.click(screen.getByText("Calculate Charges"));
+
+    await waitFor(() => expect(screen.getByText("Recipient Receives")).toBeInTheDocument());
+    expect(screen.queryByText("Platform fallback rule applied")).not.toBeInTheDocument();
   });
 
   it("never shows the literal word 'Disbursement' in merchant-facing text", async () => {

@@ -54,6 +54,11 @@ service-account*.json
 *.service-role*.json
 uploads/
 
+# Local-only seeded test-account credentials (real, if throwaway, passwords —
+# never push to GitHub; see docs/test-accounts.md's own "Before going live"
+# checklist).
+docs/test-accounts.md
+
 # --- Editors / OS ---
 .vscode/
 .idea/

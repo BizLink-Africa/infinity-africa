@@ -176,6 +176,79 @@ def test_duplicate_approval_does_not_double_send_to_selcom(fake_client):
     assert _wallet_balance(fake_client, merchant_id) == balance_after_first
 
 
+def test_approve_stores_raw_selcom_response(fake_client, monkeypatch):
+    """The full raw Selcom response body — not just the parsed
+    transId/receipt/status — must land on the disbursement row."""
+    import app.services.disbursements as disbursements_module
+    from app.services.selcom_business.schemas import SelcomBusinessResult
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+    body = _request_withdrawal(merchant_id, admin_id, "1000.00")
+
+    raw_response = {"status": "success", "transId": "SEL-RAW-1", "receipt": "RCPT-RAW-1", "extra_field": "kept"}
+
+    class _RawResponseProvider:
+        async def process_transaction(self, **kwargs):
+            return SelcomBusinessResult(
+                transaction_id="SEL-RAW-1", status="successful", receipt="RCPT-RAW-1", raw_response=raw_response
+            )
+
+    monkeypatch.setattr(disbursements_module, "get_selcom_business_client", lambda: _RawResponseProvider())
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+    response = _approve(body["id"], super_admin_id)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["selcom_raw_response"] == raw_response
+
+
+def test_bank_account_recipient_is_never_phone_normalized_at_approval(fake_client, monkeypatch):
+    """Bank account numbers must reach Selcom exactly as the merchant gave
+    them — normalize_tz_phone must never touch destination_identifier for a
+    BANK_ACCOUNT withdrawal, at submission or at approval time."""
+    import app.services.disbursements as disbursements_module
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+
+    bank_account_number = "0151234567890123"  # not phone-shaped, would be mangled by normalize_tz_phone
+    body_response = client.post(
+        "/v1/disbursements/bank-account",
+        headers={**auth_headers(admin_id), "Idempotency-Key": str(uuid.uuid4())},
+        json={
+            "merchant_id": str(merchant_id),
+            "amount": "1000.00",
+            "destination_name": "Jane Doe",
+            "destination_identifier": bank_account_number,
+            "destination_code": "CRDB",
+            "bank_name": "CRDB Bank",
+        },
+    )
+    assert body_response.status_code == 202, body_response.text
+    body = body_response.json()["data"]
+    assert body["destination_identifier"] == bank_account_number
+
+    captured: dict = {}
+
+    class _CapturingProvider:
+        async def process_transaction(self, **kwargs):
+            captured.update(kwargs)
+            from app.services.selcom_business.schemas import SelcomBusinessResult
+
+            return SelcomBusinessResult(transaction_id="SEL-BANK-1", status="successful")
+
+    monkeypatch.setattr(disbursements_module, "get_selcom_business_client", lambda: _CapturingProvider())
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+    response = _approve(body["id"], super_admin_id)
+
+    assert response.status_code == 200, response.text
+    assert captured["recipient_account"] == bank_account_number
+
+
 def test_completed_withdrawal_cannot_be_rejected(fake_client):
     merchant_id, admin_id = _merchant_and_admin(fake_client)
     _fund_wallet(fake_client, merchant_id, "10000.00")
@@ -265,7 +338,11 @@ def test_blocked_ip_whitelist_does_not_reverse_reservation(fake_client, monkeypa
 
     class _BlockedProvider:
         async def process_transaction(self, **kwargs):
-            raise SelcomAPIError("Selcom returned HTTP 403 (611: IP not whitelisted)", provider_status_code=403)
+            raise SelcomAPIError(
+                "Selcom returned HTTP 403 (611: IP not whitelisted)",
+                provider_status_code=403,
+                is_ip_whitelist_error=True,
+            )
 
     monkeypatch.setattr(disbursements_module, "get_selcom_business_client", lambda: _BlockedProvider())
 

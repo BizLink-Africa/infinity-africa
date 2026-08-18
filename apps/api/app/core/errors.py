@@ -66,14 +66,29 @@ class SelcomAPIError(APIError):
     connection failure) is Selcom's own response status, e.g. 403 for an
     IP-whitelist rejection — deliberately a different attribute from
     `status_code`, which is always 502 (this app's own response code to
-    *its* caller, unrelated to what Selcom returned)."""
+    *its* caller, unrelated to what Selcom returned).
+
+    `is_ip_whitelist_error` is the specific "Railway's outbound IP isn't
+    whitelisted with Selcom yet" signal (HTTP 403 and/or Selcom's own error
+    code 611 in the response body, per
+    app/services/selcom_business/live_client.py) — deliberately its own flag
+    rather than callers comparing `provider_status_code == 403` themselves,
+    since a bare 403 alone is ambiguous (could also mean a bad API key)."""
 
     status_code = status.HTTP_502_BAD_GATEWAY
     code = "selcom_api_error"
 
-    def __init__(self, message: str, *, details: list | dict | None = None, provider_status_code: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: list | dict | None = None,
+        provider_status_code: int | None = None,
+        is_ip_whitelist_error: bool = False,
+    ):
         super().__init__(message, details=details)
         self.provider_status_code = provider_status_code
+        self.is_ip_whitelist_error = is_ip_whitelist_error
 
 
 def _error_content(code: str, message: str, details=None) -> dict:

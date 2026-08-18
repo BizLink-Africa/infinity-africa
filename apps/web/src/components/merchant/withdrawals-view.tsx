@@ -358,6 +358,12 @@ export function WithdrawalsView() {
                 {quote.pricing_rule_label && (
                   <p className="text-xs text-on-surface-variant">Pricing rule applied: {quote.pricing_rule_label}</p>
                 )}
+                {quote.is_platform_fallback && (
+                  <p className="text-xs text-on-surface-variant flex items-center gap-1">
+                    <Icon name="info" className="text-[14px]" />
+                    Platform fallback rule applied
+                  </p>
+                )}
               </>
             ) : (
               <p className="text-xs text-on-surface-variant">

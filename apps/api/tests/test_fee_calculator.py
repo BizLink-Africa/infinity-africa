@@ -178,3 +178,106 @@ def test_inactive_rule_is_skipped(fake_client):
 
     rule = find_pricing_rule(fake_client, merchant_id=merchant_id, channel="MOBILE_MONEY", destination_code="MPESA")
     assert rule["label"] == "platform"
+
+
+def test_not_yet_effective_rule_is_skipped(fake_client):
+    merchant_id = _merchant_id(fake_client)
+    future = "2099-01-01T00:00:00+00:00"
+    create_pricing_rule(fake_client, merchant_id=merchant_id, flat_fee="500", effective_from=future, label="future")
+    create_pricing_rule(fake_client, merchant_id=None, flat_fee="100", label="platform")
+
+    rule = find_pricing_rule(fake_client, merchant_id=merchant_id, channel="MOBILE_MONEY", destination_code="MPESA")
+    assert rule["label"] == "platform"
+
+
+def test_expired_rule_is_skipped(fake_client):
+    merchant_id = _merchant_id(fake_client)
+    create_pricing_rule(
+        fake_client,
+        merchant_id=merchant_id,
+        flat_fee="500",
+        effective_from="2020-01-01T00:00:00+00:00",
+        effective_to="2020-06-01T00:00:00+00:00",
+        label="expired",
+    )
+    create_pricing_rule(fake_client, merchant_id=None, flat_fee="100", label="platform")
+
+    rule = find_pricing_rule(fake_client, merchant_id=merchant_id, channel="MOBILE_MONEY", destination_code="MPESA")
+    assert rule["label"] == "platform"
+
+
+def test_most_recently_created_rule_wins_within_same_tier(fake_client):
+    merchant_id = _merchant_id(fake_client)
+    create_pricing_rule(
+        fake_client, merchant_id=merchant_id, flat_fee="500", label="older", created_at="2026-01-01T00:00:00+00:00"
+    )
+    create_pricing_rule(
+        fake_client, merchant_id=merchant_id, flat_fee="750", label="newer", created_at="2026-06-01T00:00:00+00:00"
+    )
+
+    rule = find_pricing_rule(fake_client, merchant_id=merchant_id, channel="MOBILE_MONEY", destination_code="MPESA")
+    assert rule["label"] == "newer"
+
+
+def test_platform_destination_specific_rule_overrides_platform_channel_rule(fake_client):
+    merchant_id = _merchant_id(fake_client)
+    create_pricing_rule(fake_client, merchant_id=None, channel="MOBILE_MONEY", flat_fee="1000", label="platform-channel")
+    create_pricing_rule(
+        fake_client,
+        merchant_id=None,
+        channel="MOBILE_MONEY",
+        destination_code="MPESA",
+        flat_fee="250",
+        label="platform-destination",
+    )
+
+    rule = find_pricing_rule(fake_client, merchant_id=merchant_id, channel="MOBILE_MONEY", destination_code="MPESA")
+    assert rule["label"] == "platform-destination"
+
+
+def test_platform_channel_rule_overrides_platform_generic_rule(fake_client):
+    merchant_id = _merchant_id(fake_client)
+    create_pricing_rule(fake_client, merchant_id=None, flat_fee="9999", label="platform-generic")
+    create_pricing_rule(fake_client, merchant_id=None, channel="BANK_ACCOUNT", flat_fee="1500", label="platform-channel")
+
+    rule = find_pricing_rule(fake_client, merchant_id=merchant_id, channel="BANK_ACCOUNT", destination_code="CRDB")
+    assert rule["label"] == "platform-channel"
+
+
+# --- is_platform_fallback flag on the fee breakdown ---------------------------
+
+
+def test_breakdown_flags_platform_fallback_when_no_merchant_rule_exists(fake_client):
+    merchant_id = _merchant_id(fake_client)
+    create_pricing_rule(fake_client, merchant_id=None, flat_fee="100", label="platform")
+
+    breakdown = calculate_withdrawal_fee(
+        fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
+    )
+
+    assert breakdown.is_platform_fallback is True
+    assert breakdown.pricing_rule_label == "platform"
+
+
+def test_breakdown_does_not_flag_merchant_specific_rule_as_fallback(fake_client):
+    merchant_id = _merchant_id(fake_client)
+    create_pricing_rule(fake_client, merchant_id=None, flat_fee="9999", label="platform")
+    create_pricing_rule(fake_client, merchant_id=merchant_id, flat_fee="500", label="merchant-default")
+
+    breakdown = calculate_withdrawal_fee(
+        fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
+    )
+
+    assert breakdown.is_platform_fallback is False
+    assert breakdown.pricing_rule_label == "merchant-default"
+
+
+def test_breakdown_does_not_flag_fallback_when_no_rule_matches_at_all(fake_client):
+    merchant_id = _merchant_id(fake_client)
+
+    breakdown = calculate_withdrawal_fee(
+        fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
+    )
+
+    assert breakdown.is_platform_fallback is False
+    assert breakdown.pricing_rule_id is None
