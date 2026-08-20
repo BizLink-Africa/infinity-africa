@@ -261,6 +261,8 @@ async def _main() -> int:
         print(f"  message:                {exc.message}")
         print(f"  provider_status_code:   {exc.provider_status_code}")
         print(f"  is_ip_whitelist_error:  {exc.is_ip_whitelist_error}")
+        if exc.provider_response_body is not None:
+            print(f"  provider_response_body: {_mask_response_body(exc.provider_response_body)}")
         if exc.is_ip_whitelist_error:
             print(
                 "  -> This machine's outbound IP likely isn't whitelisted by Selcom for this "

@@ -113,11 +113,18 @@ class SelcomBusinessClient:
 
         if response.status_code >= 400:
             is_ip_whitelist_error = response.status_code == 403 or _is_ip_whitelist_error_code(response)
+            try:
+                error_body = response.json()
+                if not isinstance(error_body, dict):
+                    error_body = None
+            except ValueError:
+                error_body = None
             raise SelcomAPIError(
                 f"Selcom Business API returned HTTP {response.status_code} for {path}"
                 + (" (IP not whitelisted — see docs/selcom-live-go-live.md)" if is_ip_whitelist_error else ""),
                 provider_status_code=response.status_code,
                 is_ip_whitelist_error=is_ip_whitelist_error,
+                provider_response_body=error_body,
             )
 
         try:

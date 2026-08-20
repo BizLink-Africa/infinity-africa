@@ -73,7 +73,16 @@ class SelcomAPIError(APIError):
     code 611 in the response body, per
     app/services/selcom_business/live_client.py) — deliberately its own flag
     rather than callers comparing `provider_status_code == 403` themselves,
-    since a bare 403 alone is ambiguous (could also mean a bad API key)."""
+    since a bare 403 alone is ambiguous (could also mean a bad API key).
+
+    `provider_response_body` (Selcom Business only, currently — see
+    app/services/selcom_business/live_client.py) is Selcom's raw error body
+    when it parsed as JSON, `None` otherwise. Not logged or included in
+    this app's own response to its caller (see api_error_handler below) —
+    it exists so a direct caller like
+    apps/api/scripts/test_selcom_disbursement_sandbox.py can print exactly
+    why Selcom rejected a request (e.g. "invalid signature" vs. "invalid
+    api key") instead of just a bare status code."""
 
     status_code = status.HTTP_502_BAD_GATEWAY
     code = "selcom_api_error"
@@ -85,10 +94,12 @@ class SelcomAPIError(APIError):
         details: list | dict | None = None,
         provider_status_code: int | None = None,
         is_ip_whitelist_error: bool = False,
+        provider_response_body: dict | None = None,
     ):
         super().__init__(message, details=details)
         self.provider_status_code = provider_status_code
         self.is_ip_whitelist_error = is_ip_whitelist_error
+        self.provider_response_body = provider_response_body
 
 
 def _error_content(code: str, message: str, details=None) -> dict:
