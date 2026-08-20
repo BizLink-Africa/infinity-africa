@@ -23,6 +23,31 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _configure_settings(monkeypatch):
     monkeypatch.setenv("SUPABASE_JWT_SECRET", TEST_JWT_SECRET)
+    # Isolate from whatever a developer's local apps/api/.env happens to
+    # have set (e.g. real Selcom sandbox credentials) — this suite must
+    # assert against a known state, not whatever's ambient on this machine.
+    # A blank os.environ value (not just an absent one) is required to win
+    # over apps/api/.env: pydantic-settings' source priority is init >
+    # environment variables > dotenv file, so delenv alone still falls
+    # through to a real value present in the dotenv file. Individual tests
+    # override what they need via monkeypatch.setenv.
+    for var in (
+        "SELCOM_BASE_URL",
+        "SELCOM_API_KEY",
+        "SELCOM_API_SECRET",
+        "SELCOM_VENDOR_ID",
+        "SELCOM_MODE",
+        "SELCOM_BUSINESS_API_KEY",
+        "SELCOM_BUSINESS_PRIVATE_KEY_BASE64",
+        "SELCOM_BUSINESS_ACCOUNT_NUMBER",
+    ):
+        monkeypatch.setenv(var, "")
+    for bool_var in ("SELCOM_COLLECTION_ENABLED", "SELCOM_WITHDRAWAL_ENABLED"):
+        monkeypatch.setenv(bool_var, "false")
+    # SELCOM_BUSINESS_MODE isn't blanked like the others above — its
+    # non-blank default ("sandbox") is itself part of what
+    # test_selcom_config_status_all_false_when_unconfigured asserts.
+    monkeypatch.setenv("SELCOM_BUSINESS_MODE", "sandbox")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

@@ -86,7 +86,7 @@ Supabase without these:
 | `SUPABASE_SERVICE_ROLE_KEY` | service_role key — **server-only, never exposed to the frontend** |
 | `SUPABASE_JWKS_URL` | `{Project URL}/auth/v1/.well-known/jwks.json` — verifies Supabase Auth access tokens (asymmetric, no shared secret, no network call per request beyond an internally-cached JWKS fetch) |
 | `SUPABASE_JWT_ISSUER` | `{Project URL}/auth/v1` |
-| `CORS_ORIGINS` | `["http://localhost:3000"]` for local dev — **note**: the code reads exactly this name (a JSON array); `FRONTEND_ORIGINS` is not recognized and has no effect if set instead |
+| `CORS_ORIGINS` | `["http://localhost:3000"]` for local dev — **note**: the code reads exactly this name; `FRONTEND_ORIGINS` is not recognized and has no effect if set instead. Accepts a JSON array or a plain comma-separated list; never `"*"` outside `ENVIRONMENT=development`. See [`docs/deployment-checklist.md`](./deployment-checklist.md) for the Railway production value and a CORS preflight verification check |
 | `PUBLIC_APP_URL` | `http://localhost:3000` — used to build payment-link checkout URLs. **Note**: the code reads exactly this name; `PUBLIC_WEB_URL` is not recognized and has no effect if set instead |
 
 **Optional / legacy / currently unused** — leave blank, this is never a

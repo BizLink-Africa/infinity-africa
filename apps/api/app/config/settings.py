@@ -1,6 +1,8 @@
+import json
 from decimal import Decimal
 from functools import lru_cache
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,8 +29,30 @@ class Settings(BaseSettings):
     # Database (Supabase Postgres connection string)
     database_url: str = ""
 
-    # CORS
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # CORS — origins allowed to call this API (allow_credentials=True in
+    # app/main.py, so this can never be "*" — the CORS spec disallows
+    # combining a wildcard origin with credentialed requests, and a browser
+    # will reject it). Read as a plain string here (not list[str]) so both
+    # a JSON array (CORS_ORIGINS=["https://infinityafrica.net"]) and a
+    # plain comma-separated value
+    # (CORS_ORIGINS=https://infinityafrica.net,https://www.infinityafrica.net)
+    # work — pydantic-settings would otherwise hard-require valid JSON for
+    # any list-typed field and reject a bare comma-separated value outright
+    # (Railway's env var UI makes typing JSON-with-quotes error-prone). Use
+    # the `cors_origins` property below, never this field, to read the
+    # parsed list.
+    cors_origins_raw: str = Field(
+        default='["http://localhost:3000"]', validation_alias="CORS_ORIGINS"
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        stripped = self.cors_origins_raw.strip()
+        if not stripped:
+            return []
+        if stripped.startswith("["):
+            return json.loads(stripped)
+        return [origin.strip() for origin in stripped.split(",") if origin.strip()]
 
     # Base URL of apps/web, used to build the public payment link URL
     # (public_slug -> {public_app_url}/pay/{public_slug}).
@@ -90,6 +114,22 @@ class Settings(BaseSettings):
     # Platform economics — simple placeholders until real pricing rules exist.
     platform_fee_percentage: Decimal = Decimal("1.5")
     disbursement_approval_threshold: Decimal = Decimal(1000000)  # TZS
+
+    @model_validator(mode="after")
+    def _reject_wildcard_cors_outside_development(self) -> "Settings":
+        """allow_credentials=True in app/main.py's CORSMiddleware makes a
+        "*" origin both a browser-rejected combination and a real security
+        hole (any site could call this API with a signed-in merchant's
+        cookies/credentials) — refuse it outright anywhere that isn't local
+        development, the same guardrail pattern as
+        SelcomBusinessMisconfiguredError below for SELCOM_BUSINESS_MODE."""
+        if self.environment != "development" and "*" in self.cors_origins:
+            raise ValueError(
+                'CORS_ORIGINS must not contain "*" when ENVIRONMENT is not "development" '
+                "(allow_credentials=True makes a wildcard origin unsafe and browsers reject it "
+                "anyway) — list explicit deployed frontend origins instead."
+            )
+        return self
 
 
 @lru_cache
