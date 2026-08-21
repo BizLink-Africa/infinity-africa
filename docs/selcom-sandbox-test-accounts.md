@@ -244,3 +244,43 @@ bank/FI code." result is Selcom's own business-logic response to that
 sandbox sample account — not an integration bug on our side, and not
 investigated further here (the `bank` preset's success already proves the
 integration itself works end-to-end).
+
+**`wallet` preset — also confirmed successful (2026-08-21).** Same shape as
+the `bank` preset above (`result: INPROGRESS`, `resultcode: 111`, receipt
+correctly parsed), no new field names — just a different fee schedule
+(`total_charges: 500` vs. `bank`'s `300`, i.e. `principal_amount: 1000` →
+`amount: 1500`). All three presets have now been run successfully at least
+once against real Selcom sandbox infrastructure.
+
+## Real end-to-end pipeline test — confirmed 2026-08-21
+
+Beyond the direct sandbox script (which bypasses all merchant-facing
+validation), the actual backend pipeline was exercised for real: a real
+platform fallback pricing rule was created
+(`POST /v1/admin/pricing-rules/platform-fallback`), a real quote was
+computed (`quote_withdrawal_fee`, correctly applied the new fallback rule),
+a real withdrawal was submitted (`execute_disbursement` →
+`PENDING_ADMIN_APPROVAL`, fee snapshot frozen, Selcom not called), and a
+real Super Admin approval was run (`approve_disbursement`) — which does
+call Selcom for real. Since `DestinationCode` (the real, merchant-facing
+enum) deliberately doesn't include `TESTBANK`/`TESTWALLET`, this used a
+real code (`CRDB`) with a fabricated account number, which Selcom's
+sandbox correctly rejected the same way the `selcom` preset's account was
+rejected — a real, informative `FAILED` result, not a code bug.
+
+This surfaced two real bugs in `app/services/disbursements.py`'s
+`_fail_and_reverse` (now fixed, with regression tests in
+`apps/api/tests/test_admin_withdrawals.py`):
+
+1. The failure reason was never persisted onto `disbursements.admin_status_reason`
+   — it only ever reached the audit log and the merchant notification text.
+2. On the `SelcomAPIError` exception path specifically (as opposed to a
+   clean `result.status == "failed"`), `_fail_and_reverse` was called
+   without `raw_response` at all — `exc.provider_response_body` (added in
+   an earlier session specifically to surface Selcom's real error body) was
+   being silently dropped instead of reaching `disbursements.selcom_raw_response`.
+
+Ledger correctness was independently verified: reservation and reversal
+are exactly symmetric (`amount + fee_amount` both ways), confirmed by
+comparing wallet balance before/after a full reserve → Selcom rejection →
+reverse cycle.

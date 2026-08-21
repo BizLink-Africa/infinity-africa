@@ -300,6 +300,13 @@ def _fail_and_reverse(
         client, "transactions", transaction_id, {"status": "reversed", "provider_reference": provider_reference}
     )
     update_data = {"status": "FAILED", "provider_reference": provider_reference, "completed_at": utc_now_iso()}
+    if reason is not None:
+        # Same column the "ambiguous"/BLOCKED_IP_WHITELIST paths already use
+        # for "why is this disbursement in its current state" — previously
+        # only reached write_audit_log/notify_merchant, never persisted onto
+        # the row itself, so the merchant/admin dashboards had no way to
+        # show a failed withdrawal's actual reason.
+        update_data["admin_status_reason"] = reason
     if raw_response is not None:
         update_data["selcom_raw_response"] = raw_response
     disbursement = update_row(client, "disbursements", disbursement_id, update_data)
@@ -460,6 +467,7 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
             currency=currency,
             provider_reference=None,
             reason=str(exc),
+            raw_response=exc.provider_response_body,
         )
         return _stamp_response_fields(disbursement, transaction)
 

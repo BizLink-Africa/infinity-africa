@@ -217,3 +217,56 @@ deliberately, because that page documents the literal wire format
 that page's own callout explaining the distinction. This document, and
 every merchant/admin-facing string introduced by this feature, uses
 "Withdrawal".
+
+## Real end-to-end pipeline verification (2026-08-21)
+
+Everything above was implemented and unit-tested against fakes/mocks
+before this date. On 2026-08-21, once Selcom sandbox signing was fixed
+(see [`docs/selcom-sandbox-test-accounts.md`](./selcom-sandbox-test-accounts.md)),
+the pipeline was exercised for real — real production database, real
+Selcom sandbox, via direct backend service-function calls (not the browser
+UI, and not through the merchant-facing HTTP schema, since `DestinationCode`
+deliberately excludes the sandbox-only `TESTBANK`/`TESTWALLET` codes — see
+"Sandbox-only" below):
+
+- **No platform fallback rule existed at all** before this date — created
+  via `POST /v1/admin/pricing-rules/platform-fallback`
+  (`channel: null, destination_code: null, percentage_fee: 1.0, flat_fee:
+  500, processor_fee_pass_through: true`).
+- **Quote** (`quote_withdrawal_fee`) correctly applied the new fallback
+  rule (`is_platform_fallback: true`, correct fee math: 1000 → 510 total
+  charges → 1510 reserved).
+- **Submission** (`execute_disbursement`) correctly landed
+  `PENDING_ADMIN_APPROVAL` with the fee snapshot frozen, and did not touch
+  Selcom.
+- **Approval** (`approve_disbursement`) correctly reserved the ledger,
+  called the real Selcom sandbox (using a real `DestinationCode` —
+  `CRDB` — with a fabricated account number, since the sandbox-only codes
+  aren't reachable through this real, validated path), got a real
+  business-logic rejection from Selcom, and correctly reversed the ledger
+  reservation and marked the withdrawal `FAILED`. Ledger symmetry was
+  independently verified: wallet balance before submission exactly equals
+  balance after the failed-and-reversed cycle.
+
+**Two real bugs found and fixed** in `_fail_and_reverse()`
+(`app/services/disbursements.py`), both regression-tested in
+`apps/api/tests/test_admin_withdrawals.py`:
+
+1. The failure reason was computed and passed around (audit log, merchant
+   notification) but never actually written onto
+   `disbursements.admin_status_reason` — so a failed withdrawal's reason
+   was invisible on the record itself, only in the audit trail.
+2. On the `SelcomAPIError` exception path specifically (as opposed to a
+   clean `result.status == "failed"`), `_fail_and_reverse` was called
+   without `raw_response` at all, so `exc.provider_response_body` (Selcom's
+   real error body, added in an earlier session specifically to make this
+   debuggable) was silently dropped instead of reaching
+   `disbursements.selcom_raw_response`.
+
+**Not yet verified**: a real terminal `SUCCESS` or `NEEDS_RECONCILIATION`
+result through this pipeline (only `FAILED` has been exercised for real —
+getting `SUCCESS` would require a real destination_code Selcom's sandbox
+actually accepts, which none of the 18 production codes are), and the
+actual browser UI end-to-end (Merchant Portal → Super Admin Console) —
+everything above was verified via direct backend calls, not clicking
+through the deployed frontend.

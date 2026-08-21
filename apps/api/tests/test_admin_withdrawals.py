@@ -279,6 +279,16 @@ def test_provider_failure_reverses_reservation(fake_client, monkeypatch):
     assert response.json()["data"]["status"] == "FAILED"
     assert _wallet_balance(fake_client, merchant_id) == Decimal("10000.00")
 
+    # Regression: _fail_and_reverse must persist the failure reason onto
+    # admin_status_reason (previously only reached the audit log/merchant
+    # notification, never the row itself — found via a real Selcom sandbox
+    # rejection during end-to-end testing, see docs/selcom-sandbox-test-accounts.md).
+    assert response.json()["data"]["admin_status_reason"] in (
+        "Invalid recipient account",
+        "Provider network timeout",
+        "Payout limit exceeded",
+    )
+
     transaction = next(
         t for t in fake_client.table("transactions")._table.rows if t["disbursement_id"] == body["id"]
     )
@@ -317,12 +327,59 @@ def test_immediate_provider_exception_reverses_reservation(fake_client, monkeypa
     assert response.status_code == 200, response.text
     assert response.json()["data"]["status"] == "FAILED"
     assert _wallet_balance(fake_client, merchant_id) == Decimal("10000.00")
+    # Same admin_status_reason regression as test_provider_failure_reverses_reservation
+    # above, exercised via the SelcomAPIError branch instead of a clean
+    # result.status == "failed" — str(exc) is the message passed to SelcomAPIError().
+    assert response.json()["data"]["admin_status_reason"] == "Could not reach Selcom Business API (TimeoutException)"
 
     audit_events = [a for a in fake_client.table("audit_logs")._table.rows if a["action"] == "disbursement.failed"]
     assert len(audit_events) == 1
     assert audit_events[0]["actor_type"] == "system"
     notifications = fake_client.table("notifications")._table.rows
     assert any(n["notification_type"] == "withdrawal_failed" for n in notifications)
+
+
+def test_provider_exception_with_response_body_stores_raw_response(fake_client, monkeypatch):
+    """Regression test: when Selcom rejects a request with a parseable
+    error body (SelcomAPIError.provider_response_body — see
+    app/services/selcom_business/live_client.py), that body must reach
+    disbursements.selcom_raw_response, not be silently dropped. Found via a
+    real Selcom sandbox HTTP 400 during end-to-end testing (see
+    docs/selcom-sandbox-test-accounts.md) — previously _fail_and_reverse
+    was called without raw_response at all on this path."""
+    import app.services.disbursements as disbursements_module
+    from app.core.errors import SelcomAPIError
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client, webhook_url="https://merchant.example.com/hooks")
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+    body = _request_withdrawal(merchant_id, admin_id, "4000.00")
+
+    error_body = {
+        "success": False,
+        "error_code": -40,
+        "message": "Invalid account number for the provided bank/FI code.",
+        "result": "FAIL",
+        "resultcode": "-40",
+        "data": [],
+    }
+
+    class _RaisingWithBodyProvider:
+        async def process_transaction(self, **kwargs):
+            raise SelcomAPIError(
+                "Selcom Business API returned HTTP 400 for /transaction/process",
+                provider_status_code=400,
+                provider_response_body=error_body,
+            )
+
+    monkeypatch.setattr(disbursements_module, "get_selcom_business_client", lambda: _RaisingWithBodyProvider())
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+    response = _approve(body["id"], super_admin_id)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["status"] == "FAILED"
+    assert response.json()["data"]["selcom_raw_response"] == error_body
 
 
 def test_blocked_ip_whitelist_does_not_reverse_reservation(fake_client, monkeypatch):
