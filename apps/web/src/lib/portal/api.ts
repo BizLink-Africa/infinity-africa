@@ -2,24 +2,20 @@
  * Data-access boundary for the merchant portal.
  *
  * Payment links, invoices, collections, withdrawals (disbursements),
- * transactions, API keys, and webhooks call the real apps/api /v1/merchant/*
- * endpoints — see docs/api.md. Everything else (customers, wallet, team,
- * support) still resolves against the in-memory mock-data.ts arrays, since
- * no corresponding self-service endpoint exists yet; each section below is
- * labeled LIVE or MOCK accordingly.
+ * transactions, API keys, webhooks, and the wallet ledger call the real
+ * apps/api /v1/merchant/* endpoints — see docs/api.md. Everything else
+ * (customers, team, support) still resolves against the in-memory
+ * mock-data.ts arrays, since no corresponding self-service endpoint exists
+ * yet; each section below is labeled LIVE or MOCK accordingly. Linked
+ * withdrawal accounts (listWalletAccounts) has no backend concept at all
+ * yet — not even mocked, it's a real empty array.
  *
  * No component should import mock-data.ts directly — only this file does.
  */
 
 import { getAccessTokenClient } from "@/lib/supabase/client-session";
 
-import {
-  mockCustomers,
-  mockSupportTickets,
-  mockWalletAccounts,
-  mockWalletLedger,
-  MOCK_MERCHANT_ID,
-} from "./mock-data";
+import { mockCustomers, mockSupportTickets, MOCK_MERCHANT_ID } from "./mock-data";
 import type {
   ApiEnvelope,
   ApiKey,
@@ -420,13 +416,12 @@ export async function deactivateMerchantUser(userRowId: string): Promise<Merchan
 
 // ============================================================================
 // Everything below is still MOCK — no /v1/merchant/* endpoint exists yet for
-// customers, wallet, or support.
+// customers or support. (Wallet ledger is LIVE — see below; linked
+// withdrawal accounts has no backend concept at all yet, not even mocked.)
 // ============================================================================
 
 const mockStore = {
   customers: mockCustomers(),
-  walletAccounts: mockWalletAccounts(),
-  walletLedger: mockWalletLedger(),
   supportTickets: mockSupportTickets(),
 };
 
@@ -468,14 +463,18 @@ export async function createCustomer(input: CreateCustomerInput): Promise<Custom
   return customer;
 }
 
-// --- Wallet (MOCK) ------------------------------------------------------------
-
-export async function listWalletAccounts(): Promise<WalletAccount[]> {
-  return mockStore.walletAccounts;
-}
+// --- Wallet ---------------------------------------------------------------
 
 export async function listWalletLedger(): Promise<WalletLedgerEntry[]> {
-  return mockStore.walletLedger;
+  return (await apiGet<WalletLedgerEntry[]>("/v1/merchant/wallet/ledger")) ?? [];
+}
+
+/** No backend concept of a "linked withdrawal account" exists yet — a
+ * withdrawal takes its destination fresh at submission time, nothing is
+ * saved. Returns [] (an honest empty state, not mock data) until that
+ * feature exists for real. */
+export async function listWalletAccounts(): Promise<WalletAccount[]> {
+  return [];
 }
 
 // --- Support (MOCK) ------------------------------------------------------------

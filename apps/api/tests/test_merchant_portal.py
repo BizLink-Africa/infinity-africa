@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.main import app
+from app.services.ledger import post_collection_entries, post_disbursement_entries
 from app.services.selcom.client import get_selcom_client
 from tests.factories import (
     TEST_JWT_SECRET,
@@ -602,6 +603,69 @@ def test_overview_aggregates_all_fields(fake_client):
 def test_overview_404s_with_no_membership(fake_client):
     user_id = uuid.uuid4()
     response = client.get("/v1/merchant/overview", headers=auth_headers(user_id))
+    assert response.status_code == 404
+
+
+# --- Wallet ---------------------------------------------------------------
+
+
+def test_wallet_ledger_returns_entries_newest_first_with_running_balance(fake_client):
+    merchant_id, user_id = _merchant_and_member(fake_client)
+
+    post_collection_entries(
+        fake_client,
+        transaction_id=uuid.uuid4(),
+        merchant_id=merchant_id,
+        gross_amount=Decimal("1000.00"),
+        fee_amount=Decimal(0),
+        net_amount=Decimal("1000.00"),
+        currency="TZS",
+    )
+    post_disbursement_entries(
+        fake_client,
+        transaction_id=uuid.uuid4(),
+        merchant_id=merchant_id,
+        amount=Decimal("300.00"),
+        currency="TZS",
+    )
+
+    response = client.get("/v1/merchant/wallet/ledger", headers=auth_headers(user_id))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    rows = body["data"]
+
+    assert len(rows) == 2
+    assert rows[0]["direction"] == "debit"
+    assert Decimal(rows[0]["balance_after"]) == Decimal("700.00")
+    assert rows[1]["direction"] == "credit"
+    assert Decimal(rows[1]["balance_after"]) == Decimal("1000.00")
+    assert body["meta"]["total"] == 2
+
+
+def test_wallet_ledger_paginates(fake_client):
+    merchant_id, user_id = _merchant_and_member(fake_client)
+    for _ in range(3):
+        post_collection_entries(
+            fake_client,
+            transaction_id=uuid.uuid4(),
+            merchant_id=merchant_id,
+            gross_amount=Decimal("100.00"),
+            fee_amount=Decimal(0),
+            net_amount=Decimal("100.00"),
+            currency="TZS",
+        )
+
+    response = client.get("/v1/merchant/wallet/ledger?page=1&page_size=2", headers=auth_headers(user_id))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["data"]) == 2
+    assert body["meta"]["total"] == 3
+    assert body["meta"]["total_pages"] == 2
+
+
+def test_wallet_ledger_404s_with_no_membership(fake_client):
+    user_id = uuid.uuid4()
+    response = client.get("/v1/merchant/wallet/ledger", headers=auth_headers(user_id))
     assert response.status_code == 404
 
 

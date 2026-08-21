@@ -53,6 +53,7 @@ from app.schemas.merchant_portal import (
     MerchantUserCreate,
     MerchantUserResponse,
     MerchantUserUpdate,
+    WalletLedgerEntryResponse,
     WithdrawalCreate,
 )
 from app.schemas.merchants import MerchantResponse
@@ -74,6 +75,7 @@ from app.services.crud import (
 )
 from app.services.disbursements import execute_disbursement, quote_withdrawal_fee
 from app.services.idempotency import run_idempotent
+from app.services.ledger import list_wallet_ledger
 from app.services.merchant_overview import get_merchant_overview
 from app.services.payment_links import (
     batch_collection_counts,
@@ -111,6 +113,25 @@ def get_my_overview(
     client = get_supabase_admin()
     overview = get_merchant_overview(client, merchant_id=membership.merchant_id)
     return APIResponse(data=MerchantOverviewResponse(**overview))
+
+
+# --- Wallet -------------------------------------------------------------------
+
+
+@router.get("/wallet/ledger", response_model=APIResponse[list[WalletLedgerEntryResponse]])
+def list_my_wallet_ledger(
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role())],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+):
+    client = get_supabase_admin()
+    merchant = get_by_id(client, "merchants", membership.merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+    rows, total = list_wallet_ledger(
+        client, merchant_id=membership.merchant_id, currency=merchant["currency"], pagination=pagination
+    )
+    data = [WalletLedgerEntryResponse(**row) for row in rows]
+    return APIResponse(data=data, meta=build_page_meta(pagination, total))
 
 
 # --- Payment links ------------------------------------------------------------

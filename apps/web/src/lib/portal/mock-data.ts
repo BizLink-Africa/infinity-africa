@@ -6,18 +6,9 @@
  * this UI was built from.
  */
 
-import { CollectionMethod, DisbursementMethod, InvoiceStatus } from "@infinity/shared";
+import { CollectionMethod, InvoiceStatus } from "@infinity/shared";
 
-import type {
-  ApiKey,
-  Collection,
-  Customer,
-  Invoice,
-  SupportTicket,
-  Transaction,
-  WalletAccount,
-  WalletLedgerEntry,
-} from "./types";
+import type { ApiKey, Collection, Customer, Invoice, SupportTicket, Transaction } from "./types";
 
 export const MOCK_MERCHANT_ID = "5c1f0b2a-0000-4000-8000-000000000001";
 
@@ -255,25 +246,6 @@ export function mockCustomers(): Customer[] {
 
 export function mockApiKeys(): ApiKey[] {
   return [];
-}
-
-export function mockWalletAccounts(): WalletAccount[] {
-  return [
-    { id: nextId("wa"), method: DisbursementMethod.SELCOM_PESA, label: "Selcom Pesa Wallet", masked_identifier: "•••• 7291", is_default: true },
-    { id: nextId("wa"), method: DisbursementMethod.MOBILE_MONEY, label: "M-Pesa", masked_identifier: "+255 754 •••• 908", is_default: false },
-    { id: nextId("wa"), method: DisbursementMethod.BANK_ACCOUNT, label: "CRDB Bank", masked_identifier: "•••• 4821", is_default: false },
-  ];
-}
-
-export function mockWalletLedger(): WalletLedgerEntry[] {
-  return [
-    { id: nextId("wl"), date: "2026-08-13T09:12:00Z", description: "Collection from Juma Traders", direction: "credit", amount: "480000.00", balance_after: "4820000.00" },
-    { id: nextId("wl"), date: "2026-08-13T08:47:00Z", description: "Withdrawal to CRDB Bank", direction: "debit", amount: "1200000.00", balance_after: "4340000.00" },
-    { id: nextId("wl"), date: "2026-08-12T17:30:00Z", description: "Transaction fee", direction: "debit", amount: "8400.00", balance_after: "5540000.00" },
-    { id: nextId("wl"), date: "2026-08-12T14:05:00Z", description: "Invoice payment from Amani Store", direction: "credit", amount: "2150000.00", balance_after: "5548400.00" },
-    { id: nextId("wl"), date: "2026-08-11T19:22:00Z", description: "Payment link collection — Neema Salon", direction: "credit", amount: "96000.00", balance_after: "3398400.00" },
-    { id: nextId("wl"), date: "2026-08-11T11:58:00Z", description: "Withdrawal to NMB Bank — Grace Mwakalinga", direction: "debit", amount: "640000.00", balance_after: "3302400.00" },
-  ];
 }
 
 export function mockSupportTickets(): SupportTicket[] {

@@ -4,8 +4,10 @@ from decimal import Decimal
 import pytest
 
 from app.core.errors import InsufficientBalanceError
+from app.core.pagination import PaginationParams
 from app.services.ledger import (
     get_wallet_balance,
+    list_wallet_ledger,
     post_collection_entries,
     post_disbursement_entries,
     reverse_disbursement_entries,
@@ -268,3 +270,101 @@ def test_ledger_accounts_are_reused_not_duplicated():
     assert len(wallet_accounts) == 1
     assert len(settlement_accounts) == 1
     assert len(revenue_accounts) == 1
+
+
+def test_list_wallet_ledger_computes_running_balance_newest_first():
+    """ledger_entries has no stored per-row balance — list_wallet_ledger
+    computes balance_after itself from ledger_accounts.balance's sign
+    convention (credit +, debit -), newest entry first (see
+    app/services/ledger.py::list_wallet_ledger)."""
+    client = FakeSupabaseClient()
+    merchant_id = uuid.uuid4()
+
+    post_collection_entries(
+        client,
+        transaction_id=uuid.uuid4(),
+        merchant_id=merchant_id,
+        gross_amount=Decimal("1000.00"),
+        fee_amount=Decimal(0),
+        net_amount=Decimal("1000.00"),
+        currency="TZS",
+    )
+    post_disbursement_entries(
+        client,
+        transaction_id=uuid.uuid4(),
+        merchant_id=merchant_id,
+        amount=Decimal("300.00"),
+        currency="TZS",
+    )
+
+    rows, total = list_wallet_ledger(
+        client, merchant_id=merchant_id, currency="TZS", pagination=PaginationParams(page=1, page_size=20)
+    )
+
+    assert total == 2
+    # Newest first: the disbursement's wallet debit lands before the
+    # collection's wallet credit.
+    assert rows[0]["direction"] == "debit"
+    assert Decimal(rows[0]["balance_after"]) == Decimal("700.00")
+    assert rows[1]["direction"] == "credit"
+    assert Decimal(rows[1]["balance_after"]) == Decimal("1000.00")
+
+
+def test_list_wallet_ledger_paginates():
+    client = FakeSupabaseClient()
+    merchant_id = uuid.uuid4()
+
+    for _ in range(5):
+        post_collection_entries(
+            client,
+            transaction_id=uuid.uuid4(),
+            merchant_id=merchant_id,
+            gross_amount=Decimal("100.00"),
+            fee_amount=Decimal(0),
+            net_amount=Decimal("100.00"),
+            currency="TZS",
+        )
+
+    page_1, total = list_wallet_ledger(
+        client, merchant_id=merchant_id, currency="TZS", pagination=PaginationParams(page=1, page_size=2)
+    )
+    page_2, _ = list_wallet_ledger(
+        client, merchant_id=merchant_id, currency="TZS", pagination=PaginationParams(page=2, page_size=2)
+    )
+
+    assert total == 5
+    assert len(page_1) == 2
+    assert len(page_2) == 2
+    assert {row["id"] for row in page_1}.isdisjoint({row["id"] for row in page_2})
+
+
+def test_list_wallet_ledger_scoped_to_one_merchant():
+    client = FakeSupabaseClient()
+    merchant_id = uuid.uuid4()
+    other_merchant_id = uuid.uuid4()
+
+    post_collection_entries(
+        client,
+        transaction_id=uuid.uuid4(),
+        merchant_id=merchant_id,
+        gross_amount=Decimal("500.00"),
+        fee_amount=Decimal(0),
+        net_amount=Decimal("500.00"),
+        currency="TZS",
+    )
+    post_collection_entries(
+        client,
+        transaction_id=uuid.uuid4(),
+        merchant_id=other_merchant_id,
+        gross_amount=Decimal("999.00"),
+        fee_amount=Decimal(0),
+        net_amount=Decimal("999.00"),
+        currency="TZS",
+    )
+
+    rows, total = list_wallet_ledger(
+        client, merchant_id=merchant_id, currency="TZS", pagination=PaginationParams(page=1, page_size=20)
+    )
+
+    assert total == 1
+    assert Decimal(rows[0]["balance_after"]) == Decimal("500.00")

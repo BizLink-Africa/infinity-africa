@@ -12,6 +12,7 @@ modules wherever nothing about them is merchant_id-specific.
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -37,6 +38,18 @@ class MerchantOverviewResponse(BaseModel):
     active_payment_links: int
     unpaid_invoices: int
     total_fees_charged: Decimal
+
+
+# --- Wallet -------------------------------------------------------------------
+
+
+class WalletLedgerEntryResponse(BaseModel):
+    id: uuid.UUID
+    date: datetime
+    description: str | None = None
+    direction: Literal["credit", "debit"]
+    amount: Decimal
+    balance_after: Decimal
 
 
 # --- Payment links ------------------------------------------------------------

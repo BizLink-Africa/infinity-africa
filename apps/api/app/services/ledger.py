@@ -14,6 +14,7 @@ from decimal import Decimal
 from supabase import Client
 
 from app.core.errors import InsufficientBalanceError
+from app.core.pagination import PaginationParams
 from app.services.crud import execute_maybe_single, get_by_id, insert_row
 
 
@@ -93,6 +94,58 @@ def get_wallet_balance(client: Client, *, merchant_id: uuid.UUID, currency: str)
     )
     account = get_by_id(client, "ledger_accounts", account_id)
     return Decimal(str(account["balance"])) if account else Decimal(0)
+
+
+def list_wallet_ledger(
+    client: Client, *, merchant_id: uuid.UUID, currency: str, pagination: PaginationParams
+) -> tuple[list[dict], int]:
+    """Every ledger_entries row for the merchant's wallet account, newest
+    first, with a per-row balance_after computed here — ledger_entries
+    itself stores no running balance (only ledger_accounts.balance, the
+    current cached total; see supabase/migrations/20260814090012_ledger_accounts.sql).
+    Credits increase the wallet, debits decrease it (a `merchant_wallet`
+    row is a liability account) — same sign convention already used by
+    post_collection_entries/post_disbursement_entries/reverse_disbursement_entries
+    above.
+
+    Fetches the full entry history to compute correct running balances
+    before paginating in Python — acceptable at merchant-portal scale, the
+    same tradeoff app/services/merchant_overview.py already makes; revisit
+    with a real query/materialized view if this ever needs to scale past
+    that."""
+    account_id = _get_or_create_ledger_account(
+        client, merchant_id=merchant_id, purpose="merchant_wallet", account_type="liability", currency=currency
+    )
+    entries = (
+        client.table("ledger_entries")
+        .select("*")
+        .eq("ledger_account_id", str(account_id))
+        .order("created_at", desc=False)
+        .execute()
+        .data
+        or []
+    )
+
+    running = Decimal(0)
+    enriched = []
+    for entry in entries:
+        amount = Decimal(str(entry["amount"]))
+        running += amount if entry["direction"] == "credit" else -amount
+        enriched.append(
+            {
+                "id": entry["id"],
+                "date": entry["created_at"],
+                "description": entry.get("description"),
+                "direction": entry["direction"],
+                "amount": str(amount),
+                "balance_after": str(running),
+            }
+        )
+    enriched.reverse()  # newest first, matching every other list endpoint's convention
+
+    total = len(enriched)
+    page = enriched[pagination.start : pagination.end + 1]
+    return page, total
 
 
 def post_collection_entries(
