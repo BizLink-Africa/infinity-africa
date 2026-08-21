@@ -382,6 +382,58 @@ def test_provider_exception_with_response_body_stores_raw_response(fake_client, 
     assert response.json()["data"]["selcom_raw_response"] == error_body
 
 
+def test_selcom_raw_response_save_failure_still_reaches_failed_status(fake_client, monkeypatch):
+    """Regression test: this happened for real in production —
+    selcom_raw_response was missing from the database (a migration that
+    was never applied), so _fail_and_reverse crashed with a 500 partway
+    through its update, after the ledger reversal had already run and
+    could not be undone. The disbursement was left stuck at PROCESSING
+    forever, with retry-approve and refresh-status both 409ing. A failure
+    to save selcom_raw_response specifically must never again block
+    reaching the terminal FAILED status — see
+    docs/withdrawal-pricing-and-approval.md."""
+    import app.services.disbursements as disbursements_module
+    from app.core.errors import SelcomAPIError
+    from app.services.crud import update_row as real_update_row
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client, webhook_url="https://merchant.example.com/hooks")
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+    body = _request_withdrawal(merchant_id, admin_id, "4000.00")
+
+    class _RaisingWithBodyProvider:
+        async def process_transaction(self, **kwargs):
+            raise SelcomAPIError(
+                "Selcom Business API returned HTTP 400 for /transaction/process",
+                provider_status_code=400,
+                provider_response_body={"success": False, "message": "Invalid account."},
+            )
+
+    monkeypatch.setattr(disbursements_module, "get_selcom_business_client", lambda: _RaisingWithBodyProvider())
+
+    def _update_row_missing_raw_response_column(client, table, row_id, data, **kwargs):
+        if table == "disbursements" and "selcom_raw_response" in data:
+            raise RuntimeError(
+                "{'message': \"Could not find the 'selcom_raw_response' column of 'disbursements' "
+                "in the schema cache\", 'code': 'PGRST204'}"
+            )
+        return real_update_row(client, table, row_id, data, **kwargs)
+
+    monkeypatch.setattr(disbursements_module, "update_row", _update_row_missing_raw_response_column)
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+    response = _approve(body["id"], super_admin_id)
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["status"] == "FAILED"
+    assert data["admin_status_reason"] == "Selcom Business API returned HTTP 400 for /transaction/process"
+    # Never actually saved (the whole point of this test) — falsy either
+    # way the fixture's unset-jsonb-column default renders it (None or {}).
+    assert not data["selcom_raw_response"]
+    assert _wallet_balance(fake_client, merchant_id) == Decimal("10000.00")
+
+
 def test_blocked_ip_whitelist_does_not_reverse_reservation(fake_client, monkeypatch):
     """A 403 from Selcom (IP not whitelisted — Selcom's own error code 611)
     is an operator problem, not a payout failure — funds stay reserved

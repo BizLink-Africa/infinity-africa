@@ -20,6 +20,7 @@ approving it later uses that stored snapshot, never recalculates. Rejecting
 one never reserved anything, so there's nothing to reverse.
 """
 
+import logging
 import uuid
 from decimal import Decimal
 
@@ -48,6 +49,8 @@ from app.services.notifications_service import notify_merchant
 from app.services.selcom_business.client import get_selcom_business_client
 from app.services.webhooks import enqueue_webhook_event
 from app.services.withdrawals.fee_calculator import calculate_withdrawal_fee
+
+logger = logging.getLogger("infinity.disbursements")
 
 _AWAITING_ADMIN_STATUSES = ("PENDING_ADMIN_APPROVAL", "INFO_REQUESTED")
 
@@ -309,7 +312,23 @@ def _fail_and_reverse(
         update_data["admin_status_reason"] = reason
     if raw_response is not None:
         update_data["selcom_raw_response"] = raw_response
-    disbursement = update_row(client, "disbursements", disbursement_id, update_data)
+    try:
+        disbursement = update_row(client, "disbursements", disbursement_id, update_data)
+    except Exception:
+        # The ledger reversal above already ran and cannot be undone — a
+        # disbursement reaching its terminal FAILED status must never be
+        # blocked by a problem saving a single extra field (e.g. schema
+        # drift like a column that hasn't been migrated onto this database
+        # yet). Retry without selcom_raw_response rather than leave the row
+        # stuck at its pre-failure status with no way to resolve it.
+        if "selcom_raw_response" not in update_data:
+            raise
+        logger.exception(
+            "disbursement_selcom_raw_response_save_failed disbursement_id=%s — retrying without it",
+            disbursement_id,
+        )
+        del update_data["selcom_raw_response"]
+        disbursement = update_row(client, "disbursements", disbursement_id, update_data)
     write_audit_log(
         client,
         action="disbursement.failed",
