@@ -14,14 +14,12 @@ export async function approveOnboardingAction(id: string) {
   revalidateOnboarding(id);
 }
 
-export async function rejectOnboardingAction(id: string, formData: FormData) {
-  const note = String(formData.get("note") ?? "").trim() || null;
+export async function rejectOnboardingAction(id: string, note: string | null) {
   await rejectOnboardingSubmission(id, note);
   revalidateOnboarding(id);
 }
 
-export async function requestInfoOnboardingAction(id: string, formData: FormData) {
-  const note = String(formData.get("note") ?? "").trim() || null;
+export async function requestInfoOnboardingAction(id: string, note: string | null) {
   await requestMoreInfoOnboardingSubmission(id, note);
   revalidateOnboarding(id);
 }

@@ -3,13 +3,9 @@
 import Link from "next/link";
 
 import { tdClass, thClass } from "@/components/portal/card";
+import { OnboardingReviewActions } from "@/components/super-admin/onboarding-review-actions";
 import { StatusBadge, type BadgeTone } from "@/components/portal/status-badge";
 import { formatDateTime } from "@/lib/format";
-import {
-  approveOnboardingAction,
-  rejectOnboardingAction,
-  requestInfoOnboardingAction,
-} from "@/lib/onboarding/admin-actions";
 import type { OnboardingSubmission } from "@/lib/onboarding/types";
 import { ACCOUNT_STATUS_LABELS, AccountStatus, DOCUMENT_UPLOAD_STATUS_LABELS, SERVICE_NEEDED_LABELS } from "@infinity/shared";
 
@@ -84,34 +80,7 @@ export function OnboardingTable({ rows }: { rows: OnboardingSubmission[] }) {
                   >
                     View
                   </Link>
-                  <form className="flex flex-col items-end gap-1.5">
-                    <input
-                      type="text"
-                      name="note"
-                      placeholder="Note (optional)"
-                      className="w-40 rounded-lg border border-outline-variant bg-transparent px-2 py-1 text-xs text-on-surface placeholder-outline focus:outline-none focus:border-primary-container"
-                    />
-                    <div className="flex gap-1.5">
-                      <button
-                        formAction={approveOnboardingAction.bind(null, row.id)}
-                        className="px-2.5 py-1 rounded-lg bg-primary-container text-on-primary text-xs font-semibold hover:opacity-90"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        formAction={rejectOnboardingAction.bind(null, row.id)}
-                        className="px-2.5 py-1 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container-low"
-                      >
-                        Reject
-                      </button>
-                      <button
-                        formAction={requestInfoOnboardingAction.bind(null, row.id)}
-                        className="px-2.5 py-1 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container-low"
-                      >
-                        Request Info
-                      </button>
-                    </div>
-                  </form>
+                  <OnboardingReviewActions submissionId={row.id} variant="compact" />
                 </div>
               </td>
             </tr>
