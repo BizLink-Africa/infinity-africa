@@ -160,23 +160,31 @@ If the container's working directory ever isn't the app root, wrap it:
 | Response | Meaning | Next step |
 | --- | --- | --- |
 | HTTP 403, or Selcom code `611` (`is_ip_whitelist_error: True`) | Outbound IP isn't whitelisted, or the whitelist setting wasn't saved/applied on Selcom's side | Re-check the outbound IP command above against the whitelist list; don't touch signing code |
-| `{"success": false, "message": "Invalid signature."}` (HTTP 401) | IP whitelist is fine — Selcom received and evaluated the request. The RSA signature itself doesn't verify | Almost always means the **public** half of the RSA keypair isn't registered with Selcom for this API key/account (see below) — don't rewrite signing logic without evidence from Selcom docs/support first |
-| `SUCCESS` / result code `000` | Both IP whitelist and signature are working | Capture the raw response body (redact sensitive fields), compare against `apps/api/app/services/selcom_business/parsing.py`'s guessed field names, update the parser if they differ |
-| `INPROGRESS` / `111` / `927` | Accepted, pending — treat as a real success path, not a failure | Same as above — capture the shape and verify the parser handles it |
+| `{"success": false, "message": "Invalid signature."}` (HTTP 401) | IP whitelist is fine — Selcom received and evaluated the request. The RSA signature itself doesn't verify | Regenerate the signing key from Selcom's Business portal (Signing Keys → Regenerate Signing Key) rather than self-generating a keypair — see below, this was the confirmed root cause and fix on 2026-08-21 |
+| `SUCCESS` / result code `000`, or `INPROGRESS` / `111` / `927` | IP whitelist and signature are both working — real Selcom business logic is now being evaluated | Confirmed 2026-08-21 for `INPROGRESS`/`111` — see "Real sandbox response shape" below. `parsing.py` already handles this shape |
 | `AMBIGUOUS` / `999` | Selcom itself is unsure of the outcome (needs reconciliation) | Capture the shape and verify the parser's ambiguous-status handling |
 
-**If stuck on "Invalid signature":** this project's keypair was
-self-generated (not issued by Selcom), so Selcom must have the matching
-**public** key on file to verify signatures made with the private key.
-Derive the public key (safe to share — never the private key) with:
+**"Invalid signature" root cause, confirmed 2026-08-21:** an earlier
+self-generated keypair was used, but Selcom's Business Disbursement API
+portal manages its **own** signing keypair per account — there's no flow
+for uploading a merchant-generated public key. Fixed via the portal's
+**Signing Keys** section → **Regenerate Signing Key**, which generates a
+new keypair on Selcom's side and hands back the new private key as a
+one-time download (their own UI warns "it cannot be recovered after
+leaving this page" — save it somewhere durable immediately). That
+downloaded file is the new `SELCOM_BUSINESS_PRIVATE_KEY_BASE64` value —
+base64-encode its raw bytes (it's already PEM text) and set it in both
+local `apps/api/.env` and Railway's `web` service Variables, then
+redeploy:
 
-```bash
-cd apps/api
-python -c "import base64; from cryptography.hazmat.primitives import serialization; b64 = [l for l in open('.env') if l.startswith('SELCOM_BUSINESS_PRIVATE_KEY_BASE64=')][0].strip().split('=',1)[1]; key = serialization.load_pem_private_key(base64.b64decode(b64), password=None); print(key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode())"
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("<path-to-downloaded-.pem>")) | Set-Clipboard
 ```
 
-then confirm with Selcom (portal or support) that this exact public key is
-registered against the `SELCOM_BUSINESS_API_KEY` in use.
+After this fix, all three presets reached real Selcom business logic —
+signature verification passing, not failing — confirming this was the
+correct fix. Do not attempt to self-generate a keypair for this API again;
+always use the portal's Regenerate Signing Key flow.
 
 ## 4. Sandbox-only — never a production destination
 
@@ -189,9 +197,50 @@ and account numbers are for the direct sandbox test script only:
   format (no `+`) via `app/core/phone.py::normalize_tz_phone()`.
 - Bank withdrawals still require a real, configured bank destination code.
 
-## After a real sandbox response comes back
+## Real sandbox response shape — confirmed 2026-08-21
 
-Compare the raw response body each preset run prints against
-`app/services/selcom_business/parsing.py`'s field-name assumptions — see
-[`docs/deployment-checklist.md`](./deployment-checklist.md#5-after-a-real-sandbox-response-comes-back)
-for the full field-by-field comparison process.
+`app/services/selcom_business/parsing.py` is updated and tested against
+two real captured responses (see
+`apps/api/tests/test_selcom_business_parsing.py`'s
+`REAL_PROCESSING_RESPONSE`/`REAL_FAILED_RESPONSE` fixtures):
+
+```json
+// bank preset — processing (HTTP 200)
+{
+  "success": true, "error_code": 1,
+  "message": "Transaction processed successfully.",
+  "result": "INPROGRESS", "resultcode": "111",
+  "data": {
+    "trans_id": "INF-...", "selcom_receipt": "SBS-...", "status": "ACCEPTED",
+    "amount": 1300, "principal_amount": 1000, "total_charges": 300,
+    "charges_summary": "Fee 231, VAT 46, Excise Duty 23", "currency": "TZS"
+  }
+}
+
+// selcom preset — failed (HTTP 400, raised as SelcomAPIError before
+// reaching parse_transaction_result — see live_client.py)
+{
+  "success": false, "error_code": -40,
+  "message": "Invalid account number for the provided bank/FI code.",
+  "result": "FAIL", "resultcode": "-40", "data": []
+}
+```
+
+Two things the earlier guessed field names got wrong (now fixed): the
+transaction id and receipt are nested inside `data`, not top-level, and the
+real "processing" resultcode is `"111"`, not the previously guessed
+`"001"`. `data` is `[]` (not a dict) on failure — the parser handles both
+shapes. `"927"` (processing) and `"999"` (ambiguous) remain
+Selcom-documented-but-not-yet-observed codes, included on that basis, not
+guessed.
+
+Still unconfirmed: a real `SUCCESS`/`000` (fully completed, not
+`INPROGRESS`) response, and a real `AMBIGUOUS`/`999` response — the parser
+handles both per Selcom's documented codes, but hasn't been checked
+against a real example of either yet.
+
+The `selcom` preset's specific "Invalid account number for the provided
+bank/FI code." result is Selcom's own business-logic response to that
+sandbox sample account — not an integration bug on our side, and not
+investigated further here (the `bank` preset's success already proves the
+integration itself works end-to-end).
