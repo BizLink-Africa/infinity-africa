@@ -63,9 +63,14 @@ class DisbursementResponse(BaseModel):
     selcom_status: str | None = None
     # Full raw Selcom Business API response body from the last
     # transaction/process or transaction/query call — see
-    # app.services.selcom_business.parsing. Empty until a real (non-mock)
-    # provider call resolves this withdrawal.
-    selcom_raw_response: dict = Field(default_factory=dict)
+    # app.services.selcom_business.parsing. The column itself is nullable
+    # (supabase/migrations/20260820090002_disbursements_selcom_raw_response.sql)
+    # and Postgres/PostgREST returns an explicit `null`, not an absent key,
+    # for every row until a real (non-mock) provider call resolves this
+    # withdrawal — must allow None, not just default to {} for a missing
+    # key (a real production 500 on every GET/POST .../withdrawals until
+    # fixed, see docs/withdrawal-pricing-and-approval.md).
+    selcom_raw_response: dict | None = None
     # Fee snapshot — calculated once at request time and frozen here; a
     # later merchant_pricing_rules edit never changes an already-submitted
     # withdrawal. See app/services/withdrawals/fee_calculator.py.
