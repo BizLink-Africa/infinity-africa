@@ -125,4 +125,46 @@ describe("PaymentForm — wallet push", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(String(fetchMock.mock.calls[0][0])).not.toContain("/collect");
   });
+
+  it("polls the collection-status endpoint and shows cancelled/rejected copy distinctly from a generic failure", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: { collection_id: "col-1", payment_status: "pending", message: "Payment request sent to your phone. Please approve using your PIN." },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true, data: { status: "user_cancelled", message: "You cancelled this payment." } }),
+        });
+
+      render(<PaymentForm slug="test-slug" link={link} />);
+      selectWalletPush();
+      fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0747730270" } });
+      fireEvent.click(screen.getByRole("button", { name: /Pay/ }));
+
+      // Wait for the awaiting_confirmation render (proves the polling
+      // effect has already scheduled its setTimeout) before advancing
+      // fake timers — advancing too early races the effect itself.
+      await vi.waitFor(() =>
+        expect(
+          screen.getByText("Payment request sent to your phone. Please approve using your PIN."),
+        ).toBeInTheDocument(),
+      );
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+      const [pollUrl] = fetchMock.mock.calls[1];
+      expect(String(pollUrl)).toContain("/public/payment-links/test-slug/collections/col-1/status");
+
+      await vi.waitFor(() => expect(screen.getByText("Payment cancelled")).toBeInTheDocument());
+      expect(screen.getByText("You cancelled this payment.")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

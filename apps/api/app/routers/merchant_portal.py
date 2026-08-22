@@ -68,10 +68,12 @@ from app.services import disputes_service, document_requests_service
 from app.services.admin_directory import batch_user_profiles, best_effort_user_profile
 from app.services.audit import write_audit_log
 from app.services.checkout_orders import create_checkout_order_minimal
+from app.services.checkout_reconciliation import refresh_checkout_collection_status
 from app.services.collections import initiate_collection, initiate_dynamic_qr_collection
 from app.services.crud import (
     execute_maybe_single,
     get_by_id,
+    get_for_merchant,
     insert_row,
     list_for_merchant,
     update_row,
@@ -513,6 +515,26 @@ def list_my_collections(
     rows, total = list_for_merchant(client, "collections", merchant_id=membership.merchant_id, pagination=pagination)
     data = [CollectionResponse(**row) for row in rows]
     return APIResponse(data=data, meta=build_page_meta(pagination, total))
+
+
+@router.post("/collections/{collection_id}/refresh-status", response_model=APIResponse[CollectionResponse])
+async def refresh_my_collection_status(
+    collection_id: uuid.UUID,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
+):
+    """Manual reconciliation for a Selcom Checkout wallet-push collection
+    left "processing" — queries Selcom's order-status directly and
+    applies the same completion logic the webhook uses
+    (app/services/checkout_reconciliation.py). Scoped to the caller's own
+    merchant via get_for_merchant, same as every other merchant-portal
+    single-resource lookup."""
+    client = get_supabase_admin()
+    collection = get_for_merchant(client, "collections", merchant_id=membership.merchant_id, row_id=collection_id)
+    if not collection:
+        raise NotFoundError("Collection not found")
+
+    resolved = await refresh_checkout_collection_status(client, collection_id=collection_id)
+    return APIResponse(data=CollectionResponse(**resolved))
 
 
 async def _create_my_push_collection(

@@ -90,3 +90,27 @@ class WalletPaymentResult(BaseModel):
     message: str
     status: WalletPaymentStatus
     raw_response: dict
+
+
+class OrderStatusResult(BaseModel):
+    """Parsed result of GET /v1/checkout/order-status?order_id=... —
+    the reconciliation query used by both the manual refresh endpoints
+    and (indirectly, via the same completion mapping) the webhook
+    handler. `payment_status` is Selcom's own field and the authoritative
+    completion signal per the credit rule (app/services/
+    checkout_reconciliation.py); `result`/`resultcode` are the same
+    top-level envelope fields every other Checkout endpoint uses, kept
+    here for cross-checking, not as the primary signal for this one."""
+
+    reference: str
+    resultcode: str
+    result: str
+    message: str
+    order_id: str | None = None
+    creation_date: str | None = None
+    amount: str | None = None
+    payment_status: str | None = None
+    transid: str | None = None
+    channel: str | None = None
+    phone: str | None = None
+    raw_response: dict

@@ -24,12 +24,12 @@ per call. Confirmed endpoint paths, for when more of these are added
     POST /v1/checkout/create-order
     POST /v1/checkout/create-order-minimal   (implemented — see below)
     POST /v1/checkout/cancel-order
-    GET  /v1/checkout/get-order-status
+    GET  /v1/checkout/get-order-status?order_id={order_id}   (implemented — see below)
     GET  /v1/checkout/list-orders
     GET  /v1/checkout/fetch-card-tokens
     POST /v1/checkout/delete-card
     POST /v1/checkout/process-card-payment
-    POST /v1/checkout/process-wallet-payment
+    POST /v1/checkout/process-wallet-payment   (implemented — see below)
     POST /v1/checkout/process-selcom-pesa-payment
     POST /v1/checkout/create-till-alias
     POST /v1/checkout/webhook-callback   (inbound — handled in a router, not this client)
@@ -54,10 +54,12 @@ from app.services.selcom_checkout.parsing import (
     base64_encode_url,
     decode_json_response,
     parse_create_order_minimal_response,
+    parse_order_status_response,
     parse_wallet_payment_response,
 )
 from app.services.selcom_checkout.schemas import (
     CreateOrderMinimalResult,
+    OrderStatusResult,
     SelcomCheckoutCredentials,
     WalletPaymentResult,
 )
@@ -161,7 +163,14 @@ class SelcomCheckoutHTTPClient:
         started = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=credentials.timeout_seconds) as http:
-                response = await http.request(method, url, json=fields, headers=headers)
+                if method == "GET":
+                    # GET /v1/checkout/order-status?order_id=... — the
+                    # field(s) still get signed exactly like a POST body
+                    # (same Signed-Fields/signing-string convention), they
+                    # just travel as query params instead of a JSON body.
+                    response = await http.request(method, url, params=fields, headers=headers)
+                else:
+                    response = await http.request(method, url, json=fields, headers=headers)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError) as exc:
             latency_ms = int((time.monotonic() - started) * 1000)
             logger.warning(
@@ -369,3 +378,19 @@ class SelcomCheckoutHTTPClient:
         }
         response = await self._signed_request("POST", "/v1/checkout/wallet-payment", fields)
         return parse_wallet_payment_response(response)
+
+    async def get_order_status(self, *, order_id: str) -> OrderStatusResult:
+        """GET /v1/checkout/order-status?order_id={order_id} — the
+        reconciliation query used to resolve a collection that a webhook
+        hasn't (yet) resolved, or to independently confirm one that has.
+        Signed-Fields is just `order_id` (confirmed by the task brief,
+        unlike create-order-minimal there's no shell/payload
+        inconsistency here to worry about).
+
+        Read-only — never itself credits anyone or changes anything on
+        Selcom's side; app/services/checkout_reconciliation.py is what
+        applies the result, and only when payment_status/result/
+        resultcode together satisfy the completion rule."""
+        fields: dict[str, str] = {"order_id": order_id}
+        response = await self._signed_request("GET", "/v1/checkout/order-status", fields)
+        return parse_order_status_response(response)

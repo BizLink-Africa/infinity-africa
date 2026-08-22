@@ -2,19 +2,26 @@
 (https://developers.selcommobile.com/).
 
 **Most endpoint response bodies are still unconfirmed.** Create Order -
-Minimal and wallet-payment are the two exceptions — their real sample
-responses (below) were recovered from the docs directly and, for
-create-order-minimal, confirmed against a real production call
-(2026-08-22, order reference S20690427372). Every other Checkout
-endpoint (Get Order Status, process-card-payment, etc.) still has no
-confirmed response shape. Per this task's own instruction not to guess,
-don't add field extraction for those until a real example — from the
-docs or a real call — confirms the actual field names.
-app/services/selcom/parsing.py guessed field names for this same product
-before a real reference was available and was wrong in several ways
-once real ones surfaced elsewhere in this codebase (see
-app/services/selcom_business/parsing.py's docstring for that history) —
-this module exists specifically so that mistake isn't repeated here.
+Minimal, wallet-payment, and get-order-status are the exceptions —
+their real sample responses (below) were recovered from the docs
+directly and, for create-order-minimal, confirmed against a real
+production call (2026-08-22, order reference S20690427372).
+get-order-status's exact field names (data[0].order_id/creation_date/
+amount/payment_status/transid/channel/reference/phone) came from the
+webhook/reconciliation task brief, not independently re-verified against
+a live call the way create-order-minimal was — treat the *shape*
+(data as a list, per every other confirmed Checkout response) as solid,
+but confirm the exact field names against the first real response this
+codebase actually receives before fully trusting them. Every other
+Checkout endpoint (process-card-payment, etc.) still has no confirmed
+response shape at all. Per this task's own instruction not to guess,
+don't add field extraction for those until a real example confirms the
+actual field names. app/services/selcom/parsing.py guessed field names
+for this same product before a real reference was available and was
+wrong in several ways once real ones surfaced elsewhere in this
+codebase (see app/services/selcom_business/parsing.py's docstring for
+that history) — this module exists specifically so that mistake isn't
+repeated here.
 
 What IS always safe to implement without guessing: decoding the raw HTTP
 envelope (status code, JSON-or-not) — every JSON API does this the same
@@ -29,6 +36,7 @@ import logging
 from app.services.selcom_checkout.errors import SelcomCheckoutError
 from app.services.selcom_checkout.schemas import (
     CreateOrderMinimalResult,
+    OrderStatusResult,
     WalletPaymentResult,
     WalletPaymentStatus,
 )
@@ -148,5 +156,41 @@ def parse_wallet_payment_response(response: dict) -> WalletPaymentResult:
         result=result,
         message=str(response.get("message") or ""),
         status=_map_wallet_payment_status(resultcode=resultcode, result=result),
+        raw_response=response,
+    )
+
+
+# --- get-order-status ------------------------------------------------------------
+#
+# data as a list (per every other confirmed Checkout response shape) with
+# fields per the reconciliation task brief: order_id, creation_date,
+# amount, payment_status, transid, channel, reference, phone. Field
+# *names* here are less battle-tested than create-order-minimal's — see
+# module docstring.
+
+
+def parse_order_status_response(response: dict) -> OrderStatusResult:
+    data_list = response.get("data")
+    data = data_list[0] if isinstance(data_list, list) and data_list else {}
+    if not isinstance(data, dict):
+        data = {}
+
+    # Both a top-level `reference` and a per-order `data[0].reference` are
+    # documented for this endpoint — prefer the more specific per-order
+    # one when present, matching the docs' own field list.
+    reference = str(data.get("reference") or response.get("reference") or "")
+
+    return OrderStatusResult(
+        reference=reference,
+        resultcode=str(response.get("resultcode") or ""),
+        result=str(response.get("result") or ""),
+        message=str(response.get("message") or ""),
+        order_id=data.get("order_id"),
+        creation_date=data.get("creation_date"),
+        amount=str(data["amount"]) if data.get("amount") is not None else None,
+        payment_status=data.get("payment_status"),
+        transid=data.get("transid"),
+        channel=data.get("channel"),
+        phone=data.get("phone") or data.get("msisdn"),
         raw_response=response,
     )

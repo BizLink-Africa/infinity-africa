@@ -51,6 +51,22 @@ interface LinkStatusBody {
   data?: { status: string };
 }
 
+interface CollectionStatusBody {
+  success: boolean;
+  data?: { status: string; message: string };
+}
+
+// The Mobile Money Push flow's own terminal outcomes — distinct from the
+// generic "failed" the other four methods use, since a customer who
+// cancelled or was rejected deserves more specific copy than a bare
+// "payment failed" (task: Pending/Completed/Failed/Cancelled/Rejected/
+// User cancelled).
+const WALLET_PUSH_OUTCOME_COPY: Record<string, { title: string; message: string }> = {
+  cancelled: { title: "Payment cancelled", message: "This payment was cancelled." },
+  user_cancelled: { title: "Payment cancelled", message: "You cancelled this payment." },
+  rejected: { title: "Payment rejected", message: "This payment was rejected." },
+};
+
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 const REDIRECT_DELAY_MS = 2500;
@@ -67,6 +83,8 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [qrPayload, setQrPayload] = useState<{ payload: string; expiresAt: string | null } | null>(null);
   const [walletPushMessage, setWalletPushMessage] = useState<string | null>(null);
+  const [walletPushCollectionId, setWalletPushCollectionId] = useState<string | null>(null);
+  const [walletPushOutcome, setWalletPushOutcome] = useState<string | null>(null);
 
   const needsPhone = method !== "DYNAMIC_QR";
   const isWalletPush = method === WALLET_PUSH_METHOD.value;
@@ -78,25 +96,55 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     const deadline = Date.now() + POLL_TIMEOUT_MS;
     let cancelled = false;
 
+    async function pollWalletPush(collectionId: string) {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/public/payment-links/${slug}/collections/${collectionId}/status`,
+        { cache: "no-store" },
+      );
+      const body: CollectionStatusBody = await response.json();
+      const status = body.data?.status;
+
+      if (status === "completed") {
+        setState("success");
+        return true;
+      }
+      if (status && status !== "pending") {
+        // cancelled / user_cancelled / rejected / failed
+        setWalletPushOutcome(status);
+        setState("failed");
+        setErrorMessage(body.data?.message ?? null);
+        return true;
+      }
+      return false; // still pending — keep polling
+    }
+
+    async function pollPaymentLink() {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/public/payment-links/${slug}`, {
+        cache: "no-store",
+      });
+      const body: LinkStatusBody = await response.json();
+      const status = body.data?.status;
+
+      if (status === "PAID") {
+        setState("success");
+        return true;
+      }
+      if (status === "EXPIRED" || status === "CANCELLED") {
+        setState("failed");
+        setErrorMessage("This payment link is no longer available.");
+        return true;
+      }
+      return false;
+    }
+
     async function poll() {
       if (cancelled) return;
 
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/public/payment-links/${slug}`, {
-          cache: "no-store",
-        });
-        const body: LinkStatusBody = await response.json();
-        const status = body.data?.status;
-
-        if (status === "PAID") {
-          setState("success");
-          return;
-        }
-        if (status === "EXPIRED" || status === "CANCELLED") {
-          setState("failed");
-          setErrorMessage("This payment link is no longer available.");
-          return;
-        }
+        const resolved = walletPushCollectionId
+          ? await pollWalletPush(walletPushCollectionId)
+          : await pollPaymentLink();
+        if (resolved) return;
       } catch {
         // Transient network blip — keep polling until the timeout.
       }
@@ -115,7 +163,7 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [state, slug]);
+  }, [state, slug, walletPushCollectionId]);
 
   // If the merchant configured a redirect URL, bounce the customer back to
   // it a couple seconds after the result is shown — long enough to read the
@@ -156,13 +204,14 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
       }
 
       // "pending" — the only other value this endpoint ever returns (see
-      // app/schemas/payment_links.py::PaymentLinkWalletPushResponse). Reuses
-      // the same awaiting_confirmation state/polling as the /collect flow
-      // below; this endpoint never marks the link PAID itself yet (see
-      // app/services/wallet_push.py), so polling won't resolve to success
-      // within this flow until that's implemented — the customer still sees
-      // an honest pending state either way, not a stuck spinner.
+      // app/schemas/payment_links.py::PaymentLinkWalletPushResponse).
+      // From here the page polls GET .../collections/{id}/status (see the
+      // polling effect above), which reflects the real, eventual outcome
+      // once the webhook or a status refresh resolves it
+      // (app/services/checkout_reconciliation.py) — completed, cancelled,
+      // user_cancelled, rejected, or failed.
       setWalletPushMessage(body.data.message);
+      setWalletPushCollectionId(body.data.collection_id);
       setState("awaiting_confirmation");
     } catch {
       setState("failed");
@@ -225,6 +274,8 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     setIdempotencyKey(crypto.randomUUID());
     setQrPayload(null);
     setWalletPushMessage(null);
+    setWalletPushCollectionId(null);
+    setWalletPushOutcome(null);
     setState("idle");
     setErrorMessage(null);
   }
@@ -274,15 +325,15 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
   }
 
   if (state === "failed") {
+    const outcomeCopy = walletPushOutcome ? WALLET_PUSH_OUTCOME_COPY[walletPushOutcome] : undefined;
+    const title = outcomeCopy?.title ?? "Payment failed";
+    const baseMessage = errorMessage ?? outcomeCopy?.message ?? "Your payment could not be completed.";
+
     return (
       <StatusCard
         variant="error"
-        title="Payment failed"
-        message={
-          link.failure_redirect_url
-            ? `${errorMessage ?? "Your payment could not be completed."} Redirecting you back to the merchant…`
-            : (errorMessage ?? undefined)
-        }
+        title={title}
+        message={link.failure_redirect_url ? `${baseMessage} Redirecting you back to the merchant…` : baseMessage}
       >
         {!link.failure_redirect_url && (
           <button

@@ -40,6 +40,7 @@ unconfirmed until tested against a real sandbox call.
 """
 
 import base64
+import binascii
 import hashlib
 import hmac
 from datetime import datetime, timezone
@@ -174,3 +175,71 @@ def build_auth_headers(
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+
+
+def verify_webhook_signature(
+    *,
+    body: dict[str, object],
+    timestamp: str | None,
+    digest: str | None,
+    digest_method: str | None,
+    signed_fields_header: str | None,
+    api_secret: str,
+) -> bool:
+    """Verifies an inbound Selcom Checkout webhook delivery.
+
+    **Inferred, not confirmed against a real delivery.** The fetched docs
+    for the webhook-callback section were truncated before showing the
+    actual header names/verification scheme (same truncation problem as
+    every other still-unconfirmed Checkout endpoint — see parsing.py's
+    module docstring). This mirrors the one signing scheme that *is*
+    confirmed for this product (build_auth_headers above) in the
+    opposite direction: Selcom, now acting as the signer, is assumed to
+    send the same Digest-Method/Digest/Timestamp/Signed-Fields headers
+    computed the same way (HMAC-SHA256 over
+    "timestamp=<ts>&field1=value1&..." built from the Signed-Fields
+    header's own order, keyed with the shared SELCOM_CHECKOUT_API_SECRET
+    — the same secret used to sign outbound requests). This is the most
+    defensible inference available (same vendor, same product, same
+    account, no other scheme documented anywhere) but must be confirmed
+    against the very first real webhook delivery this backend receives
+    — see app/routers/webhooks.py's selcom_checkout_webhook(), which
+    stores the complete raw headers/body regardless of verification
+    result specifically so that can be checked after the fact.
+
+    Only HS256 is supported here — verifying an RS256 signature would
+    need Selcom's *public* key, which isn't part of this account's
+    configuration (SELCOM_CHECKOUT_PRIVATE_KEY_BASE64 is only ever our
+    own private key, used for outbound RS256 signing, never Selcom's).
+    A webhook claiming Digest-Method: RS256 fails verification here
+    rather than being silently accepted.
+
+    Fails closed on any missing/malformed input (returns False, never
+    raises) — a real webhook accepted by our own code is what actually
+    moves money (via app/services/checkout_reconciliation.py), so any
+    ambiguity here must reject, not guess in the caller's favor. The
+    manual order-status refresh endpoints provide a complete,
+    independent path to reconcile a payment that a rejected/unverifiable
+    webhook can't."""
+    if not (timestamp and digest and signed_fields_header and api_secret):
+        return False
+    if digest_method != "HS256":
+        return False
+
+    signed_field_names = [name.strip() for name in signed_fields_header.split(",") if name.strip()]
+    if not signed_field_names:
+        return False
+
+    fields: dict[str, str] = {}
+    for name in signed_field_names:
+        if name not in body:
+            return False
+        fields[name] = str(body[name])
+
+    signing_string = build_signing_string(timestamp=timestamp, fields=fields)
+    expected_digest = _sign_hmac(signing_string, api_secret=api_secret)
+
+    try:
+        return hmac.compare_digest(base64.b64decode(digest), base64.b64decode(expected_digest))
+    except (binascii.Error, ValueError):
+        return False

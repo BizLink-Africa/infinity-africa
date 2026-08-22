@@ -248,10 +248,10 @@ class NotificationType(StrEnum):
     """Every value the `notifications` table's
     `notifications_notification_type_check` CHECK constraint currently
     allows (supabase/migrations/20260817110000_notifications.sql, extended
-    by 20260818090000, 20260820090001, 20260822043100, and 20260822171500 —
-    always check the latest of these for the true current list, this enum
-    only mirrors it). Two real production incidents in one session were
-    caused by
+    by 20260818090000, 20260820090001, 20260822043100, 20260822171500, and
+    20260823000000 — always check the latest of these for the true
+    current list, this enum only mirrors it). Two real production
+    incidents in one session were caused by
     passing a bare, unvalidated string straight through
     notify_merchant()/notify_admin() (app/services/notifications_service.py)
     that didn't match this constraint — a missing column crashed
@@ -275,3 +275,4 @@ class NotificationType(StrEnum):
     WITHDRAWAL_INFO_REQUESTED = "withdrawal_info_requested"
     WITHDRAWAL_REJECTED = "withdrawal_rejected"
     WITHDRAWAL_SUCCESS = "withdrawal_success"
+    PAYMENT_RECEIVED = "payment_received"

@@ -15,7 +15,13 @@ from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.common import APIResponse
 from app.schemas.enums import UserRole
+from app.schemas.selcom_checkout_webhooks import SelcomCheckoutWebhookPayload
 from app.schemas.webhooks import SelcomWebhookPayload, WebhookEventResponse
+from app.services.checkout_reconciliation import (
+    complete_checkout_collection_once,
+    find_collection_by_order_id,
+    find_collection_by_transid,
+)
 from app.services.collections import resolve_collection_from_callback
 from app.services.crud import get_for_merchant, list_for_merchant, update_row
 from app.services.disbursements import (
@@ -23,6 +29,7 @@ from app.services.disbursements import (
     reverse_successful_disbursement_from_callback,
 )
 from app.services.selcom.webhooks import verify_selcom_signature
+from app.services.selcom_checkout.signer import verify_webhook_signature
 from app.services.webhooks import store_incoming_selcom_event
 
 router = APIRouter(prefix="/merchants/{merchant_id}/webhooks", tags=["webhooks"])
@@ -182,3 +189,131 @@ def _dispatch_selcom_event(client, payload: SelcomWebhookPayload) -> dict:
     if disbursement:
         return {"resolved": "disbursement", "id": disbursement["id"]}
     return {"resolved": "none", "message": "No pending disbursement matched this provider_reference"}
+
+
+@callback_router.get("/selcom/checkout", response_model=APIResponse[dict])
+async def selcom_checkout_webhook_reachability_check():
+    """Same reachability-probe answer as selcom_webhook_reachability_check
+    above, for Selcom's Checkout product's own callback-configuration
+    "Test URL" check — see that function's docstring."""
+    return APIResponse(data={"status": "ok"})
+
+
+@callback_router.post("/selcom/checkout", response_model=APIResponse[dict])
+async def selcom_checkout_webhook(request: Request):
+    """Selcom Checkout's webhook callback — the async resolution path for
+    a wallet-push collection left "processing" after
+    process_wallet_payment()'s usual PENDING/111 response
+    (app/services/wallet_push.py). Distinct product/signing scheme from
+    selcom_webhook above (RSA/HMAC-style Digest headers confirmed for
+    outbound Checkout requests, mirrored here for verifying inbound ones
+    — see app/services/selcom_checkout/signer.py::verify_webhook_signature
+    for the exact scheme and, importantly, why it's an inference not yet
+    confirmed against a real delivery).
+
+    Every delivery is logged to selcom_webhook_events (provider=
+    "selcom_checkout", so it never collides with the older placeholder
+    product's own events on event_id) before signature verification even
+    runs, so the very first real delivery this backend ever receives can
+    be inspected regardless of whether verification passes — that's how
+    the "inferred" signing scheme above gets confirmed or corrected.
+
+    Not the only way a collection resolves: POST /v1/merchant/collections/
+    {id}/refresh-status and POST /v1/admin/collections/{id}/refresh-status
+    query Selcom directly and apply the exact same completion logic
+    (app/services/checkout_reconciliation.py), so a webhook that never
+    arrives — or one this endpoint ends up rejecting because the
+    signature inference above is wrong — doesn't strand a payment.
+    """
+    raw_body = await request.body()
+    raw_text = raw_body.decode("utf-8", errors="replace")
+    timestamp = request.headers.get("Timestamp")
+    digest = request.headers.get("Digest")
+    digest_method = request.headers.get("Digest-Method")
+    signed_fields_header = request.headers.get("Signed-Fields")
+
+    settings = get_settings()
+
+    try:
+        body = json.loads(raw_body) if raw_body else {}
+    except ValueError:
+        body = {}
+
+    signature_valid = verify_webhook_signature(
+        body=body,
+        timestamp=timestamp,
+        digest=digest,
+        digest_method=digest_method,
+        signed_fields_header=signed_fields_header,
+        api_secret=settings.selcom_checkout_api_secret,
+    )
+
+    event_id = str(body.get("transid") or uuid.uuid4())
+    event_type = str(body.get("payment_status") or "unknown")
+
+    client = get_supabase_admin()
+    stored, is_duplicate = store_incoming_selcom_event(
+        client,
+        event_id=event_id,
+        event_type=event_type,
+        raw_body=raw_text,
+        signature=digest,
+        signature_valid=signature_valid,
+        provider="selcom_checkout",
+    )
+    if is_duplicate:
+        return APIResponse(data={"status": "duplicate", "event_id": event_id})
+
+    if not signature_valid:
+        update_row(
+            client,
+            "selcom_webhook_events",
+            uuid.UUID(stored["id"]),
+            {"status": "failed", "processing_error": "invalid signature"},
+        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
+
+    try:
+        payload = SelcomCheckoutWebhookPayload.model_validate(body)
+    except ValidationError as exc:
+        errors = jsonable_encoder(exc.errors())
+        update_row(
+            client,
+            "selcom_webhook_events",
+            uuid.UUID(stored["id"]),
+            {"status": "failed", "processing_error": json.dumps(errors)},
+        )
+        raise ValidationAPIError("Invalid webhook payload", details=errors) from exc
+
+    collection = find_collection_by_transid(client, transid=payload.transid) or find_collection_by_order_id(
+        client, order_id=payload.order_id
+    )
+    if not collection:
+        update_row(
+            client,
+            "selcom_webhook_events",
+            uuid.UUID(stored["id"]),
+            {"status": "failed", "processing_error": "no matching collection for this transid/order_id"},
+        )
+        raise NotFoundError("No matching collection found for this webhook")
+
+    await complete_checkout_collection_once(
+        client,
+        collection_id=uuid.UUID(collection["id"]),
+        payment_status=payload.payment_status,
+        result=payload.result,
+        resultcode=payload.resultcode,
+        reference=payload.reference,
+        transid=payload.transid,
+        channel=payload.channel,
+        raw_response=body,
+    )
+
+    update_row(
+        client,
+        "selcom_webhook_events",
+        uuid.UUID(stored["id"]),
+        {"status": "processed", "processed_at": utc_now_iso()},
+    )
+
+    return APIResponse(data={"status": "acknowledged"})

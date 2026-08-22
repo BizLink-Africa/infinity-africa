@@ -29,6 +29,7 @@ from app.schemas.payment_links import (
     PaymentLinkResponse,
     PaymentLinkWalletPushRequest,
     PaymentLinkWalletPushResponse,
+    PublicCollectionStatusResponse,
     PublicPaymentLinkResponse,
 )
 from app.services.audit import write_audit_log
@@ -170,6 +171,59 @@ def get_public_payment_link(public_slug: str):
     merchant_name = merchant["business_name"] if merchant else "Unknown merchant"
 
     return APIResponse(data=PublicPaymentLinkResponse(**link, merchant_name=merchant_name))
+
+
+_PAYMENT_STATUS_COPY: dict[str, tuple[str, str]] = {
+    "PENDING": ("pending", "Payment request sent to your phone. Please approve using your PIN."),
+    "INPROGRESS": ("pending", "Payment request sent to your phone. Please approve using your PIN."),
+    "CANCELLED": ("cancelled", "This payment was cancelled."),
+    "USERCANCELLED": ("user_cancelled", "You cancelled this payment."),
+    "REJECTED": ("rejected", "This payment was rejected."),
+}
+
+
+@public_router.get(
+    "/{public_slug}/collections/{collection_id}/status", response_model=APIResponse[PublicCollectionStatusResponse]
+)
+def get_public_collection_status(public_slug: str, collection_id: uuid.UUID):
+    """Polled by the customer payment page after a Mobile Money Push
+    submission (POST .../pay/wallet-push) — the payment link's own
+    status only ever reflects PAID once, so a customer waiting to see
+    "cancelled"/"rejected" specifically needs the collection's own
+    status, not the link's. Scoped to collections that actually belong
+    to this public_slug's payment link, so a collection_id can't be used
+    to probe an unrelated one."""
+    client = get_supabase_admin()
+    link = execute_maybe_single(
+        client.table("payment_links").select("id").eq("public_slug", public_slug).maybe_single()
+    )
+    if not link:
+        raise NotFoundError("Payment link not found")
+
+    collection = execute_maybe_single(
+        client.table("collections")
+        .select("status,provider_payment_status,failure_reason")
+        .eq("id", str(collection_id))
+        .eq("payment_link_id", link["id"])
+        .maybe_single()
+    )
+    if not collection:
+        raise NotFoundError("Collection not found")
+
+    if collection["status"] == "successful":
+        status, message = "completed", "Payment completed successfully."
+    elif collection["status"] == "processing":
+        status, message = _PAYMENT_STATUS_COPY.get(
+            collection.get("provider_payment_status") or "PENDING",
+            ("pending", "Payment request sent to your phone. Please approve using your PIN."),
+        )
+    else:
+        status, message = _PAYMENT_STATUS_COPY.get(
+            collection.get("provider_payment_status") or "",
+            ("failed", collection.get("failure_reason") or "This payment could not be completed."),
+        )
+
+    return APIResponse(data=PublicCollectionStatusResponse(status=status, message=message))
 
 
 @public_router.post(

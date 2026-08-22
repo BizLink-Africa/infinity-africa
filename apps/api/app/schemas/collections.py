@@ -62,6 +62,16 @@ class CollectionResponse(BaseModel):
     status: str
     provider: str | None = None
     provider_reference: str | None = None
+    failure_reason: str | None = None
+    # Selcom Checkout wallet-push fields (app/services/wallet_push.py,
+    # app/services/checkout_reconciliation.py) — null for collections made
+    # via the older selcom/ placeholder client, which never sets them.
+    checkout_order_id: uuid.UUID | None = None
+    provider_transid: str | None = None
+    provider_resultcode: str | None = None
+    provider_result: str | None = None
+    provider_payment_status: str | None = None
+    channel: str | None = None
     # Convenience fields threaded in by the router from data already
     # available at initiation time (the linked transaction row, a static
     # per-method message) — not columns of the collections table itself.

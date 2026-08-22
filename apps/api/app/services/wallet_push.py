@@ -4,9 +4,9 @@ public payment link via mobile money push (STK/USSD/wallet pull).
 
 **This module never credits a merchant, posts a ledger entry, or marks a
 payment_link PAID.** Selcom's wallet-payment response is normally
-PENDING (resultcode 111) — the real outcome is only known later, via an
-async callback that isn't implemented yet (the task that adds this
-explicitly defers it: "remaining blocker before webhook/status prompt").
+PENDING (resultcode 111) — the real outcome is only known later, via
+the webhook or a manual status refresh
+(app/services/checkout_reconciliation.py, app/routers/webhooks.py).
 Even in the rare case Selcom responds SUCCESS synchronously, this module
 still only records that in `collections.provider_result`/
 `provider_resultcode` for audit — the collection's own aggregate
@@ -20,15 +20,24 @@ synchronously from the push call itself"). Reaching collections.status
 were already posted (see resolve_collection()'s docstring) — this module
 deliberately never creates that state, to avoid a collection that claims
 success without any money having actually been credited.
+
+Every collection left "processing" here gets a linked `transactions` row
+(create_processing_transaction, shared with the older push/QR
+collection flow) — resolve_collection() needs exactly one to post ledger
+entries against once the webhook/refresh path resolves this collection;
+skipping this would crash the first time that resolution actually
+happens, not at push time.
 """
 
 import uuid
+from decimal import Decimal
 
 from supabase import Client
 
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
 from app.services.checkout_orders import get_or_create_checkout_order_for_payment_link
+from app.services.collections import create_processing_transaction
 from app.services.crud import execute_maybe_single, insert_row
 from app.services.selcom_checkout.client import (
     SelcomCheckoutHTTPClient,
@@ -124,7 +133,7 @@ async def execute_wallet_push_for_payment_link(client: Client, *, payment_link: 
     # waits for the not-yet-implemented webhook/reconciliation step.
     collection_status = "failed" if result.status == "failed" else "processing"
 
-    return insert_row(
+    collection = insert_row(
         client,
         "collections",
         {
@@ -139,3 +148,22 @@ async def execute_wallet_push_for_payment_link(client: Client, *, payment_link: 
             "raw_response": result.raw_response,
         },
     )
+
+    if collection_status == "processing":
+        # resolve_collection() (called later by the webhook or a manual
+        # refresh) needs exactly one linked transaction to post ledger
+        # entries against — see module docstring. Not needed for the
+        # "failed" branches above (order-creation failure, or an outright
+        # wallet-payment failure): a collection that's already terminal
+        # never reaches resolve_collection() at all.
+        create_processing_transaction(
+            client,
+            merchant_id=merchant_id,
+            method=_WALLET_PUSH_METHOD_LABEL,
+            collection_id=collection["id"],
+            provider_reference=result.reference or transid,
+            amount=Decimal(str(payment_link["amount"])),
+            currency=payment_link["currency"],
+        )
+
+    return collection

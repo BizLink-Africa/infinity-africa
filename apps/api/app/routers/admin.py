@@ -19,6 +19,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from app.auth import require_super_admin
+from app.core.errors import NotFoundError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
 from app.database.session import get_supabase_admin
 from app.schemas.admin import (
@@ -37,6 +38,9 @@ from app.schemas.auth import AuthenticatedUser
 from app.schemas.common import APIResponse
 from app.services.admin_directory import batch_merchant_names, batch_user_profiles
 from app.services.admin_overview import get_admin_overview
+from app.services.audit import write_audit_log
+from app.services.checkout_reconciliation import refresh_checkout_collection_status
+from app.services.crud import get_by_id
 from app.services.ledger import get_wallet_balance
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -228,6 +232,17 @@ def list_admin_collections(
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
 
+    # Selcom Checkout wallet-push collections carry their own order_id on
+    # the *linked* checkout_orders row, not on collections itself —
+    # batched in one query rather than N+1 per row.
+    checkout_order_ids = {r["checkout_order_id"] for r in rows if r.get("checkout_order_id")}
+    order_ids_by_checkout_order_id: dict[str, str] = {}
+    if checkout_order_ids:
+        orders_result = (
+            client.table("checkout_orders").select("id,order_id").in_("id", list(checkout_order_ids)).execute()
+        )
+        order_ids_by_checkout_order_id = {o["id"]: o["order_id"] for o in orders_result.data or []}
+
     data = [
         AdminCollectionResponse(
             collection_id=row["id"],
@@ -240,10 +255,68 @@ def list_admin_collections(
             provider_reference=row.get("provider_reference"),
             status=row["status"],
             created_at=row["created_at"],
+            order_id=order_ids_by_checkout_order_id.get(row.get("checkout_order_id")),
+            provider_transid=row.get("provider_transid"),
+            channel=row.get("channel"),
+            provider_payment_status=row.get("provider_payment_status"),
+            failure_reason=row.get("failure_reason"),
         )
         for row in rows
     ]
     return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
+
+
+@router.post("/collections/{collection_id}/refresh-status", response_model=APIResponse[AdminCollectionResponse])
+async def refresh_admin_collection_status(
+    collection_id: uuid.UUID,
+    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    """Super Admin equivalent of
+    POST /v1/merchant/collections/{id}/refresh-status — not scoped to any
+    one merchant, since this router reads across all of them (see module
+    docstring)."""
+    client = get_supabase_admin()
+    collection = get_by_id(client, "collections", collection_id)
+    if not collection:
+        raise NotFoundError("Collection not found")
+
+    resolved = await refresh_checkout_collection_status(client, collection_id=collection_id)
+
+    write_audit_log(
+        client,
+        actor_id=admin.id,
+        merchant_id=uuid.UUID(resolved["merchant_id"]),
+        action="collection.status_refreshed",
+        resource_type="collection",
+        resource_id=collection_id,
+        metadata={"status": resolved["status"]},
+    )
+
+    merchant_names = batch_merchant_names(client, {resolved["merchant_id"]})
+    order_id = None
+    if resolved.get("checkout_order_id"):
+        order = get_by_id(client, "checkout_orders", uuid.UUID(resolved["checkout_order_id"]))
+        order_id = order["order_id"] if order else None
+
+    return APIResponse(
+        data=AdminCollectionResponse(
+            collection_id=resolved["id"],
+            merchant_id=resolved["merchant_id"],
+            merchant_name=merchant_names.get(resolved["merchant_id"], ""),
+            method=resolved["method"],
+            amount=resolved["amount"],
+            currency=resolved["currency"],
+            phone=resolved.get("customer_phone"),
+            provider_reference=resolved.get("provider_reference"),
+            status=resolved["status"],
+            created_at=resolved["created_at"],
+            order_id=order_id,
+            provider_transid=resolved.get("provider_transid"),
+            channel=resolved.get("channel"),
+            provider_payment_status=resolved.get("provider_payment_status"),
+            failure_reason=resolved.get("failure_reason"),
+        )
+    )
 
 
 @router.get("/withdrawals", response_model=APIResponse[list[AdminWithdrawalResponse]])

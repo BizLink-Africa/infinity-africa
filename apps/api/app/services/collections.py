@@ -103,7 +103,7 @@ async def create_processing_collection(
     )
 
 
-def _create_processing_transaction(
+def create_processing_transaction(
     client: Client,
     *,
     merchant_id: uuid.UUID,
@@ -113,6 +113,11 @@ def _create_processing_transaction(
     amount: Decimal,
     currency: str,
 ) -> dict:
+    """Public (not `_`-prefixed) since app/services/wallet_push.py also
+    needs it — every collection resolve_collection() might later resolve
+    needs exactly one linked transaction row for ledger posting
+    (gross/fee/net amounts), regardless of which client actually
+    initiated it."""
     settings = get_settings()
     fee_amount = (amount * settings.platform_fee_percentage / Decimal(100)).quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -206,7 +211,7 @@ async def initiate_collection(
         {"provider": result.provider, "provider_reference": result.provider_reference},
     )
 
-    transaction = _create_processing_transaction(
+    transaction = create_processing_transaction(
         client,
         merchant_id=merchant_id,
         method=method.value,
@@ -427,7 +432,7 @@ async def initiate_dynamic_qr_collection(
         },
     )
 
-    transaction = _create_processing_transaction(
+    transaction = create_processing_transaction(
         client,
         merchant_id=merchant_id,
         method=CollectionMethod.DYNAMIC_QR.value,

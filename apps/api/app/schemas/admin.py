@@ -88,6 +88,13 @@ class AdminCollectionResponse(BaseModel):
     provider_reference: str | None = None
     status: str
     created_at: datetime
+    # Selcom Checkout wallet-push fields — null for collections made via
+    # the older selcom/ placeholder client.
+    order_id: str | None = None
+    provider_transid: str | None = None
+    channel: str | None = None
+    provider_payment_status: str | None = None
+    failure_reason: str | None = None
 
 
 class AdminWithdrawalResponse(BaseModel):

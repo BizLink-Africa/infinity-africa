@@ -27,11 +27,11 @@ def sign_outbound_payload(*, raw_body: bytes, secret: str) -> str:
     return hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
 
 
-def find_selcom_webhook_event(client: Client, event_id: str) -> dict | None:
+def find_selcom_webhook_event(client: Client, event_id: str, *, provider: str = "selcom") -> dict | None:
     query = (
         client.table("selcom_webhook_events")
         .select("*")
-        .eq("provider", "selcom")
+        .eq("provider", provider)
         .eq("event_id", event_id)
         .maybe_single()
     )
@@ -46,6 +46,7 @@ def store_incoming_selcom_event(
     raw_body: str,
     signature: str | None,
     signature_valid: bool,
+    provider: str = "selcom",
 ) -> tuple[dict, bool]:
     """Records an inbound Selcom webhook delivery. Returns (row, is_duplicate).
 
@@ -53,8 +54,13 @@ def store_incoming_selcom_event(
     delivery of an event already stored short-circuits as a duplicate
     instead of reprocessing its side effects; the DB's own unique
     constraint is the backstop against a concurrent race on the same event.
-    """
-    existing = find_selcom_webhook_event(client, event_id)
+
+    `provider` defaults to "selcom" (the original placeholder Checkout
+    product's inbound events, POST /v1/webhooks/selcom) — pass
+    "selcom_checkout" for the newer, confirmed-signing-scheme product's
+    events (POST /v1/webhooks/selcom/checkout), so the two never collide
+    on event_id even if both happened to reuse the same value."""
+    existing = find_selcom_webhook_event(client, event_id, provider=provider)
     if existing:
         return existing, True
 
@@ -63,7 +69,7 @@ def store_incoming_selcom_event(
             client,
             "selcom_webhook_events",
             {
-                "provider": "selcom",
+                "provider": provider,
                 "event_id": event_id,
                 "event_type": event_type,
                 "raw_body": raw_body,
@@ -73,7 +79,7 @@ def store_incoming_selcom_event(
             },
         )
     except Exception:
-        existing = find_selcom_webhook_event(client, event_id)
+        existing = find_selcom_webhook_event(client, event_id, provider=provider)
         if existing:
             return existing, True
         raise

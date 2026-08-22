@@ -112,16 +112,30 @@ class PaymentLinkWalletPushRequest(BaseModel):
 
 
 class PaymentLinkWalletPushResponse(BaseModel):
-    """What the customer's browser gets back — deliberately never
-    reports "paid"/"successful", regardless of what Selcom's own
-    resultcode said: Selcom's wallet-payment response is normally
-    PENDING, and this backend doesn't yet resolve it further (see
-    app/services/wallet_push.py's module docstring). payment_status is
-    "failed" when the attempt genuinely failed outright (bad phone
-    number, order-creation error) — a customer waiting on a push that's
-    never coming deserves to know that — and "pending" for every other
-    outcome, including an immediate SUCCESS."""
+    """What the customer's browser gets back from the initial submit —
+    deliberately never reports "paid"/"successful" here even if Selcom's
+    wallet-payment call happened to respond SUCCESS synchronously (rare):
+    the real outcome is only trusted once the webhook or a status refresh
+    confirms it (app/services/checkout_reconciliation.py). payment_status
+    is "failed" when the attempt failed outright at submission (bad phone
+    number, order-creation error) and "pending" for every other outcome.
+    Use GET .../collections/{collection_id}/status (below) to poll for
+    the real, eventual outcome — this response is just the immediate
+    submission result."""
 
     collection_id: uuid.UUID
     payment_status: str
+    message: str
+
+
+class PublicCollectionStatusResponse(BaseModel):
+    """GET /public/payment-links/{public_slug}/collections/{collection_id}/status
+    — polled by the customer payment page after a wallet-push submission.
+    `status` is one of "pending" | "completed" | "failed" | "cancelled" |
+    "user_cancelled" | "rejected", derived from the collection's own
+    status plus Selcom's reported payment_status (never the payment
+    link's status, which only ever reflects PAID once, not per-attempt
+    detail)."""
+
+    status: str
     message: str
