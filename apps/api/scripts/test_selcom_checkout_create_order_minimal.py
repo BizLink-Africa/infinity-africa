@@ -21,43 +21,47 @@ SELCOM_CHECKOUT_BASE_URL, not a sandbox/production pair) — whatever URL
 is currently configured is exactly what this script will hit. This
 script cannot tell sandbox and production apart and will not try to —
 confirm SELCOM_CHECKOUT_BASE_URL actually points at Selcom's sandbox
-before running this, or you will create a real order.
+before running this, or you will create a real order. The script prompts
+for an explicit "yes" before sending anything, precisely because of this.
 
-Two open questions this script exists to resolve against a real sandbox
-response, per docs/selcom-checkout-go-live.md's "not yet confirmed"
-list (once that doc exists) and create_order_minimal()'s own docstring:
+Docs inconsistency this script exists to help resolve, without ever
+guessing an answer into production code (app/services/selcom_checkout/
+client.py's create_order_minimal() always signs under the real,
+actual-payload field order — "default" — regardless of what this script
+finds):
 
-1. Signed-Fields *order* — resolved as moot for this endpoint: once
-   fields absent from every real Minimal payload example are dropped,
-   the docs' shell example and the parameter-table order agree. Nothing
-   to test here.
-2. Timestamp *format* — genuinely unresolved: signer.build_timestamp()
-   (ISO-8601 UTC, ".000Z") vs. signer.build_timestamp_php_style()
-   ("yyyy-dd-mm H:i:s", per the shell headers' literal description).
-   This script tries the ISO-8601 default first; if Selcom rejects it
-   with what looks like a signature/auth failure, it retries once with
-   the PHP-style timestamp and reports both outcomes so a human can
-   judge which one Selcom actually accepted. **Only this script does
-   this retry — production code (client.py) always uses the ISO-8601
-   default until this script confirms otherwise (task instruction: try
-   the alternative only here, never silently in the production path).**
+- The Create Order - Minimal shell headers example lists a
+  Signed-Fields set (buyer_user_id, payment_methods, payer_remarks,
+  order_items) that doesn't match any example payload shown for this
+  endpoint — those fields most likely belong to the full Create Order
+  endpoint's docs, copy-pasted into the Minimal section by mistake.
+  --signing-variant official-shell reproduces that shell list literally
+  (as the *signature*, not the JSON body — see create_order_minimal()'s
+  docstring) so a real sandbox response can confirm whether Selcom's
+  server actually expects it. --signing-variant default (the default)
+  signs under the real payload's own field order instead — this is what
+  production code always uses.
+- Timestamp format is separately unconfirmed: the shell headers describe
+  "yyyy-dd-mm H:i:s", not the ISO-8601 signer.build_timestamp() produces
+  by default. --timestamp-format php-style tests the alternative.
 
-Once one variant is confirmed working end to end, update
-create_order_minimal()'s default and this script's own docstring/
-docs/selcom-checkout-go-live.md to say so — don't leave this ambiguity
-open once it's actually been tested.
-
-Never prints the API key, API secret, or a full buyer email/phone —
-only a masked form, in both the outgoing request summary and Selcom's
-raw response body.
+Never prints the API key, API secret, or a full buyer email/phone — only
+a masked form, in both the outgoing request summary and Selcom's raw
+response body.
 
 Usage:
 
-    python apps/api/scripts/test_selcom_checkout_sandbox.py \\
+    python apps/api/scripts/test_selcom_checkout_create_order_minimal.py \\
       --buyer-email test@example.com \\
       --buyer-name "Sandbox Test" \\
       --buyer-phone 255700000000 \\
       --amount 8000
+
+    # Diagnostic: try the shell's literal (body-mismatched) Signed-Fields
+    python apps/api/scripts/test_selcom_checkout_create_order_minimal.py \\
+      --buyer-email test@example.com --buyer-name "Sandbox Test" \\
+      --buyer-phone 255700000000 --amount 8000 \\
+      --signing-variant official-shell
 
 Every flag has a matching env var fallback (SELCOM_TEST_BUYER_EMAIL,
 SELCOM_TEST_BUYER_NAME, SELCOM_TEST_BUYER_PHONE, SELCOM_TEST_AMOUNT,
@@ -129,31 +133,21 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--buyer-phone", default=None, help="env: SELCOM_TEST_BUYER_PHONE (255XXXXXXXXX)")
     parser.add_argument("--amount", default=None, help="env: SELCOM_TEST_AMOUNT")
     parser.add_argument("--no-of-items", default=None, help="env: SELCOM_TEST_NO_OF_ITEMS (default: 1)")
+    parser.add_argument(
+        "--signing-variant",
+        choices=("default", "official-shell"),
+        default="default",
+        help="'default' (production's real behavior) or 'official-shell' — diagnostic only, "
+        "signs under the docs' literal (body-mismatched) shell field list. See module docstring.",
+    )
+    parser.add_argument(
+        "--timestamp-format",
+        choices=("iso8601", "php-style"),
+        default="iso8601",
+        help="'iso8601' (production default) or 'php-style' ('yyyy-dd-mm H:i:s', the shell headers' "
+        "literal description) — diagnostic only.",
+    )
     return parser.parse_args()
-
-
-async def _attempt(client: SelcomCheckoutHTTPClient, *, timestamp: str, label: str, **kwargs):
-    print(f"--- Attempt: {label} (timestamp={timestamp}) ---")
-    try:
-        result = await client.create_order_minimal(timestamp=timestamp, **kwargs)
-    except SelcomAPIError as exc:
-        print("  Selcom API error:")
-        print(f"    message:                {exc.message}")
-        print(f"    provider_status_code:   {exc.provider_status_code}")
-        if exc.provider_response_body is not None:
-            print(f"    provider_response_body: {_mask_response_body(exc.provider_response_body)}")
-        print()
-        return None
-
-    print("  Result:")
-    print(f"    resultcode:  {result.resultcode}")
-    print(f"    result:      {result.result}")
-    print(f"    message:     {result.message}")
-    print(f"    is_success:  {result.is_success}")
-    print(f"    reference:   {result.reference}")
-    print(f"    raw_response (masked): {_mask_response_body(result.raw_response)}")
-    print()
-    return result
 
 
 async def _main() -> int:
@@ -193,6 +187,9 @@ async def _main() -> int:
         print("Aborted.", file=sys.stderr)
         return 1
 
+    timestamp = build_timestamp_php_style() if args.timestamp_format == "php-style" else build_timestamp()
+
+    print()
     print("Request summary (masked):")
     print(f"  order_id:            {order_id}")
     print(f"  buyer_email:         {_mask_email(buyer_email)}")
@@ -202,6 +199,9 @@ async def _main() -> int:
     print(f"  no_of_items:         {no_of_items}")
     print(f"  api_key_configured:  {bool(settings.selcom_checkout_api_key)}")
     print(f"  digest_method:       {settings.selcom_checkout_digest_method}")
+    print(f"  signing_variant:     {args.signing_variant}")
+    print(f"  timestamp_format:    {args.timestamp_format}")
+    print(f"  timestamp:           {timestamp}")
     print()
 
     try:
@@ -210,39 +210,64 @@ async def _main() -> int:
         print(f"Client misconfigured: {exc}", file=sys.stderr)
         return 2
 
-    kwargs = {
-        "order_id": order_id,
-        "buyer_email": buyer_email,
-        "buyer_name": buyer_name,
-        "buyer_phone": buyer_phone,
-        "amount": amount,
-        "no_of_items": int(no_of_items),
-    }
-
-    result = await _attempt(client, timestamp=build_timestamp(), label="ISO-8601 UTC (production default)", **kwargs)
-
-    if result is not None and result.is_success:
-        print("ISO-8601 UTC timestamp succeeded — no need to try the alternative format.")
-        return 0
-
-    print(
-        "ISO-8601 UTC attempt did not succeed — trying the shell headers' literal "
-        "'yyyy-dd-mm H:i:s' format next, per task instruction (diagnostic script only, "
-        "never silently in production code)."
-    )
-    kwargs["order_id"] = args.order_id or generate_reference("ORD-SANDBOX")  # fresh order_id, first may be consumed
-    result = await _attempt(client, timestamp=build_timestamp_php_style(), label="yyyy-dd-mm H:i:s (shell literal)", **kwargs)
-
-    if result is not None and result.is_success:
-        print(
-            "yyyy-dd-mm H:i:s succeeded where ISO-8601 UTC did not — update "
-            "create_order_minimal()'s default timestamp format to match, and record "
-            "this in docs/selcom-checkout-go-live.md before relying on it elsewhere."
+    # This script only ever sends the required fields (no CLI flag exists
+    # here for webhook/redirect_url/cancel_url/buyer_remarks/
+    # merchant_remarks/gateway styling) — so the Signed-Fields value is
+    # fully determined by --signing-variant alone. If a future edit adds
+    # more optional-field flags to this script, update this preview to
+    # match, or better, compute it from the same field-construction logic
+    # create_order_minimal() uses rather than hand-typing it again.
+    if args.signing_variant == "official-shell":
+        signed_fields_preview = (
+            "vendor,order_id,buyer_email,buyer_name,buyer_user_id,buyer_phone,amount,currency,"
+            "payment_methods,order_items"
         )
-        return 0
+    else:
+        signed_fields_preview = "vendor,order_id,buyer_email,buyer_name,buyer_phone,amount,currency,no_of_items"
+    print(f"Signed-Fields to be used: {signed_fields_preview}")
+    print()
 
-    print("Neither timestamp format produced a successful order. Investigate the raw responses above before retrying.")
-    return 1
+    try:
+        result = await client.create_order_minimal(
+            order_id=order_id,
+            buyer_email=buyer_email,
+            buyer_name=buyer_name,
+            buyer_phone=buyer_phone,
+            amount=amount,
+            no_of_items=int(no_of_items),
+            timestamp=timestamp,
+            signed_fields_variant=args.signing_variant,
+        )
+    except SelcomAPIError as exc:
+        print("Selcom API error:")
+        print(f"  message:                {exc.message}")
+        print(f"  provider_status_code:   {exc.provider_status_code}")
+        if exc.provider_response_body is not None:
+            print(f"  provider_response_body: {_mask_response_body(exc.provider_response_body)}")
+        return 1
+
+    print("Result:")
+    print(f"  resultcode:   {result.resultcode}")
+    print(f"  result:       {result.result}")
+    print(f"  message:      {result.message}")
+    print(f"  is_success:   {result.is_success}")
+    print(f"  reference:    {result.reference}")
+    print(f"  payment_token: {result.payment_token}")
+    print(f"  qr:           {result.qr}")
+    print(f"  payment_gateway_url: {result.payment_gateway_url}")
+    print()
+    print("Raw Selcom response body (buyer-shaped fields masked):")
+    print(_mask_response_body(result.raw_response))
+
+    if not result.is_success:
+        print()
+        print(
+            "Order was not created successfully — see resultcode/message above. "
+            "Do not proceed to wallet-payment integration until this returns SUCCESS."
+        )
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":

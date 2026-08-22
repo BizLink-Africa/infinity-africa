@@ -191,6 +191,168 @@ async def test_create_order_minimal_includes_optional_fields_when_present_in_ord
 
 
 @pytest.mark.asyncio
+async def test_signed_fields_matches_the_full_documented_default_order_exactly():
+    """The exact string given in the task brief, byte for byte, when
+    every optional field up to no_of_items is present."""
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=1,
+        redirect_url="https://example.com/redirect",
+        cancel_url="https://example.com/cancel",
+        webhook="https://example.com/webhook",
+        buyer_remarks="None",
+        merchant_remarks="None",
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    assert call["headers"]["Signed-Fields"] == (
+        "vendor,order_id,buyer_email,buyer_name,buyer_phone,amount,currency,"
+        "redirect_url,cancel_url,webhook,buyer_remarks,merchant_remarks,no_of_items"
+    )
+
+
+@pytest.mark.asyncio
+async def test_signed_fields_matches_the_documented_omitted_optional_example_exactly():
+    """The exact string given in the task brief, byte for byte, when
+    redirect_url/cancel_url/webhook are absent."""
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=1,
+        buyer_remarks="None",
+        merchant_remarks="None",
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    assert call["headers"]["Signed-Fields"] == (
+        "vendor,order_id,buyer_email,buyer_name,buyer_phone,amount,currency,"
+        "buyer_remarks,merchant_remarks,no_of_items"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gateway_styling_and_expiry_fields_appended_after_no_of_items():
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=1,
+        header_colour="#000000",
+        link_colour="#111111",
+        button_colour="#222222",
+        expiry=30,
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    assert list(call["json"].keys()) == [
+        "vendor",
+        "order_id",
+        "buyer_email",
+        "buyer_name",
+        "buyer_phone",
+        "amount",
+        "currency",
+        "no_of_items",
+        "header_colour",
+        "link_colour",
+        "button_colour",
+        "expiry",
+    ]
+    assert call["json"]["expiry"] == "30"
+    assert call["headers"]["Signed-Fields"].endswith("no_of_items,header_colour,link_colour,button_colour,expiry")
+
+
+@pytest.mark.asyncio
+async def test_gateway_styling_fields_omitted_when_absent():
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=1,
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    for field in ("header_colour", "link_colour", "button_colour", "expiry"):
+        assert field not in call["json"]
+        assert field not in call["headers"]["Signed-Fields"]
+
+
+# --- official-shell diagnostic variant (never used by application code) --------------
+
+
+@pytest.mark.asyncio
+async def test_official_shell_variant_signs_the_literal_shell_field_list():
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=1,
+        webhook="https://example.com/webhook",
+        buyer_remarks="None",
+        merchant_remarks="None",
+        signed_fields_variant="official-shell",
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    assert call["headers"]["Signed-Fields"] == (
+        "vendor,order_id,buyer_email,buyer_name,buyer_user_id,buyer_phone,amount,currency,"
+        "payment_methods,webhook,payer_remarks,merchant_remarks,order_items"
+    )
+
+
+@pytest.mark.asyncio
+async def test_official_shell_variant_never_changes_the_actual_json_body():
+    """The whole point of this diagnostic variant is a body/signature
+    mismatch — the body itself must still be exactly what production
+    would send, using the real (not shell) field names."""
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=1,
+        buyer_remarks="None",
+        signed_fields_variant="official-shell",
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    assert "buyer_user_id" not in call["json"]
+    assert "payment_methods" not in call["json"]
+    assert "payer_remarks" not in call["json"]
+    assert "order_items" not in call["json"]
+    assert call["json"]["buyer_remarks"] == "None"
+    assert call["json"]["no_of_items"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_unknown_signed_fields_variant_raises():
+    with pytest.raises(ValueError):
+        await _client().create_order_minimal(
+            order_id="ORD-1",
+            buyer_email="john@example.com",
+            buyer_name="John Joh",
+            buyer_phone="255682000000",
+            amount="8000",
+            no_of_items=1,
+            signed_fields_variant="something-else",
+        )
+
+
+@pytest.mark.asyncio
 async def test_create_order_minimal_base64_encodes_urls_only():
     await _client().create_order_minimal(
         order_id="ORD-1",

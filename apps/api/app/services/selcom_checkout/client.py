@@ -94,26 +94,39 @@ class SelcomCheckoutHTTPClient:
         self._credentials = credentials
 
     async def _signed_request(
-        self, method: str, path: str, fields: dict[str, str], *, timestamp: str | None = None
+        self,
+        method: str,
+        path: str,
+        fields: dict[str, str],
+        *,
+        signed_fields: dict[str, str] | None = None,
+        timestamp: str | None = None,
     ) -> dict:
-        """`fields` must be given in the exact order Selcom's docs specify
-        for this endpoint — that order becomes both the signing string and
-        the Signed-Fields header, and is sent as the JSON body verbatim
-        (POST-shaped calls only; a GET/query-parameter endpoint needs its
-        own handling once implemented, not guessed here). Never logs
-        `fields` (may contain customer phone numbers/amounts) or any
-        credential — only path/status/latency, matching the convention
-        already established in app/services/selcom_business/live_client.py.
+        """`fields` is the JSON body, sent verbatim (POST-shaped calls
+        only; a GET/query-parameter endpoint needs its own handling once
+        implemented, not guessed here) — its key order is what Selcom's
+        docs require the signing string/Signed-Fields header to match by
+        default. Never logs `fields` (may contain customer phone
+        numbers/amounts) or any credential — only path/status/latency,
+        matching the convention already established in
+        app/services/selcom_business/live_client.py.
+
+        `signed_fields` overrides what gets signed/named in Signed-Fields
+        *without changing the JSON body* — exists only so
+        create_order_minimal()'s diagnostic-only "official-shell"
+        variant can probe a body/signature field-name mismatch against a
+        real sandbox. Defaults to `fields` itself (the normal case: body
+        and signature agree). Never set this from application code.
 
         `timestamp` defaults to signer.build_timestamp()'s UTC ISO-8601
         shape (via build_auth_headers) — the override exists only so
-        scripts/test_selcom_checkout_sandbox.py can test the docs'
-        alternative "yyyy-dd-mm H:i:s" format against a real sandbox
-        without touching this production default. Never set this from
-        application code."""
+        scripts/test_selcom_checkout_create_order_minimal.py can test the
+        docs' alternative "yyyy-dd-mm H:i:s" format against a real
+        sandbox without touching this production default. Never set this
+        from application code."""
         credentials = self._credentials
         headers = build_auth_headers(
-            fields,
+            signed_fields if signed_fields is not None else fields,
             api_key=credentials.api_key,
             digest_method=credentials.digest_method,
             api_secret=credentials.api_secret,
@@ -159,7 +172,12 @@ class SelcomCheckoutHTTPClient:
         redirect_url: str | None = None,
         cancel_url: str | None = None,
         webhook: str | None = None,
+        header_colour: str | None = None,
+        link_colour: str | None = None,
+        button_colour: str | None = None,
+        expiry: int | None = None,
         timestamp: str | None = None,
+        signed_fields_variant: str = "default",
     ) -> CreateOrderMinimalResult:
         """POST /v1/checkout/create-order-minimal
         (https://developers.selcommobile.com/#create-order-minimal) —
@@ -169,21 +187,40 @@ class SelcomCheckoutHTTPClient:
 
         Field order below is deliberate, not incidental — it becomes both
         the signing string and the Signed-Fields header, and the docs
-        require both to match the payload exactly. The docs' own shell
-        example lists a *different* Signed-Fields set for this endpoint
-        (buyer_user_id, payment_methods, payer_remarks, order_items) that
-        doesn't match any example payload shown for Create Order -
-        Minimal (those fields belong to a different Checkout endpoint's
-        docs, most likely the full Create Order, not Minimal). Once
-        fields not present in any Minimal example are dropped, the
-        shell's order and the parameter-table order below turn out
-        identical for every field this method actually sends — so field
-        *order* isn't the open question here. What's still unconfirmed is
-        the Timestamp *format*: the shell headers describe
-        "yyyy-dd-mm H:i:s", not the ISO-8601 signer.build_timestamp()
-        produces by default — see the `timestamp` param below and
-        scripts/test_selcom_checkout_sandbox.py, which tries both against
-        a real sandbox.
+        require both to match the payload exactly:
+
+            vendor,order_id,buyer_email,buyer_name,buyer_phone,amount,currency,
+            redirect_url,cancel_url,webhook,buyer_remarks,merchant_remarks,no_of_items
+
+        with header_colour/link_colour/button_colour/expiry appended in
+        that order when present — the docs' explicit default-order
+        recitation stops at no_of_items, but the parameter table lists
+        these four afterward, so that's where they go. Any absent
+        optional field is omitted entirely from both the signature and
+        the JSON body — never sent as an empty string.
+
+        The docs' own shell example lists a *different* Signed-Fields set
+        for this endpoint (buyer_user_id, payment_methods, payer_remarks,
+        order_items) that doesn't match any example payload shown for
+        Create Order - Minimal (those fields belong to a different
+        Checkout endpoint's docs, most likely the full Create Order, not
+        Minimal). Once fields not present in any Minimal example are
+        dropped, the shell's order and the order above turn out identical
+        for every field this method actually sends — so this discrepancy
+        doesn't change anything in the `signed_fields_variant="default"`
+        path. `signed_fields_variant="official-shell"` exists purely so
+        scripts/test_selcom_checkout_create_order_minimal.py can probe
+        the shell's literal, mismatched field names (payer_remarks/
+        order_items in place of buyer_remarks/no_of_items, plus
+        buyer_user_id/payment_methods signed as empty strings even though
+        never sent in the body) against a real sandbox — diagnostic only,
+        never selected by application code, which always uses "default".
+
+        Also still unconfirmed: Timestamp *format* — the shell headers
+        describe "yyyy-dd-mm H:i:s", not the ISO-8601
+        signer.build_timestamp() produces by default. See the
+        `timestamp` param and the diagnostic script, which tries both
+        against a real sandbox.
 
         buyer_phone must already be normalized to "255XXXXXXXXX" by the
         caller (app.core.phone.normalize_tz_phone) — not re-validated
@@ -191,12 +228,20 @@ class SelcomCheckoutHTTPClient:
 
         redirect_url/cancel_url/webhook are base64-encoded here per the
         docs ("All URLs in the request and response are base64
-        encoded") — never encode buyer_email/buyer_name/remarks/etc.
+        encoded") — never encode buyer_email/buyer_name/remarks/header_colour/
+        link_colour/button_colour/etc. `qr` in the response is parsed
+        exactly as returned (see parsing.py) — never base64-decoded
+        unless Selcom's own response ever actually shows it base64-encoded,
+        which the confirmed sample response doesn't.
 
-        `timestamp` overrides the default ISO-8601 UTC timestamp — never
-        set this from application code, it exists only for the sandbox
-        diagnostic script above.
+        `timestamp` overrides the default ISO-8601 UTC timestamp;
+        `signed_fields_variant` overrides the field-name mapping used for
+        signing. Neither should ever be set from application code — both
+        exist only for the sandbox diagnostic script.
         """
+        if signed_fields_variant not in ("default", "official-shell"):
+            raise ValueError(f"Unknown signed_fields_variant: {signed_fields_variant!r}")
+
         fields: dict[str, str] = {
             "vendor": self._credentials.vendor,
             "order_id": order_id,
@@ -217,8 +262,55 @@ class SelcomCheckoutHTTPClient:
         if merchant_remarks:
             fields["merchant_remarks"] = merchant_remarks
         fields["no_of_items"] = str(no_of_items)
+        if header_colour:
+            fields["header_colour"] = header_colour
+        if link_colour:
+            fields["link_colour"] = link_colour
+        if button_colour:
+            fields["button_colour"] = button_colour
+        if expiry is not None:
+            fields["expiry"] = str(expiry)
+
+        signed_fields = None
+        if signed_fields_variant == "official-shell":
+            # Diagnostic only — see the docstring above. A literal,
+            # explicit reproduction of the shell's stated field list
+            # (vendor,order_id,buyer_email,buyer_name,buyer_user_id,
+            # buyer_phone,amount,currency,payment_methods,webhook,
+            # payer_remarks,merchant_remarks,order_items), built directly
+            # rather than derived from `fields` — deriving it by
+            # transforming `fields` risks exactly the kind of
+            # position/order mistake this whole exercise is trying to
+            # rule out. buyer_user_id/payment_methods are signed as empty
+            # strings (the shell lists them unconditionally) but never
+            # added to the actual JSON body, which stays `fields`,
+            # untouched. webhook/payer_remarks/merchant_remarks are
+            # included only if the caller actually provided the
+            # corresponding value, same optionality as the default path.
+            signed_fields = {
+                "vendor": self._credentials.vendor,
+                "order_id": order_id,
+                "buyer_email": buyer_email,
+                "buyer_name": buyer_name,
+                "buyer_user_id": "",
+                "buyer_phone": buyer_phone,
+                "amount": amount,
+                "currency": currency,
+                "payment_methods": "",
+            }
+            if webhook:
+                signed_fields["webhook"] = fields["webhook"]
+            if buyer_remarks:
+                signed_fields["payer_remarks"] = buyer_remarks
+            if merchant_remarks:
+                signed_fields["merchant_remarks"] = merchant_remarks
+            signed_fields["order_items"] = str(no_of_items)
 
         response = await self._signed_request(
-            "POST", "/v1/checkout/create-order-minimal", fields, timestamp=timestamp
+            "POST",
+            "/v1/checkout/create-order-minimal",
+            fields,
+            signed_fields=signed_fields,
+            timestamp=timestamp,
         )
         return parse_create_order_minimal_response(response)
