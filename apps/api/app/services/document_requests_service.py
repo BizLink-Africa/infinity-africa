@@ -13,6 +13,7 @@ from fastapi import UploadFile
 from supabase import Client
 
 from app.core.errors import NotFoundError, ValidationAPIError
+from app.schemas.enums import NotificationType
 from app.services.crud import get_by_id, insert_row, update_row
 from app.services.notifications_service import notify_admin, notify_merchant
 
@@ -86,7 +87,7 @@ def create_document_request(
     notify_merchant(
         client,
         merchant_id=merchant_id,
-        notification_type="document_request",
+        notification_type=NotificationType.DOCUMENT_REQUEST,
         title="Supporting documents required for this transaction.",
         body=reason,
         related_resource_type="document_request",
@@ -136,7 +137,7 @@ def mark_document_request_submitted(client: Client, *, request_id: uuid.UUID, me
     request = update_row(client, "merchant_document_requests", request_id, {"status": "SUBMITTED"})
     notify_admin(
         client,
-        notification_type="document_request",
+        notification_type=NotificationType.DOCUMENT_REQUEST,
         title="Merchant submitted requested documents",
         body=f"Merchant {merchant_id} submitted documents for review.",
         related_resource_type="document_request",
@@ -164,7 +165,7 @@ def review_document_request(
     notify_merchant(
         client,
         merchant_id=uuid.UUID(request["merchant_id"]),
-        notification_type="document_request",
+        notification_type=NotificationType.DOCUMENT_REQUEST,
         title=f"Document request {status.lower()}",
         body=f"Your submitted documents were {status.lower()} by Infinity Africa.",
         related_resource_type="document_request",

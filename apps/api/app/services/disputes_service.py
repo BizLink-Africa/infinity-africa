@@ -17,6 +17,7 @@ from supabase import Client
 
 from app.core.errors import NotFoundError, ValidationAPIError
 from app.core.references import generate_reference
+from app.schemas.enums import NotificationType
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
 from app.services.ledger import post_refund_entry
 from app.services.notifications_service import notify_admin, notify_merchant
@@ -113,7 +114,7 @@ async def create_public_dispute(
 
     notify_admin(
         client,
-        notification_type="dispute_received",
+        notification_type=NotificationType.DISPUTE_RECEIVED,
         title="New customer dispute reported",
         body=f"{customer_name} reported: {reason_category}.",
         related_resource_type="dispute",
@@ -123,7 +124,7 @@ async def create_public_dispute(
         notify_merchant(
             client,
             merchant_id=merchant_id,
-            notification_type="dispute_received",
+            notification_type=NotificationType.DISPUTE_RECEIVED,
             title="A customer reported an issue with a transaction",
             body=description,
             related_resource_type="dispute",
@@ -188,7 +189,7 @@ def respond_to_dispute(
         update_row(client, "disputes", dispute_id, {"status": "UNDER_REVIEW"})
         notify_admin(
             client,
-            notification_type="dispute_status_updated",
+            notification_type=NotificationType.DISPUTE_STATUS_UPDATED,
             title="Merchant responded to a dispute",
             body=body,
             related_resource_type="dispute",
@@ -223,7 +224,7 @@ def update_dispute_status(
         notify_merchant(
             client,
             merchant_id=uuid.UUID(dispute["merchant_id"]),
-            notification_type="dispute_status_updated",
+            notification_type=NotificationType.DISPUTE_STATUS_UPDATED,
             title=f"Dispute status updated: {status}",
             body=note or f"Your dispute status was updated to {status}.",
             related_resource_type="dispute",
@@ -262,7 +263,7 @@ def accept_refund(client: Client, *, dispute_id: uuid.UUID, merchant_id: uuid.UU
     update_row(client, "disputes", dispute_id, {"status": "REFUND_REQUESTED"})
     notify_admin(
         client,
-        notification_type="refund_requested",
+        notification_type=NotificationType.REFUND_REQUESTED,
         title="Merchant accepted a refund request",
         body=f"Merchant accepted a refund of {amount} for dispute {dispute_id}.",
         related_resource_type="refund",
@@ -299,7 +300,7 @@ def admin_request_refund(client: Client, *, dispute_id: uuid.UUID, amount: Decim
     notify_merchant(
         client,
         merchant_id=merchant_id,
-        notification_type="refund_requested",
+        notification_type=NotificationType.REFUND_REQUESTED,
         title="Infinity Africa requested a refund for a dispute",
         body=f"Please review and process a refund of {amount}.",
         related_resource_type="refund",
@@ -360,7 +361,7 @@ def update_refund_status(
         notify_merchant(
             client,
             merchant_id=merchant_id,
-            notification_type="dispute_status_updated",
+            notification_type=NotificationType.DISPUTE_STATUS_UPDATED,
             title="Refund completed",
             body=f"A refund of {amount} {refund['currency']} has been completed.",
             related_resource_type="refund",
@@ -374,7 +375,7 @@ def update_refund_status(
         notify_merchant(
             client,
             merchant_id=merchant_id,
-            notification_type="dispute_status_updated",
+            notification_type=NotificationType.DISPUTE_STATUS_UPDATED,
             title="Refund attempt failed",
             body="A refund attempt failed — Infinity Africa will follow up.",
             related_resource_type="refund",

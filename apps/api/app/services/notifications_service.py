@@ -10,6 +10,7 @@ import uuid
 
 from supabase import Client
 
+from app.schemas.enums import NotificationType
 from app.services.crud import insert_row
 
 
@@ -17,7 +18,7 @@ def notify_merchant(
     client: Client,
     *,
     merchant_id: uuid.UUID,
-    notification_type: str,
+    notification_type: NotificationType,
     title: str,
     body: str,
     related_resource_type: str | None = None,
@@ -29,7 +30,7 @@ def notify_merchant(
         {
             "recipient_type": "merchant",
             "merchant_id": str(merchant_id),
-            "notification_type": notification_type,
+            "notification_type": notification_type.value,
             "title": title,
             "body": body,
             "related_resource_type": related_resource_type,
@@ -41,7 +42,7 @@ def notify_merchant(
 def notify_admin(
     client: Client,
     *,
-    notification_type: str,
+    notification_type: NotificationType,
     title: str,
     body: str,
     related_resource_type: str | None = None,
@@ -53,7 +54,7 @@ def notify_admin(
         {
             "recipient_type": "admin",
             "merchant_id": None,
-            "notification_type": notification_type,
+            "notification_type": notification_type.value,
             "title": title,
             "body": body,
             "related_resource_type": related_resource_type,

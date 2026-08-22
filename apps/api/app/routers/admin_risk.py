@@ -18,6 +18,7 @@ from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.common import APIResponse
 from app.schemas.document_requests import AdminDocumentRequestResponse
+from app.schemas.enums import NotificationType
 from app.schemas.fraud import (
     AdminFraudAlertResponse,
     FraudAlertNoteCreate,
@@ -85,7 +86,7 @@ def update_risk_alert_status(
     notify_merchant(
         client,
         merchant_id=uuid.UUID(alert["merchant_id"]),
-        notification_type="fraud_alert",
+        notification_type=NotificationType.FRAUD_ALERT,
         title=f"Transaction review status updated: {payload.status}",
         body=payload.note or f"Status changed to {payload.status}.",
         related_resource_type="fraud_alert",

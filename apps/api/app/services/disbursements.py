@@ -36,7 +36,7 @@ from app.core.errors import (
 from app.core.phone import InvalidPhoneNumberError, normalize_tz_phone
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
-from app.schemas.enums import DestinationCode, DisbursementMethod
+from app.schemas.enums import DestinationCode, DisbursementMethod, NotificationType
 from app.schemas.withdrawals import FeeBreakdown
 from app.services.audit import write_audit_log
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
@@ -222,7 +222,7 @@ def reject_disbursement(
     notify_merchant(
         client,
         merchant_id=uuid.UUID(disbursement["merchant_id"]),
-        notification_type="withdrawal_rejected",
+        notification_type=NotificationType.WITHDRAWAL_REJECTED,
         title="Withdrawal rejected",
         body=rejection_reason,
         related_resource_type="disbursement",
@@ -258,7 +258,7 @@ def request_more_info(
     notify_merchant(
         client,
         merchant_id=uuid.UUID(disbursement["merchant_id"]),
-        notification_type="withdrawal_info_requested",
+        notification_type=NotificationType.WITHDRAWAL_INFO_REQUESTED,
         title="More information needed for your withdrawal",
         body=message,
         related_resource_type="disbursement",
@@ -355,7 +355,7 @@ def _fail_and_reverse(
     notify_merchant(
         client,
         merchant_id=merchant_id,
-        notification_type="withdrawal_failed",
+        notification_type=NotificationType.WITHDRAWAL_FAILED,
         title="Withdrawal failed",
         body=f"Your withdrawal of {amount} {currency} could not be completed."
         + (f" Reason: {reason}" if reason else ""),
@@ -787,7 +787,7 @@ def reverse_successful_disbursement_from_callback(
     notify_merchant(
         client,
         merchant_id=merchant_id,
-        notification_type="withdrawal_reversed",
+        notification_type=NotificationType.WITHDRAWAL_REVERSED,
         title="Withdrawal reversed",
         body=f"Your withdrawal of {amount} {currency} was reversed by the provider after settlement."
         + (f" Reason: {reason}" if reason else ""),

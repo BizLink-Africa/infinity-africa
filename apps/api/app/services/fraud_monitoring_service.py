@@ -20,6 +20,7 @@ from typing import Literal
 
 from supabase import Client
 
+from app.schemas.enums import NotificationType
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
 from app.services.notifications_service import notify_merchant
 
@@ -102,7 +103,7 @@ def _raise_alert(
     notify_merchant(
         client,
         merchant_id=merchant_id,
-        notification_type="fraud_alert",
+        notification_type=NotificationType.FRAUD_ALERT,
         title="Suspicious activity detected",
         body=reason,
         related_resource_type="fraud_alert",

@@ -242,3 +242,34 @@ class RefundStatus(StrEnum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
+
+class NotificationType(StrEnum):
+    """Every value the `notifications` table's
+    `notifications_notification_type_check` CHECK constraint currently
+    allows (supabase/migrations/20260817110000_notifications.sql, extended
+    by 20260818090000, 20260820090001, and 20260822043100 — always check
+    the latest of these for the true current list, this enum only mirrors
+    it). Two real production incidents in one session were caused by
+    passing a bare, unvalidated string straight through
+    notify_merchant()/notify_admin() (app/services/notifications_service.py)
+    that didn't match this constraint — a missing column crashed
+    approve_disbursement, then a typo'd-relative-to-the-DB notification
+    type crashed reject_disbursement. Route every call through this enum
+    instead of a raw string literal so a mismatch is at least visible in
+    one place to review against the migration, even though Python can't
+    check the live DB constraint itself — see
+    apps/api/tests/test_notification_types.py, which pins this enum's
+    values against a hardcoded mirror of the migration list so an edit to
+    one without the other fails a test rather than only failing in
+    production."""
+
+    FRAUD_ALERT = "fraud_alert"
+    DOCUMENT_REQUEST = "document_request"
+    DISPUTE_RECEIVED = "dispute_received"
+    REFUND_REQUESTED = "refund_requested"
+    DISPUTE_STATUS_UPDATED = "dispute_status_updated"
+    WITHDRAWAL_FAILED = "withdrawal_failed"
+    WITHDRAWAL_REVERSED = "withdrawal_reversed"
+    WITHDRAWAL_INFO_REQUESTED = "withdrawal_info_requested"
+    WITHDRAWAL_REJECTED = "withdrawal_rejected"
