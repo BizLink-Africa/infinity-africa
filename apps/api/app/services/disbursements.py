@@ -203,7 +203,7 @@ def reject_disbursement(
 
     # Never reached reservation (that only happens once approved), so
     # there's nothing to reverse in the ledger.
-    return update_row(
+    disbursement = update_row(
         client,
         "disbursements",
         disbursement_id,
@@ -215,6 +215,20 @@ def reject_disbursement(
             "completed_at": utc_now_iso(),
         },
     )
+    # Same notify_merchant the failed/info-requested paths already have —
+    # previously missing here entirely, so a rejected withdrawal only ever
+    # showed a bare "Rejected" status with no visible reason unless the
+    # merchant specifically opened the withdrawal's own detail view.
+    notify_merchant(
+        client,
+        merchant_id=uuid.UUID(disbursement["merchant_id"]),
+        notification_type="withdrawal_rejected",
+        title="Withdrawal rejected",
+        body=rejection_reason,
+        related_resource_type="disbursement",
+        related_resource_id=disbursement_id,
+    )
+    return disbursement
 
 
 def request_more_info(

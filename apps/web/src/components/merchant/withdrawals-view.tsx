@@ -419,6 +419,11 @@ export function WithdrawalsView() {
                     </td>
                     <td className={tdClass}>
                       <StatusBadge {...badge} />
+                      {(disbursement.rejection_reason || disbursement.admin_status_reason) && (
+                        <p className="mt-1 text-xs text-on-surface-variant">
+                          {disbursement.rejection_reason || disbursement.admin_status_reason}
+                        </p>
+                      )}
                     </td>
                   </tr>
                 );
