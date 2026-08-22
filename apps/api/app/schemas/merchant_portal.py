@@ -127,6 +127,37 @@ class MerchantPushCollectionRequest(BaseModel):
         return validate_and_normalize_phone(value)
 
 
+class CreateOrderMinimalRequest(BaseModel):
+    """POST /v1/merchant/collections/create-order-minimal — Selcom
+    Checkout's Create Order - Minimal
+    (https://developers.selcommobile.com/#create-order-minimal), Step 1
+    for STK/USSD/wallet push, payment-link checkout, and dynamic QR/token
+    display. Never itself pulls money.
+
+    order_id is deliberately not a client-supplied field — the service
+    generates it server-side (generate_reference("ORD")) so uniqueness is
+    guaranteed rather than trusted from the caller; merchant_reference
+    below is where the merchant's own tracking value goes instead, same
+    role as collections.merchant_reference."""
+
+    payment_link_id: uuid.UUID | None = None
+    merchant_reference: str | None = Field(default=None, max_length=100)
+
+    buyer_email: str
+    buyer_name: str
+    buyer_phone: str
+    amount: Decimal = Field(gt=0)
+    currency: str = "TZS"
+    buyer_remarks: str | None = None
+    merchant_remarks: str | None = None
+    no_of_items: int = Field(gt=0)
+
+    @field_validator("buyer_phone")
+    @classmethod
+    def _check_phone(cls, value: str) -> str:
+        return validate_and_normalize_phone(value)
+
+
 class MerchantDynamicQrCollectionRequest(BaseModel):
     """DYNAMIC_QR — scan-based; no phone number needed."""
 

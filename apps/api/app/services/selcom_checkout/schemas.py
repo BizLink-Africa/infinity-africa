@@ -26,3 +26,32 @@ class SelcomCheckoutCredentials(BaseModel):
     vendor: str = ""
     private_key_base64: str = ""
     timeout_seconds: int = 30
+
+
+class CreateOrderMinimalResult(BaseModel):
+    """Parsed result of POST /v1/checkout/create-order-minimal
+    (https://developers.selcommobile.com/#create-order-minimal). Field
+    names below match app.services.selcom_checkout.parsing's confirmed
+    extraction — see that module for what's parsed vs. not.
+
+    payment_gateway_url is the *decoded* URL, not the raw base64 Selcom
+    returns (the docs: "All URLs in the request and response are base64
+    encoded") — raw_response keeps the original, unmodified body for
+    anyone who needs the exact bytes Selcom sent."""
+
+    reference: str
+    resultcode: str
+    result: str
+    message: str
+    gateway_buyer_uuid: str | None = None
+    payment_token: str | None = None
+    qr: str | None = None
+    payment_gateway_url: str | None = None
+    raw_response: dict
+
+    @property
+    def is_success(self) -> bool:
+        """Per the docs' own sample response
+        ({"resultcode": "000", "result": "SUCCESS", ...}) — both checked
+        since neither field's full value space is documented."""
+        return self.resultcode == "000" or self.result == "SUCCESS"

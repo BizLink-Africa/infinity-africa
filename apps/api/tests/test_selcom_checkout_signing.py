@@ -130,6 +130,20 @@ def test_build_timestamp_returns_utc_z_suffixed_iso8601():
     assert len(ts) == len("2026-08-22T12:00:00.000Z")
 
 
+def test_build_timestamp_php_style_matches_the_documented_shape():
+    from app.services.selcom_checkout.signer import build_timestamp_php_style
+
+    ts = build_timestamp_php_style()
+    # "yyyy-dd-mm H:i:s" per the Create Order - Minimal shell headers —
+    # not ISO-8601: no "T", no "Z", no timezone offset.
+    assert "T" not in ts
+    assert not ts.endswith("Z")
+    assert len(ts) == len("2026-22-08 12:00:00")
+    date_part, time_part = ts.split(" ")
+    assert len(date_part.split("-")) == 3
+    assert len(time_part.split(":")) == 3
+
+
 # --- RS256 (RSA-SHA256) signing -----------------------------------------------------
 
 

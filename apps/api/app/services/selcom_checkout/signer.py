@@ -59,6 +59,23 @@ def build_timestamp() -> str:
     return f"{now.strftime('%Y-%m-%dT%H:%M:%S')}.{milliseconds:03d}Z"
 
 
+def build_timestamp_php_style() -> str:
+    """The literal alternative format the Create Order - Minimal shell
+    sample's headers describe: "Timestamp: {timestamp in yyyy-dd-mm H:i:s
+    format}" — year, then *day*, then month (not the more common
+    year-month-day), followed by 24-hour time, no timezone suffix. Not
+    ISO-8601, and untested against a real Selcom response as of writing.
+
+    **Never called from client.py's default path.** Exists only for
+    scripts/test_selcom_checkout_sandbox.py to test against a real
+    sandbox alongside build_timestamp()'s UTC ISO-8601 default — see that
+    script and create_order_minimal()'s docstring for why both are worth
+    trying rather than guessing which one Selcom's server actually
+    expects."""
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%d-%m %H:%M:%S")
+
+
 def build_signing_string(*, timestamp: str, fields: dict[str, str]) -> str:
     """`fields` must be given in the exact order they should be signed —
     a plain dict preserves insertion order, so callers just build it in

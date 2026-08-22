@@ -31,6 +31,7 @@ from app.core.references import generate_reference
 from app.database.session import get_supabase_admin
 from app.schemas.api_keys import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyResponse
 from app.schemas.auth import MerchantMembership
+from app.schemas.checkout_orders import CheckoutOrderResponse
 from app.schemas.collections import CollectionResponse, DynamicQrCollectionResponse
 from app.schemas.common import APIResponse
 from app.schemas.disbursements import DisbursementResponse
@@ -44,6 +45,7 @@ from app.schemas.enums import CollectionMethod, UserRole
 from app.schemas.fraud import FraudAlertResponse
 from app.schemas.invoices import InvoiceItemResponse, InvoiceResponse, InvoiceUpdate
 from app.schemas.merchant_portal import (
+    CreateOrderMinimalRequest,
     MerchantDynamicQrCollectionRequest,
     MerchantInvoiceCreate,
     MerchantOverviewResponse,
@@ -65,6 +67,7 @@ from app.schemas.withdrawals import FeeBreakdown, WithdrawalQuoteRequest
 from app.services import disputes_service, document_requests_service
 from app.services.admin_directory import batch_user_profiles, best_effort_user_profile
 from app.services.audit import write_audit_log
+from app.services.checkout_orders import create_checkout_order_minimal
 from app.services.collections import initiate_collection, initiate_dynamic_qr_collection
 from app.services.crud import (
     execute_maybe_single,
@@ -81,6 +84,7 @@ from app.services.payment_links import (
     batch_collection_counts,
     build_public_url,
     generate_public_slug,
+    get_with_effective_status,
     validate_payment_link_for_collection,
     with_effective_status,
 )
@@ -660,6 +664,82 @@ async def create_my_dynamic_qr_collection(
         handler=_handler,
     )
     return APIResponse(data=DynamicQrCollectionResponse(**body))
+
+
+@router.post(
+    "/collections/create-order-minimal",
+    response_model=APIResponse[CheckoutOrderResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_my_checkout_order_minimal(
+    payload: CreateOrderMinimalRequest,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+):
+    """Selcom Checkout's Create Order - Minimal
+    (https://developers.selcommobile.com/#create-order-minimal) — Step 1
+    for STK/USSD/wallet push, payment-link checkout, and dynamic QR/token
+    display. Never pulls money: no wallet-payment call happens here or
+    anywhere in app/services/selcom_checkout/ yet.
+
+    A 202 with status="created" means the order shell exists on Selcom's
+    side and a payment_token/qr/gateway URL are available — it does not
+    mean anything has been paid. A 202 with status="failed" means Selcom
+    rejected the order itself (see provider_message); either way this
+    endpoint's own HTTP response is 202, since the order attempt was
+    still recorded — check `status` in the body for the real outcome,
+    same convention as the push-collection endpoints above."""
+    client = get_supabase_admin()
+
+    if payload.payment_link_id is not None:
+        # Not validate_payment_link_for_collection() — that also checks
+        # the link accepts one *specific* collection method, which
+        # doesn't apply here: this order shell doesn't commit to
+        # STK/USSD/wallet/QR yet, so there's no single method to check
+        # against. Ownership + ACTIVE status is all that's meaningful at
+        # this stage.
+        link = get_with_effective_status(client, payload.payment_link_id)
+        if not link or uuid.UUID(link["merchant_id"]) != membership.merchant_id:
+            raise ValidationAPIError("payment_link_id does not belong to this merchant")
+        if link["status"] != "ACTIVE":
+            raise ConflictError(f"This payment link cannot accept a collection (status: {link['status']})")
+
+    async def _handler() -> tuple[int, dict]:
+        order = await create_checkout_order_minimal(
+            client,
+            merchant_id=membership.merchant_id,
+            buyer_email=payload.buyer_email,
+            buyer_name=payload.buyer_name,
+            buyer_phone=payload.buyer_phone,
+            amount=payload.amount,
+            currency=payload.currency,
+            no_of_items=payload.no_of_items,
+            buyer_remarks=payload.buyer_remarks,
+            merchant_remarks=payload.merchant_remarks,
+            payment_link_id=payload.payment_link_id,
+            merchant_reference=payload.merchant_reference,
+        )
+        write_audit_log(
+            client,
+            actor_id=membership.user_id,
+            actor_type="user",
+            merchant_id=membership.merchant_id,
+            action="checkout_order.created",
+            resource_type="checkout_order",
+            resource_id=uuid.UUID(order["id"]),
+            metadata={"status": order["status"]},
+        )
+        return status.HTTP_202_ACCEPTED, order
+
+    _status_code, body = await run_idempotent(
+        client,
+        merchant_id=membership.merchant_id,
+        endpoint="POST /v1/merchant/collections/create-order-minimal",
+        idempotency_key=idempotency_key,
+        request_payload=payload.model_dump(mode="json"),
+        handler=_handler,
+    )
+    return APIResponse(data=CheckoutOrderResponse(**body))
 
 
 # --- Withdrawals (disbursements) --------------------------------------------
