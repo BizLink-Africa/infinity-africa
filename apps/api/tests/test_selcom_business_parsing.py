@@ -47,6 +47,31 @@ REAL_FAILED_RESPONSE = {
     "data": [],
 }
 
+# Verified 2026-08-22 against the first real production pilot withdrawal
+# (transaction DIS-20260822-79DEB2B1, a status-check call after the initial
+# process call succeeded). A third field-name variant: trans_id/receipt are
+# still nested inside `data`, but camelCase (`transId`/`selcomReceipt`) here
+# rather than the sandbox's snake_case — caught because the receipt column
+# was silently staying null on a real successful disbursement.
+REAL_PRODUCTION_SUCCESS_RESPONSE = {
+    "success": True,
+    "error_code": "000",
+    "resultcode": "000",
+    "result": "SUCCESS",
+    "message": "Transaction status retrieved.",
+    "data": {
+        "transId": "DIS-20260822-79DEB2B1",
+        "selcomReceipt": "SB0822PB1PU",
+        "status": "COMPLETED",
+        "amount": "1000.00",
+        "principalAmount": "1000.00",
+        "totalCharges": "0.00",
+        "currency": "TZS",
+        "senderAccount": "5529108708283",
+        "senderName": "INFINITY DISBURSEMENT",
+    },
+}
+
 
 def test_real_processing_response_parses_correctly():
     result = parse_transaction_result(REAL_PROCESSING_RESPONSE, trans_id="INF-5E4866FACAB94D94")
@@ -65,6 +90,15 @@ def test_real_failed_response_parses_correctly():
     assert result.receipt is None
     assert result.failure_reason == "Invalid account number for the provided bank/FI code."
     assert result.raw_status == "FAIL"
+
+
+def test_real_production_success_response_parses_correctly():
+    result = parse_transaction_result(REAL_PRODUCTION_SUCCESS_RESPONSE, trans_id="DIS-20260822-79DEB2B1")
+    assert result.status == "successful"
+    assert result.transaction_id == "DIS-20260822-79DEB2B1"
+    assert result.receipt == "SB0822PB1PU"
+    assert result.failure_reason is None
+    assert result.raw_status == "SUCCESS"
 
 
 # --- recognized status text (`result`/`status`/`transactionStatus`) -------

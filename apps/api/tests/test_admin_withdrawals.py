@@ -126,6 +126,14 @@ def test_approve_reserves_funds_and_calls_selcom(fake_client):
     assert approved["provider_reference"] is not None
     assert _wallet_balance(fake_client, merchant_id) == Decimal("5000000.00")
 
+    # A successful withdrawal never called notify_merchant() at all until
+    # this was found auditing the first real production pilot payout — the
+    # merchant's notification bell showed failures/rejections but never a
+    # completed withdrawal.
+    notifications = fake_client.table("notifications")._table.rows
+    success_notifications = [n for n in notifications if n["notification_type"] == "withdrawal_success"]
+    assert len(success_notifications) == 1
+
     transaction = next(
         t for t in fake_client.table("transactions")._table.rows if t["disbursement_id"] == body["id"]
     )

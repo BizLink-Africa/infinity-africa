@@ -595,6 +595,20 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
             event_name="disbursement.success",
             payload={"disbursement_id": str(disbursement_id), "amount": str(amount), "currency": currency},
         )
+        # enqueue_webhook_event is a developer-facing webhook delivery, not
+        # the in-app notifications table — success never called
+        # notify_merchant() at all until this fix, so a merchant's
+        # notification bell only ever showed failures/rejections, never a
+        # completed withdrawal. Found auditing the first real pilot payout.
+        notify_merchant(
+            client,
+            merchant_id=merchant_id,
+            notification_type=NotificationType.WITHDRAWAL_SUCCESS,
+            title="Withdrawal successful",
+            body=f"Your withdrawal of {amount} {currency} was completed successfully.",
+            related_resource_type="disbursement",
+            related_resource_id=disbursement_id,
+        )
         return _stamp_response_fields(disbursement, transaction)
 
     disbursement = _fail_and_reverse(
@@ -673,6 +687,20 @@ def _resolve_processing_disbursement(
             merchant_id=merchant_id,
             event_name="disbursement.success",
             payload={"disbursement_id": str(disbursement_id), "amount": str(amount), "currency": currency},
+        )
+        # enqueue_webhook_event is a developer-facing webhook delivery, not
+        # the in-app notifications table — success never called
+        # notify_merchant() at all until this fix, so a merchant's
+        # notification bell only ever showed failures/rejections, never a
+        # completed withdrawal. Found auditing the first real pilot payout.
+        notify_merchant(
+            client,
+            merchant_id=merchant_id,
+            notification_type=NotificationType.WITHDRAWAL_SUCCESS,
+            title="Withdrawal successful",
+            body=f"Your withdrawal of {amount} {currency} was completed successfully.",
+            related_resource_type="disbursement",
+            related_resource_id=disbursement_id,
         )
         return _stamp_response_fields(disbursement, transaction)
 

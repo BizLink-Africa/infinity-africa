@@ -24,6 +24,24 @@ real "processing" code is `"111"`, not the guessed `"001"`. `"927"`
 seen in a real response — included per docs/selcom-sandbox-test-accounts.md's
 result-interpretation table, not a guess. `data` is `[]` (not a dict) on
 failure — handled below rather than assumed to always be a dict.
+
+**Verified against a real production `SUCCESS` response** (status-check
+call, not the initial process call) as of 2026-08-22 — first real pilot
+withdrawal, transaction `DIS-20260822-79DEB2B1`:
+
+    {"success": true, "error_code": "000", "resultcode": "000", "result": "SUCCESS",
+     "message": "Transaction status retrieved.",
+     "data": {"transId": "DIS-20260822-79DEB2B1", "selcomReceipt": "SB0822PB1PU",
+               "status": "COMPLETED", "amount": "1000.00", "principalAmount": "1000.00",
+               "totalCharges": "0.00", "currency": "TZS", "senderAccount": "5529108708283",
+               "senderName": "INFINITY DISBURSEMENT", "createdAt": "...", "updatedAt": "...",
+               "transDatetime": "...", "chargesSummary": "-", "receiptMessage": "-"}}
+
+Here `trans_id`/`selcom_receipt` are camelCase (`transId`/`selcomReceipt`),
+still nested inside `data` — a third shape variant distinct from both the
+sandbox example above and the guessed top-level camelCase originally coded
+for. `_extract_transaction_id`/`_extract_receipt` check both casings, both
+nesting levels.
 """
 
 from app.services.selcom_business.schemas import (
@@ -79,6 +97,7 @@ def _extract_transaction_id(response: dict, *, fallback: str) -> str:
     data = _response_data(response)
     return str(
         data.get("trans_id")
+        or data.get("transId")
         or response.get("transId")
         or response.get("transactionId")
         or response.get("reference")
@@ -90,6 +109,7 @@ def _extract_receipt(response: dict) -> str | None:
     data = _response_data(response)
     receipt = (
         data.get("selcom_receipt")
+        or data.get("selcomReceipt")
         or response.get("receipt")
         or response.get("receiptNumber")
         or response.get("selcomReceipt")

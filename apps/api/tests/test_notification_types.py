@@ -10,7 +10,7 @@ live database either, so it does the next best thing: pins
 NotificationType's members against a hardcoded mirror of the migration
 list below. Whenever the real constraint changes
 (supabase/migrations/*_notification*.sql — currently
-20260822043100_notifications_withdrawal_rejected_type.sql has the
+20260822171500_notifications_withdrawal_success_type.sql has the
 authoritative list), this test forces a deliberate edit to both the enum
 and this mirror, rather than a code change quietly drifting from what the
 database actually allows.
@@ -24,7 +24,7 @@ kind of mirror test in the same change — not after production breaks.
 
 from app.schemas.enums import NotificationType
 
-# Mirrors supabase/migrations/20260822043100_notifications_withdrawal_rejected_type.sql's
+# Mirrors supabase/migrations/20260822171500_notifications_withdrawal_success_type.sql's
 # `notifications_notification_type_check` constraint exactly. Update this
 # set (and add a real migration) whenever NotificationType gains a member.
 _CURRENT_DATABASE_CONSTRAINT_VALUES = {
@@ -37,6 +37,7 @@ _CURRENT_DATABASE_CONSTRAINT_VALUES = {
     "withdrawal_reversed",
     "withdrawal_info_requested",
     "withdrawal_rejected",
+    "withdrawal_success",
 }
 
 
