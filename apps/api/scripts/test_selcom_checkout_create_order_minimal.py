@@ -15,14 +15,16 @@ in apps/api/.env for a local run:
     SELCOM_CHECKOUT_VENDOR=...
 
 **Important, unlike the Business Disbursement API's equivalent script**:
-this product has no separate sandbox/production base-URL split in this
-codebase's settings (app/config/settings.py has one
-SELCOM_CHECKOUT_BASE_URL, not a sandbox/production pair) — whatever URL
-is currently configured is exactly what this script will hit. This
-script cannot tell sandbox and production apart and will not try to —
-confirm SELCOM_CHECKOUT_BASE_URL actually points at Selcom's sandbox
-before running this, or you will create a real order. The script prompts
-for an explicit "yes" before sending anything, precisely because of this.
+Infinity Africa has no Selcom Checkout sandbox at all (confirmed
+2026-08-22) — SELCOM_CHECKOUT_BASE_URL is always a real production
+endpoint with real production credentials, and this script always hits
+it. That's acceptable for create-order-minimal specifically because it
+never charges anyone or triggers a push by itself — it only creates an
+order shell on Selcom's live system. It is NOT acceptable for
+wallet-payment (see test_selcom_checkout_wallet_payment.py), which does
+send a real push to a real phone — that script requires its own,
+separate, much more deliberate confirmation. The prompt below still
+requires an explicit "yes" before sending anything.
 
 Docs inconsistency this script exists to help resolve, without ever
 guessing an answer into production code (app/services/selcom_checkout/
@@ -177,12 +179,16 @@ async def _main() -> int:
     settings = get_settings()
 
     print(
-        "SELCOM_CHECKOUT_BASE_URL has no sandbox/production split in this codebase — "
-        "whatever it's currently set to is exactly what this script will hit."
+        "Confirmed 2026-08-22: Infinity Africa has no Selcom Checkout sandbox — "
+        "SELCOM_CHECKOUT_BASE_URL is a real production endpoint with real production "
+        "credentials. This call creates a real order shell on Selcom's live system "
+        "(no charge to any customer — create-order-minimal never triggers a push or "
+        "moves money by itself; that only happens via a separate wallet-payment call, "
+        "not made by this script)."
     )
     print(f"  SELCOM_CHECKOUT_BASE_URL:  {settings.selcom_checkout_base_url or '(not set)'}")
     print(f"  SELCOM_CHECKOUT_MODE:      {settings.selcom_checkout_mode}")
-    confirm = input("Type 'yes' to confirm this is a safe (sandbox) endpoint to test against: ")
+    confirm = input("Type 'yes' to confirm you intend to create a real order on Selcom's live system: ")
     if confirm.strip().lower() != "yes":
         print("Aborted.", file=sys.stderr)
         return 1

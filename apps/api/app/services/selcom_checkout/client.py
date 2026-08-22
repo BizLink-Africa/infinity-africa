@@ -64,6 +64,25 @@ from app.services.selcom_checkout.signer import build_auth_headers
 logger = logging.getLogger("infinity.selcom_checkout")
 
 
+def _join_url(base_url: str, path: str) -> str:
+    """Joins a configured base URL with an endpoint path constant,
+    collapsing a duplicated API-version segment if the base URL already
+    ends with one — confirmed necessary against real production Selcom
+    infrastructure (2026-08-22): SELCOM_CHECKOUT_BASE_URL is
+    "https://apigw.selcommobile.com/v1", and every path constant in this
+    module already starts with "/v1/..." (matching the docs' own
+    "POST /v1/checkout/create-order-minimal" notation, written as if from
+    the domain root) — naive concatenation produced
+    ".../v1/v1/checkout/create-order-minimal" and a real HTTP 404 from
+    Selcom. Only collapses a `/v1` (or `/v1/`) suffix specifically, not a
+    general de-duplication — if Selcom's base URL for some other
+    environment doesn't include a version segment, this is a no-op."""
+    base = base_url.rstrip("/")
+    if base.endswith("/v1") and path.startswith("/v1/"):
+        return base[: -len("/v1")] + path
+    return base + path
+
+
 def get_selcom_checkout_credentials(settings: Settings | None = None) -> SelcomCheckoutCredentials:
     """Builds credentials from Settings — the only place SELCOM_CHECKOUT_*
     env vars are read for this client. Returns them bundled in one object
@@ -136,7 +155,7 @@ class SelcomCheckoutHTTPClient:
         if credentials.vendor:
             headers["Vendor"] = credentials.vendor
 
-        url = f"{credentials.base_url.rstrip('/')}{path}"
+        url = _join_url(credentials.base_url, path)
         started = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=credentials.timeout_seconds) as http:

@@ -13,7 +13,7 @@ import pytest
 
 import app.services.selcom_checkout.client as selcom_checkout_client_module
 from app.core.errors import SelcomAPIError
-from app.services.selcom_checkout.client import SelcomCheckoutHTTPClient
+from app.services.selcom_checkout.client import SelcomCheckoutHTTPClient, _join_url
 from app.services.selcom_checkout.errors import SelcomCheckoutMisconfiguredError
 from app.services.selcom_checkout.schemas import SelcomCheckoutCredentials
 
@@ -83,6 +83,30 @@ def _client(**overrides) -> SelcomCheckoutHTTPClient:
         **overrides,
     )
     return SelcomCheckoutHTTPClient(credentials=credentials)
+
+
+# --- URL joining ------------------------------------------------------------------
+#
+# Confirmed against real production Selcom infrastructure (2026-08-22):
+# SELCOM_CHECKOUT_BASE_URL is "https://apigw.selcommobile.com/v1", and
+# every path constant here already starts with "/v1/..." — naive
+# concatenation produced ".../v1/v1/checkout/create-order-minimal" and a
+# real HTTP 404 from Selcom before this was fixed.
+
+
+def test_join_url_collapses_duplicated_v1_segment():
+    url = _join_url("https://apigw.selcommobile.com/v1", "/v1/checkout/create-order-minimal")
+    assert url == "https://apigw.selcommobile.com/v1/checkout/create-order-minimal"
+
+
+def test_join_url_collapses_duplicated_v1_segment_with_trailing_slash_on_base():
+    url = _join_url("https://apigw.selcommobile.com/v1/", "/v1/checkout/create-order-minimal")
+    assert url == "https://apigw.selcommobile.com/v1/checkout/create-order-minimal"
+
+
+def test_join_url_is_a_no_op_when_base_has_no_version_segment():
+    url = _join_url("https://apigw.selcommobile.com", "/v1/checkout/create-order-minimal")
+    assert url == "https://apigw.selcommobile.com/v1/checkout/create-order-minimal"
 
 
 # --- construction guards -------------------------------------------------------------
