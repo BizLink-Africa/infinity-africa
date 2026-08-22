@@ -111,6 +111,24 @@ class Settings(BaseSettings):
     selcom_business_timeout_seconds: int = 30
     selcom_business_require_ip_whitelist: bool = False
 
+    # Selcom Checkout/Collections API (https://developers.selcommobile.com/)
+    # — the real, documented reference for USSD/STK/wallet push, Selcom
+    # Pesa push, and dynamic QR collections, superseding the earlier
+    # unconfirmed app/services/selcom/ placeholder. Distinct product/
+    # signing scheme from selcom_business above (RSA-only, different
+    # header names). Backend/Railway env vars only, NEVER set any of
+    # these in apps/web/Vercel. See app/services/selcom_checkout/.
+    selcom_checkout_mode: str = "mock"
+    selcom_checkout_base_url: str = ""
+    selcom_checkout_api_key: str = ""
+    selcom_checkout_api_secret: str = ""
+    selcom_checkout_digest_method: str = "HS256"
+    selcom_checkout_vendor: str = ""
+    selcom_checkout_timeout_seconds: int = 30
+    # Only needed if Selcom confirms this account requires RS256 instead
+    # of HS256 — see app/services/selcom_checkout/signer.py.
+    selcom_checkout_private_key_base64: str = ""
+
     # Platform economics — simple placeholders until real pricing rules exist.
     platform_fee_percentage: Decimal = Decimal("1.5")
     disbursement_approval_threshold: Decimal = Decimal(1000000)  # TZS
