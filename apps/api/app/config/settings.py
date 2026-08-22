@@ -115,6 +115,17 @@ class Settings(BaseSettings):
     platform_fee_percentage: Decimal = Decimal("1.5")
     disbursement_approval_threshold: Decimal = Decimal(1000000)  # TZS
 
+    # Controlled production pilot guardrail (docs/withdrawal-production-pilot-checklist.md)
+    # — a temporary, extra amount cap on top of the platform's normal
+    # withdrawal validation, active only while WITHDRAWAL_PILOT_MODE=true.
+    # Rejects any merchant withdrawal request above the configured amount
+    # with a clear, distinct error rather than a generic validation
+    # failure. Turn WITHDRAWAL_PILOT_MODE off (the default) once the pilot
+    # is reconciled and approved to expand — never leave this on
+    # permanently as a substitute for real per-merchant pricing/limits.
+    withdrawal_pilot_mode: bool = False
+    withdrawal_pilot_max_amount_tzs: Decimal = Decimal(1000)
+
     @model_validator(mode="after")
     def _reject_wildcard_cors_outside_development(self) -> "Settings":
         """allow_credentials=True in app/main.py's CORSMiddleware makes a

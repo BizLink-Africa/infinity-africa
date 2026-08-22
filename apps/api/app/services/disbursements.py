@@ -26,6 +26,7 @@ from decimal import Decimal
 
 from supabase import Client
 
+from app.config import get_settings
 from app.core.errors import (
     ConflictError,
     InsufficientBalanceError,
@@ -91,6 +92,22 @@ def _check_no_open_high_risk_alerts(client: Client, *, merchant_id: uuid.UUID) -
         )
 
 
+def _check_pilot_amount_limit(amount: Decimal) -> None:
+    """Controlled production pilot guardrail
+    (docs/withdrawal-production-pilot-checklist.md) — an extra, temporary
+    cap on top of the platform's normal withdrawal validation, active only
+    while WITHDRAWAL_PILOT_MODE=true. Not a permanent business rule; turn
+    the env var off once the pilot is reconciled and approved to expand."""
+    settings = get_settings()
+    if not settings.withdrawal_pilot_mode:
+        return
+    if amount > settings.withdrawal_pilot_max_amount_tzs:
+        raise WithdrawalRestrictedError(
+            f"Withdrawals are currently limited to {settings.withdrawal_pilot_max_amount_tzs} TZS "
+            "during the production pilot. Contact Infinity Africa if you need a higher limit."
+        )
+
+
 def quote_withdrawal_fee(
     client: Client,
     *,
@@ -126,6 +143,7 @@ async def execute_disbursement(
     path; only approve_disbursement (below) ever reaches the provider."""
     _check_merchant_is_verified(client, merchant_id=merchant_id)
     _check_no_open_high_risk_alerts(client, merchant_id=merchant_id)
+    _check_pilot_amount_limit(amount)
 
     breakdown = calculate_withdrawal_fee(
         client, merchant_id=merchant_id, amount=amount, channel=method, destination_code=destination_code

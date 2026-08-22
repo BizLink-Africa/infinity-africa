@@ -114,6 +114,71 @@ def test_suspended_merchant_cannot_withdraw_even_if_previously_verified(fake_cli
     assert response.json()["error"]["code"] == "withdrawal_restricted"
 
 
+# --- production pilot amount limit (docs/withdrawal-production-pilot-checklist.md) --
+
+
+def test_pilot_mode_blocks_amount_above_max(fake_client, monkeypatch):
+    monkeypatch.setenv("WITHDRAWAL_PILOT_MODE", "true")
+    monkeypatch.setenv("WITHDRAWAL_PILOT_MAX_AMOUNT_TZS", "1000")
+    get_settings.cache_clear()
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+
+    response = _request_mobile_money(merchant_id, admin_id, "1500.00")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "withdrawal_restricted"
+    assert "1000" in response.json()["error"]["message"]
+    assert fake_client.table("disbursements")._table.rows == []
+    assert _wallet_balance(fake_client, merchant_id) == Decimal("10000.00")
+
+
+def test_pilot_mode_allows_amount_at_max(fake_client, monkeypatch):
+    monkeypatch.setenv("WITHDRAWAL_PILOT_MODE", "true")
+    monkeypatch.setenv("WITHDRAWAL_PILOT_MAX_AMOUNT_TZS", "1000")
+    get_settings.cache_clear()
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+
+    response = _request_mobile_money(merchant_id, admin_id, "1000.00")
+
+    assert response.status_code == 202, response.text
+    assert response.json()["data"]["status"] == "PENDING_ADMIN_APPROVAL"
+
+
+def test_pilot_mode_allows_amount_below_max(fake_client, monkeypatch):
+    monkeypatch.setenv("WITHDRAWAL_PILOT_MODE", "true")
+    monkeypatch.setenv("WITHDRAWAL_PILOT_MAX_AMOUNT_TZS", "1000")
+    get_settings.cache_clear()
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+
+    response = _request_mobile_money(merchant_id, admin_id, "500.00")
+
+    assert response.status_code == 202, response.text
+    assert response.json()["data"]["status"] == "PENDING_ADMIN_APPROVAL"
+
+
+def test_pilot_mode_off_does_not_limit_amount(fake_client, monkeypatch):
+    """WITHDRAWAL_PILOT_MODE defaults to false — a large withdrawal behaves
+    exactly as it always has, unaffected by WITHDRAWAL_PILOT_MAX_AMOUNT_TZS
+    even if that var happens to be set."""
+    monkeypatch.setenv("WITHDRAWAL_PILOT_MODE", "false")
+    monkeypatch.setenv("WITHDRAWAL_PILOT_MAX_AMOUNT_TZS", "1000")
+    get_settings.cache_clear()
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+
+    response = _request_mobile_money(merchant_id, admin_id, "5000.00")
+
+    assert response.status_code == 202, response.text
+    assert response.json()["data"]["status"] == "PENDING_ADMIN_APPROVAL"
+
+
 # --- insufficient balance (checked against total_reserved_amount) -----------
 
 
