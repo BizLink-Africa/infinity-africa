@@ -580,6 +580,20 @@ def test_reject_sets_rejected_status_and_releases_nothing(fake_client):
     # Never reserved, so there's nothing to give back.
     assert _wallet_balance(fake_client, merchant_id) == Decimal("10000000.00")
 
+    # Regression: reject_disbursement previously never called notify_merchant
+    # at all (unlike the failed/info-requested paths) — the merchant only
+    # ever saw a bare "Rejected" status with no visible reason. Note:
+    # "withdrawal_rejected" must also be a valid notification_type per the
+    # real notifications table's CHECK constraint
+    # (supabase/migrations/20260822043100_notifications_withdrawal_rejected_type.sql)
+    # — FakeSupabaseClient doesn't enforce that constraint, so this
+    # assertion alone can't catch a real mismatch there; it only confirms
+    # the notification is sent with the intended type/content.
+    notifications = fake_client.table("notifications")._table.rows
+    rejection_notifications = [n for n in notifications if n["notification_type"] == "withdrawal_rejected"]
+    assert len(rejection_notifications) == 1
+    assert rejection_notifications[0]["body"] == "Duplicate request"
+
 
 def test_approve_rejects_already_completed_withdrawal(fake_client):
     merchant_id, admin_id = _merchant_and_admin(fake_client)
