@@ -36,7 +36,7 @@ type SubmitState = "idle" | "processing" | "awaiting_confirmation" | "success" |
 
 interface CollectResponseBody {
   success: boolean;
-  data?: { status: string; qr_payload?: string; expires_at?: string | null };
+  data?: { status: string; payment_gateway_url?: string };
   error?: { message: string };
 }
 
@@ -81,7 +81,7 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
   const [state, setState] = useState<SubmitState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
-  const [qrPayload, setQrPayload] = useState<{ payload: string; expiresAt: string | null } | null>(null);
+  const [qrPaymentGatewayUrl, setQrPaymentGatewayUrl] = useState<string | null>(null);
   const [walletPushMessage, setWalletPushMessage] = useState<string | null>(null);
   const [walletPushCollectionId, setWalletPushCollectionId] = useState<string | null>(null);
   const [walletPushOutcome, setWalletPushOutcome] = useState<string | null>(null);
@@ -254,8 +254,8 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
       if (body.data.status === "successful") {
         setState("success");
       } else if (body.data.status === "processing") {
-        if (method === "DYNAMIC_QR" && body.data.qr_payload) {
-          setQrPayload({ payload: body.data.qr_payload, expiresAt: body.data.expires_at ?? null });
+        if (method === "DYNAMIC_QR" && body.data.payment_gateway_url) {
+          setQrPaymentGatewayUrl(body.data.payment_gateway_url);
         }
         setState("awaiting_confirmation");
       } else {
@@ -272,7 +272,7 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     // A fresh key — retrying with the same one would just replay the
     // failed result instead of trying again.
     setIdempotencyKey(crypto.randomUUID());
-    setQrPayload(null);
+    setQrPaymentGatewayUrl(null);
     setWalletPushMessage(null);
     setWalletPushCollectionId(null);
     setWalletPushOutcome(null);
@@ -302,8 +302,18 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
             : "Approve the prompt on your phone. This page will update automatically.")
         }
       >
-        {method === "DYNAMIC_QR" && qrPayload && (
-          <QrCode payload={qrPayload.payload} expiresAt={qrPayload.expiresAt} />
+        {method === "DYNAMIC_QR" && qrPaymentGatewayUrl && (
+          <>
+            <QrCode payload={qrPaymentGatewayUrl} expiresAt={link.expires_at} />
+            <a
+              href={qrPaymentGatewayUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 block text-center text-sm font-medium text-primary underline"
+            >
+              Or open the payment page directly
+            </a>
+          </>
         )}
       </StatusCard>
     );

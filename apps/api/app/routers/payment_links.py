@@ -33,8 +33,9 @@ from app.schemas.payment_links import (
     PublicPaymentLinkResponse,
 )
 from app.services.audit import write_audit_log
-from app.services.collections import execute_collection, execute_dynamic_qr_collection
+from app.services.collections import execute_collection
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
+from app.services.dynamic_qr import execute_dynamic_qr_for_payment_link
 from app.services.idempotency import run_idempotent
 from app.services.payment_links import (
     batch_collection_counts,
@@ -256,25 +257,18 @@ async def collect_payment_link(
             raise ValidationAPIError("This payment method isn't accepted on this payment link")
 
         if payload.method == CollectionMethod.DYNAMIC_QR:
-            # No phone push to synchronously check the status of — the QR
-            # has to exist before anyone can scan it. Stays PROCESSING until
-            # the /v1/webhooks/selcom callback resolves it.
-            collection, qr_result = await execute_dynamic_qr_collection(
+            # No phone push to synchronously check the status of — the
+            # QR/hosted payment page has to exist before anyone can
+            # scan/open it. Stays "processing" until a webhook or manual
+            # refresh (app/services/checkout_reconciliation.py) confirms
+            # payment_status=COMPLETED — see
+            # app/services/dynamic_qr.py's module docstring.
+            collection = await execute_dynamic_qr_for_payment_link(
                 client,
-                merchant_id=merchant_id,
-                amount=Decimal(str(current["amount"])),
-                currency=current["currency"],
-                customer_id=uuid.UUID(current["customer_id"]) if current.get("customer_id") else None,
-                customer_phone=payload.customer_phone or current.get("customer_phone"),
-                payment_link_id=uuid.UUID(current["id"]),
+                payment_link=current,
+                customer_phone=payload.customer_phone,
             )
-            body = {
-                **collection,
-                "qr_payload": qr_result.qr_payload,
-                "qr_expires_at": qr_result.qr_expires_at.isoformat(),
-                "expires_at": qr_result.qr_expires_at.isoformat(),
-            }
-            return status.HTTP_202_ACCEPTED, body
+            return status.HTTP_202_ACCEPTED, collection
 
         collection = await execute_collection(
             client,

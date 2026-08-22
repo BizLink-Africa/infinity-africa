@@ -42,6 +42,41 @@ describe("PaymentForm", () => {
   });
 });
 
+describe("PaymentForm — dynamic QR", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the QR code and a direct payment-page link from payment_gateway_url", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { status: "processing", payment_gateway_url: "https://checkout.selcommobile.com/pay/QRTOKEN" },
+      }),
+    });
+
+    render(<PaymentForm slug="test-slug" link={link} />);
+    fireEvent.click(screen.getByText("Dynamic QR Code"));
+    fireEvent.click(screen.getByRole("button", { name: /Pay/ }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/public/payment-links/test-slug/collect");
+    expect(JSON.parse(init.body)).toEqual({ method: "DYNAMIC_QR", customer_phone: undefined });
+
+    const link_ = await screen.findByRole("link", { name: "Or open the payment page directly" });
+    expect(link_).toHaveAttribute("href", "https://checkout.selcommobile.com/pay/QRTOKEN");
+  });
+});
+
 describe("PaymentForm — wallet push", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 

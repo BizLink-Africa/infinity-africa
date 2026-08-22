@@ -519,17 +519,64 @@ def test_failure_reason_persisted_on_failed_collect(fake_client, monkeypatch):
     assert _row(fake_client, link["id"]).get("paid_at") is None
 
 
-def test_collect_dynamic_qr_returns_qr_payload_and_stays_processing(fake_client):
-    """Regression test: collect_payment_link() used to call execute_collection()
-    for every method including DYNAMIC_QR, which never generates a QR at
-    all. It must route DYNAMIC_QR through execute_dynamic_qr_collection()
-    instead, return a real qr_payload, and leave both the collection and
-    the payment link PROCESSING/ACTIVE — there's nothing to resolve
-    synchronously for a QR nobody has scanned yet."""
+_DYNAMIC_QR_SUCCESS_RESPONSE = {
+    "reference": "S20690600000",
+    "resultcode": "000",
+    "result": "SUCCESS",
+    "message": "Payment notification logged",
+    "data": [
+        {
+            "payment_token": "QRTOKEN",
+            "qr": "QR-DATA",
+            "payment_gateway_url": "aHR0cHM6Ly9jaGVja291dC5zZWxjb21tb2JpbGUuY29tL3BheS9RUlRPS0VO",
+        }
+    ],
+}
+
+
+def test_collect_dynamic_qr_returns_payment_gateway_url_and_stays_processing(fake_client, monkeypatch):
+    """DYNAMIC_QR now routes through the real, confirmed Selcom Checkout
+    create-order-minimal call (app/services/dynamic_qr.py) — same order
+    shell wallet-push uses, just without a wallet-payment push step — not
+    the old, unconfirmed app/services/selcom/ placeholder. Leaves both the
+    collection and the payment link processing/ACTIVE — there's nothing
+    to resolve synchronously for a QR/hosted page nobody has paid yet."""
+    monkeypatch.setenv("SELCOM_CHECKOUT_BASE_URL", "https://checkout.example.selcommobile.com")
+    monkeypatch.setenv("SELCOM_CHECKOUT_API_KEY", "test-key")
+    monkeypatch.setenv("SELCOM_CHECKOUT_API_SECRET", "test-secret")
+    monkeypatch.setenv("SELCOM_CHECKOUT_VENDOR", "VENDORTEST")
+    get_settings.cache_clear()
+
+    import app.services.checkout_orders as checkout_orders_module
+
+    class _FakeSelcomCheckoutClient:
+        def __init__(self, *, credentials=None):
+            pass
+
+        async def create_order_minimal(self, **kwargs):
+            from app.services.selcom_checkout.parsing import (
+                parse_create_order_minimal_response,
+            )
+
+            return parse_create_order_minimal_response(_DYNAMIC_QR_SUCCESS_RESPONSE)
+
+    monkeypatch.setattr(checkout_orders_module, "SelcomCheckoutHTTPClient", lambda **kwargs: _FakeSelcomCheckoutClient())
+
     merchant = create_merchant(fake_client)
     merchant_id = uuid.UUID(merchant["id"])
     admin_id = uuid.uuid4()
     make_merchant_member(fake_client, merchant_id, admin_id, "MERCHANT_ADMIN")
+    fake_client.seed(
+        "ledger_accounts",
+        {
+            "merchant_id": str(merchant_id),
+            "name": "Merchant Wallet (test)",
+            "account_type": "liability",
+            "purpose": "merchant_wallet",
+            "currency": "TZS",
+            "balance": "0",
+        },
+    )
     link = _create_link(fake_client, merchant_id, admin_id, amount="2500.00")
 
     response = client.post(
@@ -541,12 +588,64 @@ def test_collect_dynamic_qr_returns_qr_payload_and_stays_processing(fake_client)
     assert response.status_code == 202, response.text
     data = response.json()["data"]
     assert data["status"] == "processing"
-    assert data["qr_payload"]
-    assert data["qr_expires_at"]
-    assert data["expires_at"] == data["qr_expires_at"]
+    assert data["payment_gateway_url"] == "https://checkout.selcommobile.com/pay/QRTOKEN"
 
     assert _row(fake_client, link["id"])["status"] == "ACTIVE"
     assert fake_client.table("ledger_entries")._table.rows == []
+
+    collection_row = next(
+        c for c in fake_client.table("collections")._table.rows if c["payment_link_id"] == link["id"]
+    )
+    assert collection_row["method"] == "DYNAMIC_QR"
+    # resolve_collection() needs exactly one linked transaction once this
+    # collection is eventually resolved via webhook/refresh — same
+    # requirement wallet_push.py has.
+    assert any(t["collection_id"] == collection_row["id"] for t in fake_client.table("transactions")._table.rows)
+
+
+def test_collect_dynamic_qr_is_idempotent_beyond_the_idempotency_key(fake_client, monkeypatch):
+    """Re-requesting a QR for the same payment link must not create a
+    second Selcom order — mirrors wallet-push's own duplicate-attempt
+    guard (app/services/dynamic_qr.py)."""
+    monkeypatch.setenv("SELCOM_CHECKOUT_BASE_URL", "https://checkout.example.selcommobile.com")
+    monkeypatch.setenv("SELCOM_CHECKOUT_API_KEY", "test-key")
+    monkeypatch.setenv("SELCOM_CHECKOUT_API_SECRET", "test-secret")
+    monkeypatch.setenv("SELCOM_CHECKOUT_VENDOR", "VENDORTEST")
+    get_settings.cache_clear()
+
+    import app.services.checkout_orders as checkout_orders_module
+
+    calls: list[dict] = []
+
+    class _FakeSelcomCheckoutClient:
+        def __init__(self, *, credentials=None):
+            pass
+
+        async def create_order_minimal(self, **kwargs):
+            from app.services.selcom_checkout.parsing import (
+                parse_create_order_minimal_response,
+            )
+
+            calls.append(kwargs)
+            return parse_create_order_minimal_response(_DYNAMIC_QR_SUCCESS_RESPONSE)
+
+    monkeypatch.setattr(checkout_orders_module, "SelcomCheckoutHTTPClient", lambda **kwargs: _FakeSelcomCheckoutClient())
+
+    merchant = create_merchant(fake_client)
+    merchant_id = uuid.UUID(merchant["id"])
+    admin_id = uuid.uuid4()
+    make_merchant_member(fake_client, merchant_id, admin_id, "MERCHANT_ADMIN")
+    link = _create_link(fake_client, merchant_id, admin_id, amount="2500.00")
+
+    for _ in range(2):
+        response = client.post(
+            f"/public/payment-links/{link['public_slug']}/collect",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+            json={"method": "DYNAMIC_QR"},
+        )
+        assert response.status_code == 202, response.text
+
+    assert len(calls) == 1
 
 
 def test_collect_rejects_disallowed_method(fake_client):

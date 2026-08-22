@@ -173,6 +173,37 @@ endpoints. Response `data[0].payment_status` is the same authoritative
 field the webhook carries; `data[0].transid`/`channel`/`reference` are
 folded into the collection the same way a webhook delivery would be.
 
+## Dynamic QR
+
+`POST /public/payment-links/{slug}/collect` with `{"method": "DYNAMIC_QR"}`
+now routes through this same confirmed Checkout product
+(`app/services/dynamic_qr.py`), not the older, explicitly-unconfirmed
+placeholder client (`app/services/selcom/`) it used before 2026-08-22.
+There is no wallet-payment push step for this method — the order's own
+`payment_gateway_url` (Selcom's hosted payment page) is what the customer
+scans or opens directly; the frontend QR-encodes that URL client-side
+(`components/payment-link/qr-code.tsx`) and also offers it as a plain
+link for desktop users with no camera. Resolution, idempotency, and
+merchant crediting all go through the exact same
+`checkout_reconciliation.py` pipeline as wallet-push — a Dynamic QR
+collection is indistinguishable from a wallet-push one once it reaches
+`complete_checkout_collection_once()`.
+
+Selcom's `create-order-minimal` requires a `buyer_phone` even for this
+method, despite the customer never being asked for one on this page
+(the whole point of QR is scanning without typing anything) — resolved
+by using the payment link's own `customer_phone` if the merchant set
+one, else a well-formed placeholder (`255700000000`, never dialed —
+nothing in this flow pushes to it) — mirrors the existing placeholder
+`buyer_email` convention. `collections.customer_phone` itself only ever
+stores the real phone or `null`, never the placeholder.
+
+The Merchant Portal's own self-service "Create Collection" form
+(`POST /v1/merchant/collections/dynamic-qr`) is a **separate feature**
+(an authenticated merchant requesting a collection on demand, not a
+customer paying a public link) and still uses the old placeholder client
+— out of scope here, unchanged.
+
 ## Manual refresh (independent of the webhook)
 
 ```
