@@ -38,7 +38,14 @@ for the Selcom sandbox verification history see
 - [ ] The one pilot merchant has explicitly agreed to participate and
       understands this is a real-money test
 - [ ] A specific Super Admin is designated to personally approve/monitor
-      every pilot transaction (not left to whoever happens to be online)
+      every pilot transaction (not left to whoever happens to be online) —
+      confirmed 2026-08-22: same account as the pilot merchant above (on
+      file). Flagging this plainly: the same person submitting
+      the withdrawal is the one approving it, so the approval step isn't
+      providing independent oversight for this pilot the way it would with
+      a separate merchant/approver. Acceptable for a single-person internal
+      test of the mechanics, but not a substitute for real dual-control once
+      the pilot expands to actual third-party merchants.
 
 ## 3. Required environment variables (Railway backend only)
 
@@ -65,24 +72,34 @@ already default to the values above in `app/config/settings.py` — only
 number are things Railway doesn't already have real values for going into
 the pilot.
 
-## 4. Test merchant details (fill in before pilot)
+## 4. Test merchant details (confirmed 2026-08-22)
 
 | Field | Value |
 |---|---|
-| Merchant business name | _fill in_ |
-| Merchant contact email | _fill in_ |
-| Merchant ID (UUID) | _fill in_ |
-| Confirmed `status = active`, `kyc_status = verified`? | _yes/no_ |
+| Merchant business name | Merchant |
+| Merchant contact email | p•••••••••8@gmail.com (on file — see internal record) |
+| Merchant ID (UUID) | `c9e9bc9a-e0d9-4712-ba0e-d575fb7d2fbd` |
+| Confirmed `status = active`, `kyc_status = verified`? | yes (verified directly against production DB) |
+| Wallet balance at confirmation time | comfortably above the 1,000 TZS pilot cap |
 
-## 5. Test destination account (fill in before pilot)
+## 5. Test destination account
+
+Merchant intends to test **more than one** destination type during the
+pilot — Selcom Pesa (`destination_code=SELCOM`) and one or more mobile
+wallets (`MPESA`/`AIRTELMONEY`/`HALOPESA`/`MIXXBYYAS`/`TTCLPESA`). This is
+broader than this checklist's original "one verified real destination
+account only" scope statement (§ intro) — noted here explicitly so it's a
+conscious choice, not scope creep that slipped in unnoticed. Recommend
+still doing them **one at a time**, fully reconciling each (§10) before
+moving to the next, rather than firing them off together.
 
 | Field | Value |
 |---|---|
-| Method (Selcom Pesa / Mobile Money / Bank Account) | _fill in_ |
-| `destination_code` | _fill in_ |
-| Destination account/phone (masked in any shared doc) | _fill in_ |
-| Destination display name | _fill in_ |
-| Confirmed this is a **real, verified** account the merchant actually controls | _yes/no_ |
+| Method(s) | Selcom Pesa + mobile wallet(s) (to be run individually) |
+| `destination_code` | `SELCOM` for the first test; specific telco code(s) for subsequent tests |
+| Destination account/phone | _fill in per test, masked in any shared doc_ |
+| Destination display name | _fill in per test_ |
+| Confirmed this is a **real, verified** account the merchant actually controls | _yes/no — confirm before each test_ |
 
 ## 6. Amount limit
 
