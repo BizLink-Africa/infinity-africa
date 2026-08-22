@@ -269,8 +269,9 @@ delivery missing one still resolves via the other.
 1. Check `selcom_webhook_events` for a row where `provider =
    'selcom_checkout'` — its existence alone confirms delivery reached
    this backend, independent of whether signature verification passed.
-   As of 2026-08-22 this table has **zero** such rows in production —
-   see "Known gaps" below.
+   The first such row landed 2026-08-22, `status='failed'` (signature
+   rejected) — see "Known gaps" below for what that revealed and what's
+   still open.
 2. Check the collection's `status` — `successful` means it was fully
    resolved and credited; `processing` means either nothing arrived yet
    or `payment_status` wasn't yet `COMPLETED`.
@@ -296,19 +297,36 @@ specific `order_id`/`transid`).
 
 ## Known gaps / what to verify once real traffic exists
 
-- **Webhook delivery has never fired, not even once, as of 2026-08-22**
-  — confirmed by a completely empty `selcom_webhook_events` table for
-  `provider = 'selcom_checkout'` after a real, fully-paid, real-money
-  live transaction (order `ORD-20260822-ECA39908`, resolved instead via
-  manual refresh). Two root causes identified and fixed the same day:
-  the per-order `webhook` field was never being sent (see above), and
-  the documented "production" API domain (`api.infinityafrica.net`)
-  doesn't resolve at all. Whether a real delivery arrives now that both
-  are fixed is still unconfirmed — needs a fresh live transaction to
-  test, plus Selcom's own account-level callback URL confirmed (see
-  above).
-- Webhook signature scheme itself is still inferred, not confirmed (see
-  above) — moot until a delivery actually arrives to test it against.
+- **A real webhook delivery finally arrived on 2026-08-22** (order
+  `ORD-20260822-ED25554E`, transid `DHNAZ2ATGL`) — the first ever,
+  after both root causes above were fixed and `SELCOM_CHECKOUT_WEBHOOK_URL`
+  was set in Railway. Good news: every payload field matched exactly
+  what this codebase already expected — `result`, `resultcode`,
+  `order_id`, `transid`, `reference`, `channel`, `amount`, `phone`,
+  `payment_status` all present and correctly shaped. **Bad news: it was
+  rejected** — `signature_valid=False`, and the stored `signature`
+  column came back completely empty, meaning the `Digest` header (and,
+  it's presumed, `Timestamp`/`Digest-Method`/`Signed-Fields` too) were
+  **not present at all** in Selcom's actual request. The inferred
+  scheme — mirroring this product's confirmed *outbound* signing
+  headers onto the inbound direction — is confirmed wrong: either
+  Selcom uses different header names for this callback, or doesn't sign
+  it at all. Resolved via manual refresh instead (worked immediately,
+  no issue).
+- **Fixed the same day**: `selcom_webhook_events` now has a
+  `raw_headers` column (every header *name* the delivery carried, plus
+  the non-secret `Timestamp`/`Digest`/`Digest-Method`/`Signed-Fields`
+  values when present — never `Authorization`/`Cookie`), and a safe log
+  line captures the same at delivery time. The first delivery predates
+  this fix, so its actual header set is lost — **the next delivery is
+  what will finally answer this** instead of another guess. Check
+  `raw_headers`/logs on the next `selcom_checkout` event before
+  changing `verify_webhook_signature()` again.
+- Webhook signature scheme itself is now **confirmed wrong**, not just
+  unconfirmed — until the next delivery's `raw_headers` reveals the
+  real scheme, every delivery will keep failing signature verification.
+  This is safe: it fails closed (rejects, never falsely accepts), and
+  manual refresh remains fully independent and proven reliable.
 - `get-order-status`'s exact response field names came from the task
   brief, not an independently re-verified live call the way
   `create-order-minimal` was — see

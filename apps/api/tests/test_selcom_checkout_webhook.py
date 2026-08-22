@@ -193,6 +193,25 @@ def test_missing_signature_headers_rejected(fake_client, monkeypatch):
     assert response.status_code == 401
 
 
+def test_raw_headers_stored_for_diagnosis_even_when_rejected(fake_client, monkeypatch):
+    """Added after the first real delivery on 2026-08-22 arrived with the
+    expected signing headers completely absent, and there was no stored
+    evidence of what Selcom actually sent instead. Never stores
+    Authorization/Cookie, defensively (a provider webhook has no
+    legitimate reason to carry either)."""
+    collection = _seed_pending_collection(fake_client, monkeypatch)
+    body = _webhook_body(collection, payment_status="COMPLETED")
+
+    response = _post_webhook(
+        body, headers={"X-Some-Other-Header": "value", "Authorization": "Bearer should-never-be-stored"}
+    )
+
+    assert response.status_code == 401
+    event = fake_client.table("selcom_webhook_events")._table.rows[-1]
+    assert "x-some-other-header" in event["raw_headers"]
+    assert "authorization" not in event["raw_headers"]
+
+
 def test_tampered_body_after_signing_is_rejected(fake_client, monkeypatch):
     collection = _seed_pending_collection(fake_client, monkeypatch)
     body = _webhook_body(collection, payment_status="COMPLETED")

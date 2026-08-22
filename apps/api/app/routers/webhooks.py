@@ -38,6 +38,17 @@ callback_router = APIRouter(prefix="/webhooks", tags=["webhooks (provider callba
 
 logger = logging.getLogger("infinity.webhooks")
 
+_HEADER_NAMES_NEVER_STORED = {"authorization", "cookie"}
+
+
+def _safe_headers_for_storage(headers) -> dict[str, str]:
+    """Every header name Selcom's callback actually sent, for diagnosing
+    an unexpected/rejected signature scheme — see
+    selcom_checkout_webhook's docstring. Defensive only: a provider
+    webhook has no legitimate reason to carry Authorization/Cookie, but
+    they're excluded on principle rather than assumed absent."""
+    return {key: value for key, value in headers.items() if key.lower() not in _HEADER_NAMES_NEVER_STORED}
+
 _DASHBOARD_ROLES = (UserRole.MERCHANT_ADMIN, UserRole.MERCHANT_STAFF)
 
 
@@ -244,15 +255,28 @@ async def selcom_checkout_webhook(request: Request):
 
     # Logged before signature verification runs, deliberately — this is
     # how we'll ever know a delivery arrived at all if the (unconfirmed)
-    # signature scheme turns out wrong and rejects it. Only non-secret,
-    # provider-supplied identifiers — never Timestamp/Digest/Digest-Method
-    # (those are the signature material itself) and never the api_secret.
+    # signature scheme turns out wrong and rejects it. Timestamp/Digest/
+    # Digest-Method/Signed-Fields are protocol metadata, not secrets —
+    # safe to log (the actual secret is api_secret, never logged, never
+    # included below). Also dumps every header *name* Selcom actually
+    # sent — confirmed necessary on 2026-08-22: the first real delivery
+    # arrived with all four of these expected headers completely absent,
+    # meaning the inferred signing scheme guessed the wrong header names
+    # (or Selcom simply doesn't sign this callback at all) — this is
+    # what lets the next delivery answer that question instead of
+    # guessing again.
     logger.info(
-        "selcom_checkout webhook received: order_id=%s transid=%s reference=%s payment_status=%s",
+        "selcom_checkout webhook received: order_id=%s transid=%s reference=%s payment_status=%s "
+        "Timestamp=%r Digest=%r Digest-Method=%r Signed-Fields=%r header_names=%s",
         body.get("order_id"),
         body.get("transid"),
         body.get("reference"),
         body.get("payment_status"),
+        timestamp,
+        digest,
+        digest_method,
+        signed_fields_header,
+        sorted(request.headers.keys()),
     )
 
     signature_valid = verify_webhook_signature(
@@ -276,6 +300,7 @@ async def selcom_checkout_webhook(request: Request):
         signature=digest,
         signature_valid=signature_valid,
         provider="selcom_checkout",
+        raw_headers=_safe_headers_for_storage(request.headers),
     )
     if is_duplicate:
         return APIResponse(data={"status": "duplicate", "event_id": event_id})

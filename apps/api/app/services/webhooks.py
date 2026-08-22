@@ -47,6 +47,7 @@ def store_incoming_selcom_event(
     signature: str | None,
     signature_valid: bool,
     provider: str = "selcom",
+    raw_headers: dict | None = None,
 ) -> tuple[dict, bool]:
     """Records an inbound Selcom webhook delivery. Returns (row, is_duplicate).
 
@@ -59,7 +60,13 @@ def store_incoming_selcom_event(
     product's inbound events, POST /v1/webhooks/selcom) — pass
     "selcom_checkout" for the newer, confirmed-signing-scheme product's
     events (POST /v1/webhooks/selcom/checkout), so the two never collide
-    on event_id even if both happened to reuse the same value."""
+    on event_id even if both happened to reuse the same value.
+
+    `raw_headers` — the caller's job to have already filtered out
+    Authorization/Cookie/etc.; this function stores whatever it's given
+    verbatim. Added specifically to diagnose an unexpected/rejected
+    signature scheme (see selcom_checkout_webhook's docstring) — optional
+    so the older /v1/webhooks/selcom call site doesn't need updating."""
     existing = find_selcom_webhook_event(client, event_id, provider=provider)
     if existing:
         return existing, True
@@ -76,6 +83,7 @@ def store_incoming_selcom_event(
                 "signature": signature,
                 "signature_valid": signature_valid,
                 "status": "received",
+                "raw_headers": raw_headers,
             },
         )
     except Exception:
