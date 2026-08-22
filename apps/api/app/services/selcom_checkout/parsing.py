@@ -2,13 +2,14 @@
 (https://developers.selcommobile.com/).
 
 **Most endpoint response bodies are still unconfirmed.** Create Order -
-Minimal is the one exception — its real sample response (below) was
-recovered from the docs directly (2026-08-22) and is parsed below. Every
-other Checkout endpoint (Get Order Status, process-wallet-payment, etc.)
-still has no confirmed response shape: the page truncates before
-reaching them. Per this task's own instruction not to guess, don't add
-field extraction for those until a real example — from the docs or a
-real sandbox call — confirms the actual field names.
+Minimal and wallet-payment are the two exceptions — their real sample
+responses (below) were recovered from the docs directly and, for
+create-order-minimal, confirmed against a real production call
+(2026-08-22, order reference S20690427372). Every other Checkout
+endpoint (Get Order Status, process-card-payment, etc.) still has no
+confirmed response shape. Per this task's own instruction not to guess,
+don't add field extraction for those until a real example — from the
+docs or a real call — confirms the actual field names.
 app/services/selcom/parsing.py guessed field names for this same product
 before a real reference was available and was wrong in several ways
 once real ones surfaced elsewhere in this codebase (see
@@ -26,7 +27,11 @@ import json
 import logging
 
 from app.services.selcom_checkout.errors import SelcomCheckoutError
-from app.services.selcom_checkout.schemas import CreateOrderMinimalResult
+from app.services.selcom_checkout.schemas import (
+    CreateOrderMinimalResult,
+    WalletPaymentResult,
+    WalletPaymentStatus,
+)
 
 logger = logging.getLogger("infinity.selcom_checkout")
 
@@ -102,5 +107,46 @@ def parse_create_order_minimal_response(response: dict) -> CreateOrderMinimalRes
         payment_token=data.get("payment_token"),
         qr=data.get("qr"),
         payment_gateway_url=payment_gateway_url,
+        raw_response=response,
+    )
+
+
+# --- wallet-payment ------------------------------------------------------------------
+#
+# Confirmed sample response (task brief, matching this endpoint's normal
+# PENDING outcome — Selcom resolves the actual push result asynchronously,
+# via callback, not in this response):
+#
+#     {"reference": "0289999288", "resultcode": "111", "result": "PENDING",
+#      "message": "Request in progress. You will receive a callback shortly.",
+#      "data": []}
+#
+# Status mapping, per task instruction:
+#   000 / result == "SUCCESS"        -> "successful"
+#   111 or 927                       -> "processing" (the *normal* case, not a failure)
+#   999                               -> "ambiguous"
+#   anything else                     -> "failed"
+
+
+def _map_wallet_payment_status(*, resultcode: str, result: str) -> WalletPaymentStatus:
+    if resultcode == "000" or result.upper() == "SUCCESS":
+        return "successful"
+    if resultcode in ("111", "927"):
+        return "processing"
+    if resultcode == "999":
+        return "ambiguous"
+    return "failed"
+
+
+def parse_wallet_payment_response(response: dict) -> WalletPaymentResult:
+    resultcode = str(response.get("resultcode") or "")
+    result = str(response.get("result") or "")
+
+    return WalletPaymentResult(
+        reference=str(response.get("reference") or ""),
+        resultcode=resultcode,
+        result=result,
+        message=str(response.get("message") or ""),
+        status=_map_wallet_payment_status(resultcode=resultcode, result=result),
         raw_response=response,
     )

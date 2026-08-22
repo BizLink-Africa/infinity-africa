@@ -2,8 +2,9 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from app.core.phone import validate_and_normalize_phone
 from app.schemas.enums import CollectionMethod
 
 
@@ -93,3 +94,34 @@ class PublicPaymentLinkResponse(BaseModel):
 class PaymentLinkCollectRequest(BaseModel):
     method: CollectionMethod
     customer_phone: str | None = None
+
+
+class PaymentLinkWalletPushRequest(BaseModel):
+    """POST /public/payment-links/{public_slug}/pay/wallet-push — the
+    Selcom Checkout create-order-minimal -> wallet-payment flow (Push
+    STK/USSD/mobile money). customer_phone is required here (unlike
+    PaymentLinkCollectRequest.customer_phone) — a push has nowhere to go
+    without one."""
+
+    customer_phone: str
+
+    @field_validator("customer_phone")
+    @classmethod
+    def _check_phone(cls, value: str) -> str:
+        return validate_and_normalize_phone(value)
+
+
+class PaymentLinkWalletPushResponse(BaseModel):
+    """What the customer's browser gets back — deliberately never
+    reports "paid"/"successful", regardless of what Selcom's own
+    resultcode said: Selcom's wallet-payment response is normally
+    PENDING, and this backend doesn't yet resolve it further (see
+    app/services/wallet_push.py's module docstring). payment_status is
+    "failed" when the attempt genuinely failed outright (bad phone
+    number, order-creation error) — a customer waiting on a push that's
+    never coming deserves to know that — and "pending" for every other
+    outcome, including an immediate SUCCESS."""
+
+    collection_id: uuid.UUID
+    payment_status: str
+    message: str

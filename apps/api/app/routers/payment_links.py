@@ -27,6 +27,8 @@ from app.schemas.payment_links import (
     PaymentLinkCollectRequest,
     PaymentLinkCreate,
     PaymentLinkResponse,
+    PaymentLinkWalletPushRequest,
+    PaymentLinkWalletPushResponse,
     PublicPaymentLinkResponse,
 )
 from app.services.audit import write_audit_log
@@ -39,6 +41,7 @@ from app.services.payment_links import (
     generate_public_slug,
     with_effective_status,
 )
+from app.services.wallet_push import execute_wallet_push_for_payment_link
 
 router = APIRouter(prefix="/payment-links", tags=["payment-links"])
 public_router = APIRouter(prefix="/public/payment-links", tags=["payment-links (public)"])
@@ -241,3 +244,67 @@ async def collect_payment_link(
     )
 
     return APIResponse(data=body)
+
+
+@public_router.post(
+    "/{public_slug}/pay/wallet-push",
+    response_model=APIResponse[PaymentLinkWalletPushResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def pay_payment_link_wallet_push(
+    public_slug: str,
+    payload: PaymentLinkWalletPushRequest,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+):
+    """Selcom Checkout's two-step create-order-minimal -> wallet-payment
+    flow (Push STK/USSD/mobile money push), distinct from
+    collect_payment_link() above, which still goes through the older,
+    unconfirmed app/services/selcom/ placeholder. Never credits the
+    merchant, posts a ledger entry, or marks this link PAID — see
+    app/services/wallet_push.py's module docstring for why, and what's
+    still missing before that can happen."""
+    client = get_supabase_admin()
+    link = execute_maybe_single(
+        client.table("payment_links").select("*").eq("public_slug", public_slug).maybe_single()
+    )
+
+    if not link:
+        raise NotFoundError("Payment link not found")
+
+    merchant_id = uuid.UUID(link["merchant_id"])
+
+    async def _handler() -> tuple[int, dict]:
+        # Checked here, not before run_idempotent, so a retry of an
+        # already-in-flight request replays the stored response rather
+        # than failing — same convention as collect_payment_link above.
+        current = with_effective_status(client, link)
+        if current["status"] != "ACTIVE":
+            raise ConflictError(f"This payment link cannot be paid (status: {current['status']})")
+
+        collection = await execute_wallet_push_for_payment_link(
+            client, payment_link=current, buyer_phone=payload.customer_phone
+        )
+
+        payment_status = "failed" if collection["status"] == "failed" else "pending"
+        message = (
+            collection.get("failure_reason") or collection.get("provider_message") or "This payment attempt failed."
+            if payment_status == "failed"
+            else "Payment request sent to your phone. Please approve using your PIN."
+        )
+        body = {
+            "collection_id": collection["id"],
+            "payment_status": payment_status,
+            "message": message,
+        }
+        return status.HTTP_202_ACCEPTED, body
+
+    _status_code, body = await run_idempotent(
+        client,
+        merchant_id=merchant_id,
+        endpoint="POST /public/payment-links/{slug}/pay/wallet-push",
+        idempotency_key=idempotency_key,
+        request_payload={"public_slug": public_slug, **payload.model_dump(mode="json")},
+        handler=_handler,
+    )
+
+    return APIResponse(data=PaymentLinkWalletPushResponse(**body))

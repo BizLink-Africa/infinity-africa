@@ -9,6 +9,8 @@ This file currently only holds the credential bundle the signer/client
 need.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -53,5 +55,38 @@ class CreateOrderMinimalResult(BaseModel):
     def is_success(self) -> bool:
         """Per the docs' own sample response
         ({"resultcode": "000", "result": "SUCCESS", ...}) — both checked
-        since neither field's full value space is documented."""
+        since neither field's full value space is documented. Confirmed
+        against a real production Selcom response 2026-08-22 (order
+        reference S20690427372)."""
         return self.resultcode == "000" or self.result == "SUCCESS"
+
+
+# Mirrors app.services.selcom_business.schemas.SelcomBusinessStatus's
+# vocabulary exactly — same shape, same reason (a stable internal status
+# the rest of the app is written against, independent of the specific
+# provider/resultcode underneath it).
+WalletPaymentStatus = Literal["successful", "failed", "processing", "ambiguous"]
+
+
+class WalletPaymentResult(BaseModel):
+    """Parsed result of POST /v1/checkout/wallet-payment — the second
+    step of the Selcom Checkout push flow, after create_order_minimal().
+    This is the one call that can actually move money; unlike
+    create-order-minimal, resultcode "111"/"927" (`status="processing"`)
+    is the *expected*, normal outcome, not a failure — Selcom's own
+    sample response for this endpoint is itself a PENDING/111 result.
+
+    Deliberately has no `is_success`-style boolean — callers must handle
+    all four `status` values explicitly, since collapsing "processing"
+    into "not success" would misrepresent the normal case as an error,
+    and collapsing it into "success" would risk crediting a merchant
+    before payment is actually confirmed (see
+    app/services/wallet_push.py's module docstring for why crediting
+    never happens directly off this result)."""
+
+    reference: str
+    resultcode: str
+    result: str
+    message: str
+    status: WalletPaymentStatus
+    raw_response: dict

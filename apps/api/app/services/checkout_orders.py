@@ -23,11 +23,22 @@ from supabase import Client
 
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
-from app.services.crud import insert_row
+from app.services.crud import execute_maybe_single, insert_row
 from app.services.selcom_checkout.client import (
     SelcomCheckoutHTTPClient,
     get_selcom_checkout_credentials,
 )
+
+# Selcom requires buyer_email on every create-order-minimal call, but a
+# public payment-link customer is only ever asked for a phone number
+# (this task's own frontend spec) — payment_links.customer_email is
+# nullable and often unset. This placeholder is a known, deliberate gap:
+# it's a well-formed but non-deliverable address, never claimed to be a
+# real one, used only because Selcom's API rejects a blank/missing value
+# outright. Revisit if Selcom's own account settings ever make this
+# field genuinely optional, or if the checkout page starts collecting a
+# real email.
+_PLACEHOLDER_BUYER_EMAIL_DOMAIN = "customers.infinityafrica.net"
 
 
 async def create_checkout_order_minimal(
@@ -97,4 +108,42 @@ async def create_checkout_order_minimal(
             "raw_response": result.raw_response,
             "initiated_at": utc_now_iso(),
         },
+    )
+
+
+async def get_or_create_checkout_order_for_payment_link(client: Client, *, payment_link: dict, buyer_phone: str) -> dict:
+    """"Create Selcom minimal order if one does not already exist for
+    this attempt" (task instruction) — reuses the most recent still-
+    `created` order for this payment link instead of creating a new
+    Selcom order on every retry/page-refresh. Doesn't call Selcom at all
+    when reusing.
+
+    buyer_phone must already be normalized to "255XXXXXXXXX" by the
+    caller."""
+    existing = execute_maybe_single(
+        client.table("checkout_orders")
+        .select("*")
+        .eq("payment_link_id", payment_link["id"])
+        .eq("status", "created")
+        .order("created_at", desc=True)
+        .range(0, 0)
+        .maybe_single()
+    )
+    if existing:
+        return existing
+
+    buyer_email = payment_link.get("customer_email") or f"payment-link-{payment_link['id']}@{_PLACEHOLDER_BUYER_EMAIL_DOMAIN}"
+    buyer_name = payment_link.get("customer_name") or "Infinity Africa Customer"
+
+    return await create_checkout_order_minimal(
+        client,
+        merchant_id=uuid.UUID(payment_link["merchant_id"]),
+        buyer_email=buyer_email,
+        buyer_name=buyer_name,
+        buyer_phone=buyer_phone,
+        amount=Decimal(str(payment_link["amount"])),
+        currency=payment_link["currency"],
+        no_of_items=1,
+        payment_link_id=uuid.UUID(payment_link["id"]),
+        merchant_reference=payment_link.get("merchant_reference"),
     )

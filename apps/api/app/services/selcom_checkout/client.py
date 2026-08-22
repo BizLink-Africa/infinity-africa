@@ -54,10 +54,12 @@ from app.services.selcom_checkout.parsing import (
     base64_encode_url,
     decode_json_response,
     parse_create_order_minimal_response,
+    parse_wallet_payment_response,
 )
 from app.services.selcom_checkout.schemas import (
     CreateOrderMinimalResult,
     SelcomCheckoutCredentials,
+    WalletPaymentResult,
 )
 from app.services.selcom_checkout.signer import build_auth_headers
 
@@ -333,3 +335,37 @@ class SelcomCheckoutHTTPClient:
             timestamp=timestamp,
         )
         return parse_create_order_minimal_response(response)
+
+    async def process_wallet_payment(self, *, transid: str, order_id: str, msisdn: str) -> WalletPaymentResult:
+        """POST /v1/checkout/wallet-payment — Step 2 of the Selcom
+        Checkout push flow, after create_order_minimal() has already
+        created an order shell. **This is the one call in this entire
+        module that can actually move money** — triggers a real STK/USSD/
+        wallet-pull push to `msisdn`. Never call this speculatively,
+        automatically, or more than once per genuine customer payment
+        attempt; see app/services/wallet_push.py for the one call site
+        that should ever reach this in application code.
+
+        Required fields, Signed-Fields order confirmed by the task
+        brief (no shell/payload inconsistency this time, unlike
+        create-order-minimal): transid,order_id,msisdn.
+
+        The normal, expected response is PENDING (resultcode "111") —
+        see parsing.py's parse_wallet_payment_response() and
+        WalletPaymentResult's docstring for why that's deliberately not
+        treated as failure, and why this method never decides on its own
+        whether to credit anyone.
+
+        msisdn must already be normalized to "255XXXXXXXXX" — no plus
+        sign — by the caller (app.core.phone.normalize_tz_phone); not
+        re-validated here, since this client has no phone-format opinion
+        of its own (same convention as create_order_minimal's
+        buyer_phone).
+        """
+        fields: dict[str, str] = {
+            "transid": transid,
+            "order_id": order_id,
+            "msisdn": msisdn,
+        }
+        response = await self._signed_request("POST", "/v1/checkout/wallet-payment", fields)
+        return parse_wallet_payment_response(response)

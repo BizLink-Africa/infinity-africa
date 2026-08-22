@@ -15,6 +15,19 @@ const METHOD_OPTIONS = [
   { value: "DYNAMIC_QR", label: "Dynamic QR Code", hint: "Scan to pay with any supported app" },
 ] as const;
 
+// Distinct from the four options above (all of which go through the
+// older /collect endpoint) — routes through the newer Selcom Checkout
+// create-order-minimal -> wallet-payment flow instead
+// (/pay/wallet-push). Not filtered by link.allowed_payment_methods:
+// that field's DB constraint only recognizes the four values above, so
+// this option is always offered regardless of what the merchant
+// configured. See app/services/wallet_push.py for the backend side.
+const WALLET_PUSH_METHOD = {
+  value: "MOBILE_MONEY_PUSH",
+  label: "Pay with Mobile Money Push",
+  hint: "Approve the request sent to your phone",
+} as const;
+
 // "processing" = the initiation POST is in flight. "awaiting_confirmation" =
 // initiated successfully (PROCESSING) and we're now polling the link's
 // status waiting for the /v1/webhooks/selcom callback to resolve it — a
@@ -24,6 +37,12 @@ type SubmitState = "idle" | "processing" | "awaiting_confirmation" | "success" |
 interface CollectResponseBody {
   success: boolean;
   data?: { status: string; qr_payload?: string; expires_at?: string | null };
+  error?: { message: string };
+}
+
+interface WalletPushResponseBody {
+  success: boolean;
+  data?: { collection_id: string; payment_status: string; message: string };
   error?: { message: string };
 }
 
@@ -47,8 +66,10 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [qrPayload, setQrPayload] = useState<{ payload: string; expiresAt: string | null } | null>(null);
+  const [walletPushMessage, setWalletPushMessage] = useState<string | null>(null);
 
   const needsPhone = method !== "DYNAMIC_QR";
+  const isWalletPush = method === WALLET_PUSH_METHOD.value;
   const canSubmit = method.length > 0 && (!needsPhone || phone.trim().length > 0);
 
   useEffect(() => {
@@ -110,12 +131,56 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     return () => clearTimeout(timer);
   }, [state, link.success_redirect_url, link.failure_redirect_url]);
 
+  async function handleWalletPushSubmit() {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/public/payment-links/${slug}/pay/wallet-push`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+          body: JSON.stringify({ customer_phone: phone.trim() }),
+        },
+      );
+      const body: WalletPushResponseBody = await response.json();
+
+      if (!response.ok || !body.success || !body.data) {
+        setState("failed");
+        setErrorMessage(body.error?.message ?? "Something went wrong. Please try again.");
+        return;
+      }
+
+      if (body.data.payment_status === "failed") {
+        setState("failed");
+        setErrorMessage(body.data.message);
+        return;
+      }
+
+      // "pending" — the only other value this endpoint ever returns (see
+      // app/schemas/payment_links.py::PaymentLinkWalletPushResponse). Reuses
+      // the same awaiting_confirmation state/polling as the /collect flow
+      // below; this endpoint never marks the link PAID itself yet (see
+      // app/services/wallet_push.py), so polling won't resolve to success
+      // within this flow until that's implemented — the customer still sees
+      // an honest pending state either way, not a stuck spinner.
+      setWalletPushMessage(body.data.message);
+      setState("awaiting_confirmation");
+    } catch {
+      setState("failed");
+      setErrorMessage("We couldn't reach Infinity Africa. Check your connection and try again.");
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!canSubmit || state === "processing") return;
 
     setState("processing");
     setErrorMessage(null);
+
+    if (isWalletPush) {
+      await handleWalletPushSubmit();
+      return;
+    }
 
     try {
       const response = await fetch(
@@ -159,6 +224,7 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     // failed result instead of trying again.
     setIdempotencyKey(crypto.randomUUID());
     setQrPayload(null);
+    setWalletPushMessage(null);
     setState("idle");
     setErrorMessage(null);
   }
@@ -179,9 +245,10 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
         variant="processing"
         title={method === "DYNAMIC_QR" ? "Scan to complete payment" : "Waiting for your approval"}
         message={
-          method === "DYNAMIC_QR"
+          walletPushMessage ??
+          (method === "DYNAMIC_QR"
             ? "Scan the QR code with your mobile money app. This page will update automatically."
-            : "Approve the prompt on your phone. This page will update automatically."
+            : "Approve the prompt on your phone. This page will update automatically.")
         }
       >
         {method === "DYNAMIC_QR" && qrPayload && (
@@ -277,6 +344,28 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
               </span>
             </label>
           ))}
+
+          <label
+            key={WALLET_PUSH_METHOD.value}
+            className={`flex cursor-pointer items-start gap-3 rounded border p-3 transition-colors ${
+              isWalletPush
+                ? "border-primary-container bg-secondary-container/40"
+                : "border-outline-variant hover:bg-surface-container"
+            }`}
+          >
+            <input
+              type="radio"
+              name="method"
+              value={WALLET_PUSH_METHOD.value}
+              checked={isWalletPush}
+              onChange={() => setMethod(WALLET_PUSH_METHOD.value)}
+              className="mt-0.5 accent-primary-container"
+            />
+            <span>
+              <span className="block text-sm font-medium text-on-surface">{WALLET_PUSH_METHOD.label}</span>
+              <span className="block text-xs text-on-surface-variant">{WALLET_PUSH_METHOD.hint}</span>
+            </span>
+          </label>
         </div>
       </fieldset>
 
