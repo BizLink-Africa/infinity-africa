@@ -21,6 +21,7 @@ from decimal import Decimal
 
 from supabase import Client
 
+from app.config import get_settings
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
 from app.services.crud import execute_maybe_single, insert_row
@@ -65,6 +66,7 @@ async def create_checkout_order_minimal(
     caller's request schema (see CreateOrderMinimalRequest) — this
     function trusts it's already in that shape."""
     order_id = generate_reference("ORD")
+    settings = get_settings()
 
     checkout_client = SelcomCheckoutHTTPClient(credentials=get_selcom_checkout_credentials())
     result = await checkout_client.create_order_minimal(
@@ -77,6 +79,7 @@ async def create_checkout_order_minimal(
         no_of_items=no_of_items,
         buyer_remarks=buyer_remarks,
         merchant_remarks=merchant_remarks,
+        webhook=settings.selcom_checkout_webhook_url or None,
     )
 
     return insert_row(

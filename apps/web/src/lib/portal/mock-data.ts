@@ -200,6 +200,15 @@ export function mockCollections(): Collection[] {
     completed_at: status === "processing" ? null : initiated_at,
     created_at: initiated_at,
     updated_at: initiated_at,
+    // Selcom Checkout reconciliation detail — not applicable to this
+    // mock data (provider is "mock_selcom", not a real checkout order).
+    failure_reason: null,
+    checkout_order_id: null,
+    provider_transid: null,
+    provider_resultcode: null,
+    provider_result: null,
+    provider_payment_status: null,
+    channel: null,
   }));
 }
 

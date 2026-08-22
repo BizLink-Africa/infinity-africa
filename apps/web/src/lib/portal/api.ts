@@ -204,6 +204,13 @@ export async function listCollections(): Promise<Collection[]> {
   return (await apiGet<Collection[]>("/v1/merchant/collections")) ?? [];
 }
 
+/** Manual Selcom Checkout order-status reconciliation for a collection
+ * stuck "processing" — same completion logic a webhook would apply, safe
+ * to call repeatedly (backend enforces it never double-credits). */
+export async function refreshCollectionStatus(collectionId: string): Promise<Collection> {
+  return apiWrite<Collection>(`/v1/merchant/collections/${collectionId}/refresh-status`, "POST", undefined);
+}
+
 export interface CreateCollectionInput {
   customer_name: string;
   customer_phone: string;

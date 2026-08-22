@@ -6,9 +6,10 @@ import { COLLECTION_METHOD_LABELS, CollectionMethod } from "@infinity/shared";
 import { Card, tdClass, thClass } from "@/components/portal/card";
 import { Icon } from "@/components/portal/icon";
 import { PageHeader } from "@/components/portal/page-header";
+import { RefreshStatusButton } from "@/components/portal/refresh-status-button";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { createCollection, listCollections } from "@/lib/portal/api";
+import { createCollection, listCollections, refreshCollectionStatus } from "@/lib/portal/api";
 import { collectionBadge } from "@/lib/portal/status-tones";
 import type { Collection } from "@/lib/portal/types";
 
@@ -16,6 +17,11 @@ const METHODS = Object.values(CollectionMethod);
 
 export default function CollectionsPage() {
   const [collections, setCollections] = useState<Collection[]>([]);
+  // Once a collection has been manually refreshed, keep showing the
+  // button + its result message even after the status flips away from
+  // "processing" — otherwise the row re-renders as resolved and the
+  // outcome message (e.g. "Payment completed") never gets seen.
+  const [refreshedIds, setRefreshedIds] = useState<Set<string>>(new Set());
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [amount, setAmount] = useState("");
@@ -160,19 +166,37 @@ export default function CollectionsPage() {
                 <th className={thClass}>Channel</th>
                 <th className={thClass}>Amount</th>
                 <th className={thClass}>Status</th>
+                <th className={`${thClass} text-right`}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {collections.map((collection) => {
                 const badge = collectionBadge(collection.status);
+                const needsRefresh = collection.status === "processing" || refreshedIds.has(collection.id);
                 return (
                   <tr key={collection.id} className="border-t border-surface-container-highest">
                     <td className={tdClass}>{formatDateTime(collection.initiated_at)}</td>
                     <td className={tdClass}>{collection.customer_phone}</td>
-                    <td className={tdClass}>{COLLECTION_METHOD_LABELS[collection.method]}</td>
+                    <td className={tdClass}>{collection.channel ?? COLLECTION_METHOD_LABELS[collection.method]}</td>
                     <td className={tdClass}>{formatCurrency(collection.amount, collection.currency)}</td>
                     <td className={tdClass}>
                       <StatusBadge {...badge} />
+                      {collection.status === "failed" && collection.failure_reason && (
+                        <p className="text-xs text-on-surface-variant mt-1">{collection.failure_reason}</p>
+                      )}
+                    </td>
+                    <td className={`${tdClass} text-right`}>
+                      {needsRefresh && (
+                        <RefreshStatusButton
+                          onRefresh={() => refreshCollectionStatus(collection.id)}
+                          onResult={(result) => {
+                            setRefreshedIds((prev) => new Set(prev).add(collection.id));
+                            setCollections((prev) =>
+                              prev.map((c) => (c.id === collection.id ? { ...c, ...result } : c)),
+                            );
+                          }}
+                        />
+                      )}
                     </td>
                   </tr>
                 );

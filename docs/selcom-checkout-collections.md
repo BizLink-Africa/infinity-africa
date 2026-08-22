@@ -55,7 +55,63 @@ Distinct from the older `/v1/webhooks/selcom` (a different, unconfirmed
 placeholder product — see `docs/selcom-live-go-live.md`). Every delivery
 is logged to `selcom_webhook_events` (`provider = "selcom_checkout"`)
 before signature verification even runs, so the very first real delivery
-can be inspected regardless of whether verification passed.
+can be inspected regardless of whether verification passed. As of
+2026-08-23 a safe, secret-free log line (`order_id`/`transid`/`reference`/
+`payment_status` only — never `Timestamp`/`Digest`/`Digest-Method`, since
+those are the signature material itself) is also emitted before
+verification, for the same reason.
+
+### Exact URL to register with Selcom
+
+```
+https://web-production-3fdc4a.up.railway.app/v1/webhooks/selcom/checkout
+```
+
+This is the **verified-live, currently-reachable** URL (confirmed via a
+real `GET` reachability check returning `{"status": "ok"}`). Do **not**
+register `https://api.infinityafrica.net/...` — as of 2026-08-22/23 that
+subdomain does **not resolve at all** (confirmed NXDOMAIN via `nslookup`
+and curl), despite being referenced as the "production" domain in both
+`apps/api/.env.example` and `apps/web/.env.example`. That stale
+documentation is the leading suspect for why no real webhook delivery
+has ever arrived (see "Known gaps" below) — if Selcom's account was ever
+configured with that URL, delivery would silently fail on their end
+regardless of anything this codebase does. If/when a stable custom
+domain is set up and DNS-verified, update this doc, both `.env.example`
+files, and re-register the new URL with Selcom.
+
+### Selcom account configuration required
+
+Two independent things must both be true for a real delivery to ever
+arrive — confirming one does not imply the other:
+
+1. **Our side sends the callback URL on order creation.** Every
+   `create-order-minimal` call now includes a `webhook` field (base64
+   encoded per Selcom's docs) whenever `SELCOM_CHECKOUT_WEBHOOK_URL` is
+   set — see `app/services/checkout_orders.py::create_checkout_order_minimal()`.
+   **This was NOT happening before 2026-08-23** — the client method
+   (`SelcomCheckoutHTTPClient.create_order_minimal()`) always supported a
+   `webhook` parameter, but the one real production call site never
+   passed it, so Selcom was never told where to deliver a callback for
+   any order, ever, independent of the DNS issue above. This is now
+   fixed.
+2. **Selcom's own Merchant Portal callback setting**, if their platform
+   also requires (or additionally uses) a portal-level, account-wide
+   callback URL rather than trusting the per-order `webhook` field —
+   confirm with Selcom support which applies to this account. Set it to
+   the exact same URL above.
+
+### Railway env var
+
+```
+SELCOM_CHECKOUT_WEBHOOK_URL=https://web-production-3fdc4a.up.railway.app/v1/webhooks/selcom/checkout
+```
+
+Backend/Railway only — never set in `apps/web`/Vercel (it's not a
+secret, but it's a backend implementation detail with no frontend use).
+Left blank, no `webhook` field is sent to Selcom at all — a deliberate,
+safe default: reconciliation still works via the manual refresh
+endpoints below, it just relies on nobody ever calling this app back.
 
 Expected payload fields (per the reconciliation task brief — field
 names not yet independently re-verified against a live delivery the way
@@ -208,13 +264,58 @@ delivery missing one still resolves via the other.
   payment link's own status (which only ever reflects `PAID` once, with
   no per-attempt detail).
 
+## How to confirm a webhook actually arrives
+
+1. Check `selcom_webhook_events` for a row where `provider =
+   'selcom_checkout'` — its existence alone confirms delivery reached
+   this backend, independent of whether signature verification passed.
+   As of 2026-08-22 this table has **zero** such rows in production —
+   see "Known gaps" below.
+2. Check the collection's `status` — `successful` means it was fully
+   resolved and credited; `processing` means either nothing arrived yet
+   or `payment_status` wasn't yet `COMPLETED`.
+3. Check the merchant's ledger/wallet balance actually moved by the net
+   amount (gross minus platform fee) — the definitive confirmation that
+   crediting happened, not just that a row changed status.
+4. The safe log line (`selcom_checkout webhook received: order_id=...
+   transid=... reference=... payment_status=...`, `app/routers/
+   webhooks.py`) is visible in Railway's logs the instant a delivery
+   lands, before signature verification even runs.
+
+**If no webhook arrives** (this has been the case for every real
+transaction so far): use the manual refresh endpoints —
+`POST /v1/merchant/collections/{id}/refresh-status` or
+`POST /v1/admin/collections/{id}/refresh-status` — which query Selcom
+directly via `get_order_status()` and apply the identical completion
+logic. If refresh also never resolves a collection past `PENDING` after
+a customer has genuinely paid, that's a signal to contact Selcom/support
+directly to confirm: (a) the callback URL is correctly registered on
+their side for this account, and (b) their systems have actually
+attempted delivery (ask for their own delivery logs/attempts for a
+specific `order_id`/`transid`).
+
 ## Known gaps / what to verify once real traffic exists
 
-- Webhook signature scheme is inferred, not confirmed (see above).
+- **Webhook delivery has never fired, not even once, as of 2026-08-22**
+  — confirmed by a completely empty `selcom_webhook_events` table for
+  `provider = 'selcom_checkout'` after a real, fully-paid, real-money
+  live transaction (order `ORD-20260822-ECA39908`, resolved instead via
+  manual refresh). Two root causes identified and fixed the same day:
+  the per-order `webhook` field was never being sent (see above), and
+  the documented "production" API domain (`api.infinityafrica.net`)
+  doesn't resolve at all. Whether a real delivery arrives now that both
+  are fixed is still unconfirmed — needs a fresh live transaction to
+  test, plus Selcom's own account-level callback URL confirmed (see
+  above).
+- Webhook signature scheme itself is still inferred, not confirmed (see
+  above) — moot until a delivery actually arrives to test it against.
 - `get-order-status`'s exact response field names came from the task
   brief, not an independently re-verified live call the way
   `create-order-minimal` was — see
   `apps/api/app/services/selcom_checkout/parsing.py`'s module docstring.
+  (The live test on 2026-08-22 did confirm `payment_status`, `transid`,
+  `channel` — `MPESA-TZ` — and `reference` all come back exactly as
+  expected.)
 - `collections.method` stores `"STK_PUSH"` for every wallet-push
   collection regardless of which real channel Selcom actually used —
   a labeling simplification (Selcom's wallet-payment call takes no

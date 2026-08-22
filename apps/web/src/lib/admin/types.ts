@@ -63,6 +63,13 @@ export interface AdminCollectionRow {
   provider_reference: string | null;
   status: "successful" | "pending" | "processing" | "failed";
   created_at: string;
+  // Selcom Checkout reconciliation detail — see
+  // docs/selcom-checkout-collections.md.
+  order_id: string | null;
+  provider_transid: string | null;
+  channel: string | null;
+  provider_payment_status: string | null;
+  failure_reason: string | null;
 }
 
 export interface AdminPaymentLinkRow {

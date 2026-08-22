@@ -320,6 +320,44 @@ def test_does_not_reject_payment_link_missing_from_stk_push_allowed_methods(fake
     assert response.status_code == 202, response.text
 
 
+# --- webhook URL (SELCOM_CHECKOUT_WEBHOOK_URL) --------------------------------------
+
+
+def test_webhook_url_included_when_configured(fake_client, monkeypatch):
+    monkeypatch.setenv("SELCOM_CHECKOUT_WEBHOOK_URL", "https://web-production-3fdc4a.up.railway.app/v1/webhooks/selcom/checkout")
+    get_settings.cache_clear()
+    _merchant_id, user_id = _merchant_and_member(fake_client)
+    fake = _patch_checkout_client(monkeypatch, fake_client)
+
+    response = client.post(
+        "/v1/merchant/collections/create-order-minimal",
+        headers={**auth_headers(user_id), "Idempotency-Key": _idem()},
+        json=_payload(),
+    )
+
+    assert response.status_code == 202, response.text
+    assert fake.calls[0]["webhook"] == "https://web-production-3fdc4a.up.railway.app/v1/webhooks/selcom/checkout"
+
+
+def test_webhook_url_omitted_when_not_configured(fake_client, monkeypatch):
+    """The default in _configure_settings never sets
+    SELCOM_CHECKOUT_WEBHOOK_URL — this is the intentional, safe default:
+    no webhook field is sent to Selcom at all, and reconciliation still
+    works via the manual refresh endpoints (see
+    docs/selcom-checkout-collections.md)."""
+    _merchant_id, user_id = _merchant_and_member(fake_client)
+    fake = _patch_checkout_client(monkeypatch, fake_client)
+
+    response = client.post(
+        "/v1/merchant/collections/create-order-minimal",
+        headers={**auth_headers(user_id), "Idempotency-Key": _idem()},
+        json=_payload(),
+    )
+
+    assert response.status_code == 202, response.text
+    assert fake.calls[0].get("webhook") is None
+
+
 # --- DB storage --------------------------------------------------------------------
 
 

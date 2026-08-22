@@ -128,6 +128,14 @@ class Settings(BaseSettings):
     # Only needed if Selcom confirms this account requires RS256 instead
     # of HS256 — see app/services/selcom_checkout/signer.py.
     selcom_checkout_private_key_base64: str = ""
+    # Our own webhook callback URL (not a secret — it's a public endpoint
+    # of ours), e.g. https://<api-domain>/v1/webhooks/selcom/checkout.
+    # Sent on every create-order-minimal call so Selcom knows where to
+    # deliver payment_status updates — see
+    # app/services/checkout_orders.py::create_checkout_order_minimal().
+    # Left blank, no webhook field is sent at all (Selcom never calls
+    # back; reconciliation still works via the manual refresh endpoints).
+    selcom_checkout_webhook_url: str = ""
 
     # Platform economics — simple placeholders until real pricing rules exist.
     platform_fee_percentage: Decimal = Decimal("1.5")

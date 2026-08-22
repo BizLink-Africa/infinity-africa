@@ -1,10 +1,9 @@
 import { AdminKpiCard } from "@/components/admin/kpi-card";
-import { Card, tdClass, thClass } from "@/components/portal/card";
+import { Card } from "@/components/portal/card";
 import { PageHeader } from "@/components/portal/page-header";
-import { StatusBadge } from "@/components/portal/status-badge";
-import { formatCurrency, formatDateTime } from "@/lib/format";
+import { CollectionsTable } from "@/components/super-admin/collections-table";
+import { formatCurrency } from "@/lib/format";
 import { getAdminOverview, listAdminCollections } from "@/lib/admin/live-api";
-import { adminCollectionBadge } from "@/lib/admin/status-tones";
 
 export const metadata = {
   title: "Collections | Infinity Africa Super Admin",
@@ -47,43 +46,7 @@ export default async function SuperAdminCollectionsPage() {
         </div>
       </Card>
 
-      <Card padded={false}>
-        <div className="p-5 pb-3">
-          <h3 className="text-2xl font-semibold text-on-background">All Collections</h3>
-        </div>
-        {collections.length === 0 ? (
-          <p className="p-6 text-sm text-on-surface-variant">No collections have been recorded yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[760px]">
-              <thead>
-                <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
-                  <th className={thClass}>Merchant</th>
-                  <th className={thClass}>Phone</th>
-                  <th className={thClass}>Method</th>
-                  <th className={thClass}>Amount</th>
-                  <th className={thClass}>Status</th>
-                  <th className={thClass}>Date</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm">
-                {collections.map((row) => (
-                  <tr key={row.collection_id} className="border-t border-surface-container-highest">
-                    <td className={`${tdClass} text-on-background font-medium`}>{row.merchant_name}</td>
-                    <td className={tdClass}>{row.phone ?? "—"}</td>
-                    <td className={`${tdClass} text-on-surface-variant`}>{row.method}</td>
-                    <td className={`${tdClass} font-semibold text-on-background`}>{formatCurrency(row.amount, row.currency)}</td>
-                    <td className={tdClass}>
-                      <StatusBadge {...adminCollectionBadge(row.status)} />
-                    </td>
-                    <td className={`${tdClass} text-on-surface-variant text-xs`}>{formatDateTime(row.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      <CollectionsTable collections={collections} />
     </div>
   );
 }

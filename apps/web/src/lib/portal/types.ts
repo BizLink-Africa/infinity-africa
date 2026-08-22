@@ -103,6 +103,16 @@ export interface Collection {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+  // Selcom Checkout reconciliation detail — populated once a
+  // create-order-minimal/wallet-push collection resolves via webhook or
+  // manual refresh (see docs/selcom-checkout-collections.md).
+  failure_reason: string | null;
+  checkout_order_id: string | null;
+  provider_transid: string | null;
+  provider_resultcode: string | null;
+  provider_result: string | null;
+  provider_payment_status: string | null;
+  channel: string | null;
 }
 
 export interface Disbursement {

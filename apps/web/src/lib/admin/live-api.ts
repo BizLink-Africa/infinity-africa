@@ -124,7 +124,7 @@ export async function listAdminMerchantUsers(): Promise<MerchantUserRow[]> {
   return apiList<MerchantUserRow>(`/v1/admin/merchant-users?${LIST_ALL_PARAMS}`);
 }
 
-// --- Payment Links / Invoices / Collections (read-only) -------------------
+// --- Payment Links / Invoices / Collections --------------------------------
 
 export async function listAdminPaymentLinks(): Promise<AdminPaymentLinkRow[]> {
   return apiList<AdminPaymentLinkRow>(`/v1/admin/payment-links?${LIST_ALL_PARAMS}`);
@@ -137,6 +137,11 @@ export async function listAdminInvoices(): Promise<AdminInvoiceRow[]> {
 export async function listAdminCollections(): Promise<AdminCollectionRow[]> {
   return apiList<AdminCollectionRow>(`/v1/admin/collections?${LIST_ALL_PARAMS}`);
 }
+
+// Manual Selcom Checkout order-status refresh is a client-side
+// interactive action (loading state, inline result) — see
+// lib/admin/refresh-collection-status-client.ts, which this
+// "server-only" file cannot host.
 
 // --- Withdrawals -----------------------------------------------------------
 

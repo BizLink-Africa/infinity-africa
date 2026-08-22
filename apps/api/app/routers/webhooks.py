@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from typing import Annotated
 
@@ -34,6 +35,8 @@ from app.services.webhooks import store_incoming_selcom_event
 
 router = APIRouter(prefix="/merchants/{merchant_id}/webhooks", tags=["webhooks"])
 callback_router = APIRouter(prefix="/webhooks", tags=["webhooks (provider callback)"])
+
+logger = logging.getLogger("infinity.webhooks")
 
 _DASHBOARD_ROLES = (UserRole.MERCHANT_ADMIN, UserRole.MERCHANT_STAFF)
 
@@ -238,6 +241,19 @@ async def selcom_checkout_webhook(request: Request):
         body = json.loads(raw_body) if raw_body else {}
     except ValueError:
         body = {}
+
+    # Logged before signature verification runs, deliberately — this is
+    # how we'll ever know a delivery arrived at all if the (unconfirmed)
+    # signature scheme turns out wrong and rejects it. Only non-secret,
+    # provider-supplied identifiers — never Timestamp/Digest/Digest-Method
+    # (those are the signature material itself) and never the api_secret.
+    logger.info(
+        "selcom_checkout webhook received: order_id=%s transid=%s reference=%s payment_status=%s",
+        body.get("order_id"),
+        body.get("transid"),
+        body.get("reference"),
+        body.get("payment_status"),
+    )
 
     signature_valid = verify_webhook_signature(
         body=body,
