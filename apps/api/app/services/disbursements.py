@@ -494,7 +494,14 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
             recipient_account=recipient_account,
             recipient_name=disbursement.get("destination_name") or "",
             amount=str(amount),
-            purpose="withdrawal",
+            # Selcom's live API validates this against a fixed enumerated
+            # list (error_code 651 "The selected purpose is invalid" for
+            # anything else) — sandbox accepted arbitrary free text, which
+            # is what let "withdrawal" go undetected until the first real
+            # production call. "FT" (Funds transfer) is the closest generic
+            # fit for a merchant withdrawing their own funds; see
+            # https://developer.selcom.business/ for the full code list.
+            purpose="FT",
         )
     except SelcomAPIError as exc:
         if exc.is_ip_whitelist_error:
