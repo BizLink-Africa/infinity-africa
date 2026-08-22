@@ -180,6 +180,34 @@ def test_wallet_push_returns_pending_and_creates_a_collection(fake_client, monke
     assert len(fake.calls) == 2
 
 
+def test_response_is_stored_safely_on_both_rows(fake_client, monkeypatch):
+    """"response stored safely" — every field the task asks for lands
+    somewhere queryable: order_id/payment_token/qr/payment_gateway_url on
+    the linked checkout_orders row (from create-order-minimal), and
+    transid/reference/result/resultcode/raw_response on the collections
+    row (from wallet-payment) — not just implicitly present in a log
+    line."""
+    _merchant_id, user_id = _merchant_and_member(fake_client)
+    link = _create_payment_link(user_id)
+    _patch_checkout_client(monkeypatch)
+
+    _pay(link["public_slug"])
+
+    order = fake_client.table("checkout_orders")._table.rows[0]
+    assert order["order_id"]
+    assert order["payment_token"] == "63850827"
+    assert order["qr"] == "QRDATA"
+    assert order["payment_gateway_url"]  # decoded, non-empty
+    assert order["raw_response"] == CREATE_ORDER_SUCCESS_RESPONSE
+
+    collection = fake_client.table("collections")._table.rows[0]
+    assert collection["provider_transid"]
+    assert collection["provider_reference"] == WALLET_PAYMENT_PENDING_RESPONSE["reference"]
+    assert collection["provider_result"] == "PENDING"
+    assert collection["provider_resultcode"] == "111"
+    assert collection["raw_response"] == WALLET_PAYMENT_PENDING_RESPONSE
+
+
 def test_create_order_minimal_is_called_before_wallet_payment(fake_client, monkeypatch):
     _merchant_id, user_id = _merchant_and_member(fake_client)
     link = _create_payment_link(user_id)
