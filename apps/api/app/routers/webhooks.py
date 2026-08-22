@@ -59,6 +59,18 @@ def get_webhook_event(
     return APIResponse(data=WebhookEventResponse(**row))
 
 
+@callback_router.get("/selcom", response_model=APIResponse[dict])
+async def selcom_webhook_reachability_check():
+    """Answers a provider's own "is this URL reachable" probe (e.g. Selcom's
+    Business portal "Test URL" button when configuring a callback), which
+    hits this path with a plain unauthenticated GET expecting a 2xx — not a
+    real callback delivery. Real deliveries are POSTs, handled below, and
+    still require a valid signature; this GET path carries no data and
+    performs no action, so it doesn't weaken that verification.
+    """
+    return APIResponse(data={"status": "ok"})
+
+
 @callback_router.post("/selcom", response_model=APIResponse[dict])
 async def selcom_webhook(request: Request):
     """Where a real Selcom callback would land, resolving a collection or
