@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { Icon } from "@/components/portal/icon";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import type { PublicPaymentLink } from "@/lib/payment-links";
 
@@ -273,89 +274,107 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
   const needsPhoneStep = state === "phone_entry";
 
   return (
-    <div className="p-6 sm:p-8">
-      <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">Paying {link.merchant_name}</p>
-      <p className="mt-2 text-3xl font-bold text-on-surface">{formatCurrency(link.amount, link.currency)}</p>
+    <div>
+      <div className="bg-primary p-6 text-on-primary sm:p-8">
+        <p className="text-xs font-semibold uppercase tracking-wide text-on-primary/70">Paying {link.merchant_name}</p>
+        <p className="mt-2 text-3xl font-bold">{formatCurrency(link.amount, link.currency)}</p>
 
-      {link.description && <p className="mt-2 text-sm text-on-surface-variant">{link.description}</p>}
+        {link.description && <p className="mt-2 text-sm text-on-primary/80">{link.description}</p>}
 
-      {(link.customer_name || link.customer_phone) && (
-        <p className="mt-3 text-sm text-on-surface-variant">
-          For {[link.customer_name, link.customer_phone].filter(Boolean).join(" · ")}
-        </p>
-      )}
+        {(link.customer_name || link.customer_phone) && (
+          <p className="mt-3 text-sm text-on-primary/80">
+            For {[link.customer_name, link.customer_phone].filter(Boolean).join(" · ")}
+          </p>
+        )}
 
-      {link.expires_at && <p className="mt-1 text-xs text-on-surface-variant">Expires {formatDateTime(link.expires_at)}</p>}
+        {link.expires_at && <p className="mt-1 text-xs text-on-primary/70">Expires {formatDateTime(link.expires_at)}</p>}
+      </div>
 
-      <div className="my-6 border-t border-outline-variant" />
-
-      {needsPhoneStep ? (
-        <form onSubmit={handlePhoneSubmit}>
-          <label htmlFor="phone" className="block text-sm font-medium text-on-surface">
-            Phone number
-          </label>
-          <input
-            id="phone"
-            type="tel"
-            required
-            autoFocus
-            value={phone}
-            onChange={(event) => setPhone(event.target.value)}
-            placeholder="e.g. 0700 000 000"
-            className="mt-1 w-full rounded border border-outline-variant px-3 py-2 text-sm text-on-surface focus:border-primary-container focus:outline-none focus:ring-1 focus:ring-primary-container"
-          />
-          <button
-            type="submit"
-            disabled={!phone.trim()}
-            className="mt-4 w-full rounded bg-primary-container px-4 py-3 text-sm font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {method ? METHOD_LABEL[method] : "Continue"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMethod(null);
-              setState("choose");
-            }}
-            className="mt-2 w-full text-center text-xs font-medium text-on-surface-variant hover:underline"
-          >
-            Choose a different method
-          </button>
-        </form>
-      ) : (
-        <>
-          <p className="text-sm font-medium text-on-surface mb-3">Choose how you want to pay</p>
-          <div className="space-y-2.5">
-            <PaymentMethodButton
-              label={METHOD_LABEL.WALLET_PUSH}
-              description="Approve with your mobile money PIN"
-              onClick={() => handleChooseMethod("WALLET_PUSH")}
+      <div className="p-6 sm:p-8">
+        {needsPhoneStep ? (
+          <form onSubmit={handlePhoneSubmit}>
+            <label htmlFor="phone" className="block text-sm font-medium text-on-surface">
+              Phone number
+            </label>
+            <input
+              id="phone"
+              type="tel"
+              required
+              autoFocus
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              placeholder="e.g. 0700 000 000"
+              className="mt-1 w-full rounded border border-outline-variant px-3 py-2 text-sm text-on-surface focus:border-primary-container focus:outline-none focus:ring-1 focus:ring-primary-container"
             />
-            <PaymentMethodButton
-              label={METHOD_LABEL.SELCOM_PESA}
-              description="Approve in your Selcom Pesa app"
-              onClick={() => handleChooseMethod("SELCOM_PESA")}
-            />
-            <PaymentMethodButton
-              label={METHOD_LABEL.TANQR}
-              description="Scan with any supported payment app"
-              onClick={() => handleChooseMethod("TANQR")}
-            />
-          </div>
-        </>
-      )}
+            <button
+              type="submit"
+              disabled={!phone.trim()}
+              className="mt-4 w-full rounded bg-primary-container px-4 py-3 text-sm font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {method ? METHOD_LABEL[method] : "Continue"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMethod(null);
+                setState("choose");
+              }}
+              className="mt-2 w-full text-center text-xs font-medium text-on-surface-variant hover:underline"
+            >
+              Choose a different method
+            </button>
+          </form>
+        ) : (
+          <>
+            <p className="text-sm font-medium text-on-surface mb-3">Choose how you want to pay</p>
+            <div className="space-y-2.5">
+              <PaymentMethodButton
+                icon="smartphone"
+                label={METHOD_LABEL.WALLET_PUSH}
+                description="Approve with your mobile money PIN"
+                onClick={() => handleChooseMethod("WALLET_PUSH")}
+              />
+              <PaymentMethodButton
+                icon="account_balance_wallet"
+                label={METHOD_LABEL.SELCOM_PESA}
+                description="Approve in your Selcom Pesa app"
+                onClick={() => handleChooseMethod("SELCOM_PESA")}
+              />
+              <PaymentMethodButton
+                icon="qr_code_scanner"
+                label={METHOD_LABEL.TANQR}
+                description="Scan with any supported payment app"
+                onClick={() => handleChooseMethod("TANQR")}
+              />
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
-function PaymentMethodButton({ label, description, onClick }: { label: string; description: string; onClick: () => void }) {
+function PaymentMethodButton({
+  icon,
+  label,
+  description,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  description: string;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full flex items-center justify-between rounded border border-outline-variant px-4 py-3.5 text-left transition-colors hover:border-primary-container hover:bg-primary-container/5"
+      className="w-full flex items-center gap-3.5 rounded border border-outline-variant px-4 py-3.5 text-left transition-colors hover:border-primary-container hover:bg-primary-container/5"
     >
-      <span>
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
+        <Icon name={icon} className="text-[22px]" />
+      </span>
+      <span className="flex-1">
         <span className="block text-sm font-semibold text-on-surface">{label}</span>
         <span className="block text-xs text-on-surface-variant">{description}</span>
       </span>
