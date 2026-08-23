@@ -55,12 +55,14 @@ from app.services.selcom_checkout.parsing import (
     decode_json_response,
     parse_create_order_minimal_response,
     parse_order_status_response,
+    parse_selcompesa_payment_response,
     parse_wallet_payment_response,
 )
 from app.services.selcom_checkout.schemas import (
     CreateOrderMinimalResult,
     OrderStatusResult,
     SelcomCheckoutCredentials,
+    SelcomPesaPaymentResult,
     WalletPaymentResult,
 )
 from app.services.selcom_checkout.signer import build_auth_headers
@@ -378,6 +380,40 @@ class SelcomCheckoutHTTPClient:
         }
         response = await self._signed_request("POST", "/v1/checkout/wallet-payment", fields)
         return parse_wallet_payment_response(response)
+
+    async def selcompesa_payment(self, *, transid: str, order_id: str, msisdn: str) -> SelcomPesaPaymentResult:
+        """POST /v1/checkout/selcompesa-payment — the Selcom Pesa
+        counterpart to process_wallet_payment() above, after
+        create_order_minimal() has already created an order shell. Same
+        rules apply: **this is the one call in this method's flow that
+        can actually move money** — triggers a real prompt to the
+        customer's Selcom Pesa app for `msisdn`. Never call this
+        speculatively, automatically, or more than once per genuine
+        payment attempt; see app/services/selcompesa_push.py for the one
+        call site that should ever reach this in application code.
+
+        Request field shape (transid, order_id, msisdn) mirrors
+        process_wallet_payment()'s exactly — same product family, same
+        documented convention every other Checkout push endpoint uses —
+        pending independent confirmation against a real sandbox call via
+        scripts/test_selcom_checkout_selcompesa_payment.py, same
+        "confirm before fully trusting" posture as this module's other
+        still-only-task-brief-confirmed fields (see module docstring).
+
+        The normal, expected response is PENDING, same as
+        process_wallet_payment() — this method never decides on its own
+        whether to credit anyone; see parse_selcompesa_payment_response().
+
+        msisdn must already be normalized to "255XXXXXXXXX" — no plus
+        sign — by the caller (app.core.phone.normalize_tz_phone), same
+        convention as process_wallet_payment()."""
+        fields: dict[str, str] = {
+            "transid": transid,
+            "order_id": order_id,
+            "msisdn": msisdn,
+        }
+        response = await self._signed_request("POST", "/v1/checkout/selcompesa-payment", fields)
+        return parse_selcompesa_payment_response(response)
 
     async def get_order_status(self, *, order_id: str) -> OrderStatusResult:
         """GET /v1/checkout/order-status?order_id={order_id} — the

@@ -18,6 +18,7 @@ from app.auth import (
     get_authenticated_caller,
     require_api_key_scope,
 )
+from app.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
 from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedCaller
@@ -28,6 +29,8 @@ from app.schemas.payment_links import (
     PaymentLinkCheckoutResponse,
     PaymentLinkCollectRequest,
     PaymentLinkCreate,
+    PaymentLinkPayRequest,
+    PaymentLinkPayResponse,
     PaymentLinkResponse,
     PaymentLinkWalletPushRequest,
     PaymentLinkWalletPushResponse,
@@ -35,6 +38,7 @@ from app.schemas.payment_links import (
     PublicPaymentLinkResponse,
 )
 from app.services.audit import write_audit_log
+from app.services.collection_payment import initiate_collection_payment
 from app.services.collections import execute_collection
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
 from app.services.dynamic_qr import execute_dynamic_qr_for_payment_link
@@ -298,6 +302,57 @@ async def collect_payment_link(
 
 
 @public_router.post(
+    "/{public_slug}/pay",
+    response_model=APIResponse[PaymentLinkPayResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def pay_payment_link(
+    public_slug: str,
+    payload: PaymentLinkPayRequest,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+):
+    """The "Choose how you want to pay" screen's single submit endpoint —
+    dispatches to whichever of the three active methods the customer
+    picked (app/services/collection_payment.py::initiate_collection_payment).
+    Replaces per-method endpoints for new frontend code; the older
+    /pay/wallet-push and /pay/checkout endpoints below are unchanged and
+    still work (checkout gated off by settings.hosted_checkout_enabled),
+    kept for any existing caller rather than removed."""
+    if payload.method in ("WALLET_PUSH", "SELCOM_PESA") and not payload.customer_phone:
+        raise ValidationAPIError("customer_phone is required for this payment method")
+
+    client = get_supabase_admin()
+    link = execute_maybe_single(
+        client.table("payment_links").select("*").eq("public_slug", public_slug).maybe_single()
+    )
+    if not link:
+        raise NotFoundError("Payment link not found")
+
+    merchant_id = uuid.UUID(link["merchant_id"])
+
+    async def _handler() -> tuple[int, dict]:
+        current = with_effective_status(client, link)
+        if current["status"] != "ACTIVE":
+            raise ConflictError(f"This payment link cannot be paid (status: {current['status']})")
+
+        body = await initiate_collection_payment(
+            client, payment_link=current, method=payload.method, customer_phone=payload.customer_phone
+        )
+        return status.HTTP_202_ACCEPTED, body
+
+    _status_code, body = await run_idempotent(
+        client,
+        merchant_id=merchant_id,
+        endpoint="POST /public/payment-links/{slug}/pay",
+        idempotency_key=idempotency_key,
+        request_payload={"public_slug": public_slug, **payload.model_dump(mode="json")},
+        handler=_handler,
+    )
+
+    return APIResponse(data=PaymentLinkPayResponse(**body))
+
+
+@public_router.post(
     "/{public_slug}/pay/wallet-push",
     response_model=APIResponse[PaymentLinkWalletPushResponse],
     status_code=status.HTTP_202_ACCEPTED,
@@ -376,7 +431,17 @@ async def pay_payment_link_checkout(
     (app/services/hosted_checkout.py) and returns its decoded
     payment_gateway_url; the frontend does a full-page redirect to it.
     Never credits the merchant, posts a ledger entry, or marks this link
-    PAID — same rule as pay_payment_link_wallet_push above."""
+    PAID — same rule as pay_payment_link_wallet_push above.
+
+    Inactive by default (2026-08-23): Selcom's hosted checkout
+    (payment_gateway_url) is confirmed broken account-side — see
+    docs/selcom-checkout-collections.md, "Known issue" section. Gated on
+    settings.hosted_checkout_enabled rather than deleted, so this code
+    path is ready the moment Selcom confirms a fix; no frontend calls
+    this endpoint while the flag is off."""
+    if not get_settings().hosted_checkout_enabled:
+        raise ConflictError("Hosted checkout is currently disabled")
+
     client = get_supabase_admin()
     link = execute_maybe_single(
         client.table("payment_links").select("*").eq("public_slug", public_slug).maybe_single()

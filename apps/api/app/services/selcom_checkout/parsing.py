@@ -37,6 +37,8 @@ from app.services.selcom_checkout.errors import SelcomCheckoutError
 from app.services.selcom_checkout.schemas import (
     CreateOrderMinimalResult,
     OrderStatusResult,
+    SelcomPesaPaymentResult,
+    SelcomPesaPaymentStatus,
     WalletPaymentResult,
     WalletPaymentStatus,
 )
@@ -156,6 +158,35 @@ def parse_wallet_payment_response(response: dict) -> WalletPaymentResult:
         result=result,
         message=str(response.get("message") or ""),
         status=_map_wallet_payment_status(resultcode=resultcode, result=result),
+        raw_response=response,
+    )
+
+
+# --- selcompesa-payment ---------------------------------------------------------------
+#
+# No confirmed sample response of its own — treated as the same envelope
+# shape as wallet-payment (same product family, same documented pattern
+# of every Checkout endpoint sharing {reference, resultcode, result,
+# message, data}), pending confirmation against a real sandbox call via
+# scripts/test_selcom_checkout_selcompesa_payment.py. Same status mapping
+# as wallet-payment, for the same reason (Selcom resolves the actual push
+# result asynchronously for every push-style endpoint in this product).
+
+
+def _map_selcompesa_payment_status(*, resultcode: str, result: str) -> SelcomPesaPaymentStatus:
+    return _map_wallet_payment_status(resultcode=resultcode, result=result)
+
+
+def parse_selcompesa_payment_response(response: dict) -> SelcomPesaPaymentResult:
+    resultcode = str(response.get("resultcode") or "")
+    result = str(response.get("result") or "")
+
+    return SelcomPesaPaymentResult(
+        reference=str(response.get("reference") or ""),
+        resultcode=resultcode,
+        result=result,
+        message=str(response.get("message") or ""),
+        status=_map_selcompesa_payment_status(resultcode=resultcode, result=result),
         raw_response=response,
     )
 

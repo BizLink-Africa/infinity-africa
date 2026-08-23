@@ -278,35 +278,35 @@ export async function createHostedCheckoutCollection(
   );
 }
 
-export interface CreateWalletPushCollectionInput {
+export interface CreateCollectionRequestInput {
   customer_name?: string | null;
-  customer_phone: string;
+  customer_phone?: string | null;
   customer_email?: string | null;
   amount: string;
   description?: string | null;
   merchant_reference?: string | null;
 }
 
-/** TEMPORARY (2026-08-23): "Request Collection" via wallet-push — sends
- * a real STK/USSD push to customer_phone immediately. Brought back
- * because Selcom's hosted checkout is confirmed broken account-side;
- * see docs/selcom-checkout-collections.md. Swap back to
- * createHostedCheckoutCollection() once Selcom confirms it's fixed. */
-export async function createWalletPushCollection(input: CreateWalletPushCollectionInput): Promise<Collection> {
-  return apiWrite<Collection>(
-    "/v1/merchant/collections/wallet-push",
-    "POST",
-    {
-      amount: input.amount,
-      currency: "TZS",
-      customer_name: input.customer_name ?? null,
-      customer_phone: input.customer_phone,
-      customer_email: input.customer_email ?? null,
-      description: input.description ?? null,
-      merchant_reference: input.merchant_reference ?? null,
-    },
-    { idempotent: true },
-  );
+/** "Request Collection" (2026-08-24) — the merchant picks no channel;
+ * this creates a payment link under the hood (no expiry, no redirect
+ * URLs) and hands back its public_url for the merchant to share. The
+ * customer opens that page and chooses Mobile Money Push / Selcom Pesa /
+ * Scan QR themselves — see PaymentForm. Same underlying resource as
+ * createPaymentLink() above, just a lighter-weight call shape for this
+ * quicker form. */
+export async function createCollectionRequest(input: CreateCollectionRequestInput): Promise<PaymentLink> {
+  return createPaymentLink({
+    amount: input.amount,
+    currency: "TZS",
+    customer_name: input.customer_name ?? null,
+    customer_phone: input.customer_phone ?? null,
+    customer_email: input.customer_email ?? null,
+    description: input.description ?? null,
+    expires_at: null,
+    merchant_reference: input.merchant_reference ?? null,
+    success_redirect_url: null,
+    failure_redirect_url: null,
+  });
 }
 
 // --- Withdrawals (LIVE — /v1/merchant/withdrawals; frontend keeps calling

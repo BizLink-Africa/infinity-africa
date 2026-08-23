@@ -1,18 +1,45 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CollectionMethod } from "@infinity/shared";
+import { CollectionMethod, PaymentLinkStatus } from "@infinity/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Collection } from "@/lib/portal/types";
+import type { Collection, PaymentLink } from "@/lib/portal/types";
 
 const listCollections = vi.fn();
-const createWalletPushCollection = vi.fn();
+const createCollectionRequest = vi.fn();
 const refreshCollectionStatus = vi.fn();
 
 vi.mock("@/lib/portal/api", () => ({
   listCollections: (...args: unknown[]) => listCollections(...args),
-  createWalletPushCollection: (...args: unknown[]) => createWalletPushCollection(...args),
+  createCollectionRequest: (...args: unknown[]) => createCollectionRequest(...args),
   refreshCollectionStatus: (...args: unknown[]) => refreshCollectionStatus(...args),
 }));
+
+function paymentLink(overrides: Partial<PaymentLink>): PaymentLink {
+  return {
+    id: "link-1",
+    merchant_id: "merchant-1",
+    customer_id: null,
+    amount: "5000",
+    currency: "TZS",
+    customer_name: null,
+    customer_phone: null,
+    customer_email: null,
+    description: null,
+    allowed_payment_methods: [CollectionMethod.STK_PUSH, CollectionMethod.SELCOM_PESA_PUSH, CollectionMethod.DYNAMIC_QR],
+    expires_at: null,
+    status: PaymentLinkStatus.ACTIVE,
+    public_slug: "abc123",
+    public_url: "https://pay.infinityafrica.net/pay/abc123",
+    merchant_reference: null,
+    success_redirect_url: null,
+    failure_redirect_url: null,
+    paid_at: null,
+    attempt_count: 0,
+    created_at: "2026-08-24T10:00:00Z",
+    updated_at: "2026-08-24T10:00:00Z",
+    ...overrides,
+  };
+}
 
 function collection(overrides: Partial<Collection>): Collection {
   return {
@@ -52,7 +79,7 @@ beforeEach(() => {
   listCollections.mockResolvedValue([]);
 });
 
-describe("Merchant portal CollectionsPage — Request Collection form (temporary wallet-push)", () => {
+describe("Merchant portal CollectionsPage — Request Collection form", () => {
   it("does not render a channel/method selector", async () => {
     const { default: CollectionsPage } = await import("./page");
     render(<CollectionsPage />);
@@ -62,32 +89,32 @@ describe("Merchant portal CollectionsPage — Request Collection form (temporary
     expect(screen.queryByText("Allowed Payment Channels")).not.toBeInTheDocument();
   });
 
-  it("requires a phone number to submit", async () => {
+  it("does not require a phone number to submit — the customer picks a method on their own page", async () => {
     const { default: CollectionsPage } = await import("./page");
     render(<CollectionsPage />);
 
-    expect(screen.getByLabelText("Phone Number")).toBeRequired();
+    expect(screen.getByLabelText(/Phone Number/)).not.toBeRequired();
   });
 
-  it("submits customer details to createWalletPushCollection, then shows the payment request sent confirmation", async () => {
-    createWalletPushCollection.mockResolvedValue(collection({ customer_phone: "255747730270" }));
+  it("submits customer details to createCollectionRequest without a method, then shows the shareable payment link", async () => {
+    createCollectionRequest.mockResolvedValue(paymentLink({ public_url: "https://pay.infinityafrica.net/pay/xyz789" }));
     const { default: CollectionsPage } = await import("./page");
     render(<CollectionsPage />);
 
-    fireEvent.change(screen.getByLabelText("Customer Name"), { target: { value: "Grace" } });
-    fireEvent.change(screen.getByLabelText("Phone Number"), { target: { value: "255747730270" } });
+    fireEvent.change(screen.getByLabelText(/Customer Name/), { target: { value: "Grace" } });
+    fireEvent.change(screen.getByLabelText(/Phone Number/), { target: { value: "255747730270" } });
     fireEvent.change(screen.getByLabelText("Amount in TZS"), { target: { value: "5000" } });
     fireEvent.click(screen.getByRole("button", { name: /Request Collection/ }));
 
     await waitFor(() =>
-      expect(createWalletPushCollection).toHaveBeenCalledWith(
+      expect(createCollectionRequest).toHaveBeenCalledWith(
         expect.objectContaining({ customer_name: "Grace", customer_phone: "255747730270", amount: "5000" }),
       ),
     );
-    expect(createWalletPushCollection.mock.calls[0][0]).not.toHaveProperty("method");
+    expect(createCollectionRequest.mock.calls[0][0]).not.toHaveProperty("method");
 
-    expect(await screen.findByText("Payment request sent")).toBeInTheDocument();
-    expect(screen.getAllByText(/255747730270/).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Payment page ready")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("https://pay.infinityafrica.net/pay/xyz789")).toBeInTheDocument();
   });
 });
 

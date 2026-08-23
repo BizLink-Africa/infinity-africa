@@ -128,4 +128,9 @@ async def execute_dynamic_qr_for_payment_link(client: Client, *, payment_link: d
         currency=payment_link["currency"],
     )
 
-    return {**collection, "payment_gateway_url": order.get("payment_gateway_url"), "qr": order.get("qr")}
+    return {
+        **collection,
+        "payment_gateway_url": order.get("payment_gateway_url"),
+        "qr": order.get("qr"),
+        "payment_token": order.get("payment_token"),
+    }

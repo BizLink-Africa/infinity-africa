@@ -8,7 +8,43 @@ the merchant. For the general pricing/withdrawal-side approval flow see
 for the Selcom Checkout signing scheme itself see the module docstrings
 in `apps/api/app/services/selcom_checkout/`.
 
-## The flow
+## Active customer payment methods (2026-08-24)
+
+Three, and only three, are active. Neither the merchant (creating a
+Payment Link or a "Request Collection") nor the frontend ever picks a
+channel up front anymore — the customer chooses on Infinity's own
+payment page, via `POST /public/payment-links/{slug}/pay`
+(`app/services/collection_payment.py::initiate_collection_payment`):
+
+| Public method name | Stored `collections.method` | Backing service | Selcom endpoint |
+|---|---|---|---|
+| `WALLET_PUSH` | `STK_PUSH` | `app/services/wallet_push.py` | `POST /v1/checkout/wallet-payment` |
+| `SELCOM_PESA` | `SELCOM_PESA_PUSH` | `app/services/selcompesa_push.py` | `POST /v1/checkout/selcompesa-payment` |
+| `TANQR` | `DYNAMIC_QR` | `app/services/dynamic_qr.py` | (create-order-minimal only — no push step) |
+
+All three method names map onto `collections.method` values that
+already existed in the CHECK constraint before this change — no
+migration was needed. "Request Collection" in the Merchant Portal now
+creates a `payment_links` row (no channel, no expiry) instead of pushing
+immediately, and hands the merchant a shareable URL — the customer opens
+it and picks a method themselves, same page as a real Payment Link.
+
+**Hosted checkout is inactive** — `POST /public/payment-links/{slug}/pay/checkout`
+refuses to run unless `settings.hosted_checkout_enabled` is explicitly
+`true` (default `false`; see "Known issue" below for why). No frontend
+calls this endpoint. The code path is untouched, not deleted, ready to
+re-enable once Selcom confirms hosted checkout is fixed.
+
+**TanQR never generates its own QR.** `qr`/`payment_token` are Selcom's
+own `create-order-minimal` response fields, stored on `checkout_orders`
+exactly as returned (`app/services/checkout_orders.py`) and passed
+through the API/frontend unaltered
+(`apps/web/src/components/payment-link/selcom-qr-display.tsx` renders
+whatever format Selcom returned — EMVCo/text is encoded into a QR image
+client-side via the existing `qrcode` package; a URL/base64-image value
+is shown as an `<img>` directly, never re-encoded).
+
+## The Mobile Money Push flow (detail)
 
 ```
 customer submits phone

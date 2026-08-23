@@ -92,6 +92,27 @@ class WalletPaymentResult(BaseModel):
     raw_response: dict
 
 
+# Mirrors WalletPaymentStatus exactly — same product family, same
+# "PENDING is the normal outcome, not a failure" rule.
+SelcomPesaPaymentStatus = Literal["successful", "failed", "processing", "ambiguous"]
+
+
+class SelcomPesaPaymentResult(BaseModel):
+    """Parsed result of POST /v1/checkout/selcompesa-payment — the
+    Selcom Pesa counterpart to WalletPaymentResult above. Same shape,
+    same rule: this is the one call that can actually move money for
+    this method, and PENDING is its normal, expected response — never
+    collapsed into success or failure here. See WalletPaymentResult's
+    docstring; everything there applies identically to this result."""
+
+    reference: str
+    resultcode: str
+    result: str
+    message: str
+    status: SelcomPesaPaymentStatus
+    raw_response: dict
+
+
 class OrderStatusResult(BaseModel):
     """Parsed result of GET /v1/checkout/order-status?order_id=... —
     the reconciliation query used by both the manual refresh endpoints

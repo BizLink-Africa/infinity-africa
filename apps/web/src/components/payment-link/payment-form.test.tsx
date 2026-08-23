@@ -5,6 +5,10 @@ import type { PublicPaymentLink } from "@/lib/payment-links";
 
 import { PaymentForm } from "./payment-form";
 
+vi.mock("qrcode", () => ({
+  default: { toCanvas: vi.fn().mockResolvedValue(undefined) },
+}));
+
 const link: PublicPaymentLink = {
   merchant_name: "Test Merchant",
   amount: "25000.00",
@@ -19,12 +23,14 @@ const link: PublicPaymentLink = {
   failure_redirect_url: null,
 };
 
-describe("PaymentForm — wallet push (temporary, hosted checkout blocked)", () => {
+describe("PaymentForm", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
+    const QRCode = (await import("qrcode")).default;
+    vi.mocked(QRCode.toCanvas).mockClear();
   });
 
   afterEach(() => {
@@ -39,50 +45,148 @@ describe("PaymentForm — wallet push (temporary, hosted checkout blocked)", () 
     expect(screen.getByText("Invoice for services")).toBeInTheDocument();
   });
 
-  it("requires a phone number when the link has none on file", () => {
+  it("shows exactly the three active payment methods, nothing else", () => {
     render(<PaymentForm slug="test-slug" link={link} />);
 
+    expect(screen.getByRole("button", { name: /Pay by Mobile Money Push/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pay with Selcom Pesa/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Scan QR \/ TanQR/ })).toBeInTheDocument();
+
+    expect(screen.queryByText(/Hosted Checkout/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay securely/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Debit\/Credit Card/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Choose how you want to pay")).toBeInTheDocument();
+  });
+
+  it("asks for a phone number before submitting Mobile Money Push when the link has none on file", () => {
+    render(<PaymentForm slug="test-slug" link={link} />);
+    fireEvent.click(screen.getByRole("button", { name: /Pay by Mobile Money Push/ }));
+
     expect(screen.getByLabelText("Phone number")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pay now" })).toBeDisabled();
-
-    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0747730270" } });
-    expect(screen.getByRole("button", { name: "Pay now" })).not.toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("does not ask for a phone number when the link already has one on file", () => {
-    render(<PaymentForm slug="test-slug" link={{ ...link, customer_phone: "255747730270" }} />);
-
-    expect(screen.queryByLabelText("Phone number")).not.toBeInTheDocument();
-    expect(screen.getByText("For 255747730270")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pay now" })).not.toBeDisabled();
-  });
-
-  it("submits to /pay/wallet-push with the phone number and shows the backend's pending message", async () => {
+  it("submits Mobile Money Push immediately when the link already has a phone on file", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         success: true,
         data: {
           collection_id: "11111111-1111-1111-1111-111111111111",
-          payment_status: "pending",
-          message: "Payment request sent to your phone. Please approve using your PIN.",
+          method: "WALLET_PUSH",
+          status: "pending",
+          message: "Payment prompt sent. Please approve on your phone.",
+          qr: null,
+          payment_token: null,
+          payment_gateway_url: null,
+        },
+      }),
+    });
+
+    render(<PaymentForm slug="test-slug" link={{ ...link, customer_phone: "255747730270" }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Pay by Mobile Money Push/ }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/public/payment-links/test-slug/pay");
+    expect(String(url)).not.toContain("/pay/wallet-push");
+    expect(init.headers["Idempotency-Key"]).toBeTruthy();
+    expect(JSON.parse(init.body)).toEqual({ method: "WALLET_PUSH", customer_phone: "255747730270" });
+
+    await waitFor(() => expect(screen.getByText("Payment prompt sent. Please approve on your phone.")).toBeInTheDocument());
+  });
+
+  it("submits Selcom Pesa with the typed phone number", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          collection_id: "22222222-2222-2222-2222-222222222222",
+          method: "SELCOM_PESA",
+          status: "pending",
+          message: "Selcom Pesa prompt sent. Please approve in your Selcom Pesa app.",
+          qr: null,
+          payment_token: null,
+          payment_gateway_url: null,
         },
       }),
     });
 
     render(<PaymentForm slug="test-slug" link={link} />);
-    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0747 730 270" } });
-    fireEvent.click(screen.getByRole("button", { name: "Pay now" }));
+    fireEvent.click(screen.getByRole("button", { name: /Pay with Selcom Pesa/ }));
+    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0747730270" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pay with Selcom Pesa" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("/public/payment-links/test-slug/pay/wallet-push");
-    expect(init.headers["Idempotency-Key"]).toBeTruthy();
-    expect(JSON.parse(init.body)).toEqual({ customer_phone: "0747 730 270" });
-
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      method: "SELCOM_PESA",
+      customer_phone: "0747730270",
+    });
     await waitFor(() =>
-      expect(screen.getByText("Payment request sent to your phone. Please approve using your PIN.")).toBeInTheDocument(),
+      expect(screen.getByText("Selcom Pesa prompt sent. Please approve in your Selcom Pesa app.")).toBeInTheDocument(),
     );
+  });
+
+  it("submits Scan QR / TanQR immediately with no phone step, and renders Selcom's exact qr payload unaltered", async () => {
+    const selcomQrPayload = "00020101021226580014COM.SELCOM.WWW02..."; // exact Selcom-shaped EMVCo text
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          collection_id: "33333333-3333-3333-3333-333333333333",
+          method: "TANQR",
+          status: "pending",
+          message: "Scan this QR using your supported payment app.",
+          qr: selcomQrPayload,
+          payment_token: "80008000",
+          payment_gateway_url: null,
+        },
+      }),
+    });
+
+    render(<PaymentForm slug="test-slug" link={link} />);
+    fireEvent.click(screen.getByRole("button", { name: /Scan QR \/ TanQR/ }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ method: "TANQR", customer_phone: null });
+
+    await waitFor(() => expect(screen.getByText("Scan this QR using your supported payment app.")).toBeInTheDocument());
+    expect(screen.getByText("Token: 80008000")).toBeInTheDocument();
+
+    const QRCode = (await import("qrcode")).default;
+    expect(QRCode.toCanvas).toHaveBeenCalledWith(
+      expect.anything(),
+      selcomQrPayload, // the exact string Selcom returned — never re-derived from order_id/amount/url
+      expect.anything(),
+    );
+  });
+
+  it("renders a Selcom-returned URL/image qr as an image, not a re-encoded QR", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          collection_id: "44444444-4444-4444-4444-444444444444",
+          method: "TANQR",
+          status: "pending",
+          message: "Scan this QR using your supported payment app.",
+          qr: "https://selcom.example/qr/abc123.png",
+          payment_token: null,
+          payment_gateway_url: null,
+        },
+      }),
+    });
+
+    render(<PaymentForm slug="test-slug" link={link} />);
+    fireEvent.click(screen.getByRole("button", { name: /Scan QR \/ TanQR/ }));
+
+    await waitFor(() => expect(screen.getByAltText("Selcom payment QR code")).toBeInTheDocument());
+    expect(screen.getByAltText("Selcom payment QR code")).toHaveAttribute("src", "https://selcom.example/qr/abc123.png");
+    const QRCode = (await import("qrcode")).default;
+    expect(QRCode.toCanvas).not.toHaveBeenCalled();
   });
 
   it("shows a failed state with the backend's message when the attempt fails outright", async () => {
@@ -92,15 +196,18 @@ describe("PaymentForm — wallet push (temporary, hosted checkout blocked)", () 
         success: true,
         data: {
           collection_id: "11111111-1111-1111-1111-111111111111",
-          payment_status: "failed",
+          method: "WALLET_PUSH",
+          status: "failed",
           message: "This payment attempt failed.",
+          qr: null,
+          payment_token: null,
+          payment_gateway_url: null,
         },
       }),
     });
 
-    render(<PaymentForm slug="test-slug" link={link} />);
-    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0747730270" } });
-    fireEvent.click(screen.getByRole("button", { name: "Pay now" }));
+    render(<PaymentForm slug="test-slug" link={{ ...link, customer_phone: "255747730270" }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Pay by Mobile Money Push/ }));
 
     await waitFor(() => expect(screen.getByText("This payment attempt failed.")).toBeInTheDocument());
   });
@@ -113,7 +220,15 @@ describe("PaymentForm — wallet push (temporary, hosted checkout blocked)", () 
           ok: true,
           json: async () => ({
             success: true,
-            data: { collection_id: "col-1", payment_status: "pending", message: "Payment request sent to your phone. Please approve using your PIN." },
+            data: {
+              collection_id: "col-1",
+              method: "WALLET_PUSH",
+              status: "pending",
+              message: "Payment prompt sent. Please approve on your phone.",
+              qr: null,
+              payment_token: null,
+              payment_gateway_url: null,
+            },
           }),
         })
         .mockResolvedValueOnce({
@@ -121,17 +236,11 @@ describe("PaymentForm — wallet push (temporary, hosted checkout blocked)", () 
           json: async () => ({ success: true, data: { status: "user_cancelled", message: "You cancelled this payment." } }),
         });
 
-      render(<PaymentForm slug="test-slug" link={link} />);
-      fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0747730270" } });
-      fireEvent.click(screen.getByRole("button", { name: "Pay now" }));
+      render(<PaymentForm slug="test-slug" link={{ ...link, customer_phone: "255747730270" }} />);
+      fireEvent.click(screen.getByRole("button", { name: /Pay by Mobile Money Push/ }));
 
-      // Wait for the awaiting_confirmation render (proves the polling
-      // effect has already scheduled its setTimeout) before advancing
-      // fake timers — advancing too early races the effect itself.
       await vi.waitFor(() =>
-        expect(
-          screen.getByText("Payment request sent to your phone. Please approve using your PIN."),
-        ).toBeInTheDocument(),
+        expect(screen.getByText("Payment prompt sent. Please approve on your phone.")).toBeInTheDocument(),
       );
       await vi.advanceTimersByTimeAsync(3000);
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -146,7 +255,7 @@ describe("PaymentForm — wallet push (temporary, hosted checkout blocked)", () 
     }
   });
 
-  it("shows a success state once the poll reports completed", async () => {
+  it("shows a completed state once the poll reports completed", async () => {
     vi.useFakeTimers();
     try {
       fetchMock
@@ -154,7 +263,15 @@ describe("PaymentForm — wallet push (temporary, hosted checkout blocked)", () 
           ok: true,
           json: async () => ({
             success: true,
-            data: { collection_id: "col-2", payment_status: "pending", message: "Payment request sent to your phone. Please approve using your PIN." },
+            data: {
+              collection_id: "col-2",
+              method: "WALLET_PUSH",
+              status: "pending",
+              message: "Payment prompt sent. Please approve on your phone.",
+              qr: null,
+              payment_token: null,
+              payment_gateway_url: null,
+            },
           }),
         })
         .mockResolvedValueOnce({
@@ -162,18 +279,15 @@ describe("PaymentForm — wallet push (temporary, hosted checkout blocked)", () 
           json: async () => ({ success: true, data: { status: "completed", message: "Payment completed successfully." } }),
         });
 
-      render(<PaymentForm slug="test-slug" link={link} />);
-      fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0747730270" } });
-      fireEvent.click(screen.getByRole("button", { name: "Pay now" }));
+      render(<PaymentForm slug="test-slug" link={{ ...link, customer_phone: "255747730270" }} />);
+      fireEvent.click(screen.getByRole("button", { name: /Pay by Mobile Money Push/ }));
 
       await vi.waitFor(() =>
-        expect(
-          screen.getByText("Payment request sent to your phone. Please approve using your PIN."),
-        ).toBeInTheDocument(),
+        expect(screen.getByText("Payment prompt sent. Please approve on your phone.")).toBeInTheDocument(),
       );
       await vi.advanceTimersByTimeAsync(3000);
 
-      await vi.waitFor(() => expect(screen.getByText("Payment successful")).toBeInTheDocument());
+      await vi.waitFor(() => expect(screen.getByText("Payment completed")).toBeInTheDocument());
     } finally {
       vi.useRealTimers();
     }

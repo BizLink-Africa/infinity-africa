@@ -5,11 +5,22 @@ import { useEffect, useState } from "react";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import type { PublicPaymentLink } from "@/lib/payment-links";
 
+import { SelcomQrDisplay } from "./selcom-qr-display";
 import { StatusCard } from "./status-card";
 
-interface WalletPushResponseBody {
+type PayMethod = "WALLET_PUSH" | "SELCOM_PESA" | "TANQR";
+
+interface PayResponseBody {
   success: boolean;
-  data?: { collection_id: string; payment_status: string; message: string };
+  data?: {
+    collection_id: string;
+    method: PayMethod;
+    status: string;
+    message: string;
+    qr: string | null;
+    payment_token: string | null;
+    payment_gateway_url: string | null;
+  };
   error?: { message: string };
 }
 
@@ -18,7 +29,7 @@ interface CollectionStatusBody {
   data?: { status: string; message: string };
 }
 
-// Distinct terminal outcomes for a wallet push — a customer who
+// Distinct terminal outcomes for a push/QR attempt — a customer who
 // cancelled or was rejected deserves more specific copy than a bare
 // "payment failed".
 const OUTCOME_COPY: Record<string, { title: string; message: string }> = {
@@ -27,32 +38,36 @@ const OUTCOME_COPY: Record<string, { title: string; message: string }> = {
   rejected: { title: "Payment rejected", message: "This payment was rejected." },
 };
 
+const METHOD_LABEL: Record<PayMethod, string> = {
+  WALLET_PUSH: "Pay by Mobile Money Push",
+  SELCOM_PESA: "Pay with Selcom Pesa",
+  TANQR: "Scan QR / TanQR",
+};
+
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 const REDIRECT_DELAY_MS = 2500;
 
 /**
- * TEMPORARY (2026-08-23): Selcom's hosted checkout (`payment_gateway_url`
- * from create-order-minimal) returns "Page Not Found" for every order
- * tested — confirmed via an exhaustive live diagnostic (see
- * docs/selcom-checkout-collections.md, "Known issue" section) that rules
- * out our own request construction. Escalated to Selcom; not something
- * we can fix in code. Until they confirm it's resolved, this page uses
- * the wallet-push flow instead (POST .../pay/wallet-push,
- * app/services/wallet_push.py) — fully working, proven with two real
- * successful payments this session. The hosted-checkout backend
- * endpoint (POST .../pay/checkout) is untouched and ready to swap back
- * in once Selcom confirms a fix — see git history around this file for
- * that version.
+ * Three active payment methods only — Mobile Money Push, Selcom Pesa,
+ * Scan QR / TanQR — dispatched through the single unified
+ * POST .../pay endpoint (app/services/collection_payment.py). Hosted
+ * checkout / card are never shown here; see
+ * docs/selcom-checkout-collections.md for why hosted checkout stays
+ * inactive.
  */
 export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentLink }) {
-  const needsPhone = !link.customer_phone;
+  const [method, setMethod] = useState<PayMethod | null>(null);
   const [phone, setPhone] = useState(link.customer_phone ?? "");
-  const [state, setState] = useState<"idle" | "submitting" | "awaiting_confirmation" | "success" | "failed">("idle");
+  const [state, setState] = useState<"choose" | "phone_entry" | "submitting" | "awaiting_confirmation" | "success" | "failed">(
+    "choose",
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
-  const [pushMessage, setPushMessage] = useState<string | null>(null);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [collectionId, setCollectionId] = useState<string | null>(null);
+  const [qr, setQr] = useState<string | null>(null);
+  const [paymentToken, setPaymentToken] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
@@ -114,21 +129,21 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     return () => clearTimeout(timer);
   }, [state, link.success_redirect_url, link.failure_redirect_url]);
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!phone.trim()) return;
-
+  async function submitPay(chosenMethod: PayMethod, chosenPhone: string) {
     setState("submitting");
     setErrorMessage(null);
     setOutcome(null);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/public/payment-links/${slug}/pay/wallet-push`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/public/payment-links/${slug}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-        body: JSON.stringify({ customer_phone: phone.trim() }),
+        body: JSON.stringify({
+          method: chosenMethod,
+          customer_phone: chosenPhone.trim() || null,
+        }),
       });
-      const body: WalletPushResponseBody = await response.json();
+      const body: PayResponseBody = await response.json();
 
       if (!response.ok || !body.success || !body.data) {
         setState("failed");
@@ -136,22 +151,42 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
         return;
       }
 
-      if (body.data.payment_status === "failed") {
+      if (body.data.status === "failed") {
         setState("failed");
         setErrorMessage(body.data.message);
         return;
       }
 
-      // "pending" — the only other value this endpoint returns. From
-      // here the page polls .../collections/{id}/status until the
-      // webhook or a manual refresh resolves the real outcome.
-      setPushMessage(body.data.message);
+      setPendingMessage(body.data.message);
       setCollectionId(body.data.collection_id);
+      setQr(body.data.qr);
+      setPaymentToken(body.data.payment_token);
       setState("awaiting_confirmation");
     } catch {
       setState("failed");
       setErrorMessage("We couldn't reach Infinity Africa. Check your connection and try again.");
     }
+  }
+
+  function handleChooseMethod(chosenMethod: PayMethod) {
+    setMethod(chosenMethod);
+    // TANQR never needs a phone typed in — submit right away so the QR
+    // shows as fast as possible. The push methods need a phone; if the
+    // link already has one on file, skip straight to submitting too.
+    // Otherwise move to a dedicated phone_entry phase — a stable state,
+    // not re-derived from the live `phone` value, so typing into the
+    // field doesn't flip the UI back to the chooser mid-entry.
+    if (chosenMethod === "TANQR" || phone.trim()) {
+      submitPay(chosenMethod, chosenMethod === "TANQR" ? "" : phone);
+    } else {
+      setState("phone_entry");
+    }
+  }
+
+  function handlePhoneSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!method || !phone.trim()) return;
+    submitPay(method, phone);
   }
 
   function handleRetry() {
@@ -160,9 +195,12 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     setIdempotencyKey(crypto.randomUUID());
     setErrorMessage(null);
     setOutcome(null);
-    setPushMessage(null);
+    setPendingMessage(null);
     setCollectionId(null);
-    setState("idle");
+    setQr(null);
+    setPaymentToken(null);
+    setMethod(null);
+    setState("choose");
   }
 
   if (state === "submitting") {
@@ -179,9 +217,16 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     return (
       <StatusCard
         variant="processing"
-        title="Waiting for your approval"
-        message={pushMessage ?? "Approve the prompt on your phone. This page will update automatically."}
-      />
+        title={method === "TANQR" ? "Scan to pay" : "Payment pending confirmation"}
+        message={pendingMessage ?? "This page will update automatically."}
+      >
+        {method === "TANQR" && qr && (
+          <div className="w-full">
+            <SelcomQrDisplay qr={qr} />
+            {paymentToken && <p className="mt-2 text-center text-xs text-on-surface-variant">Token: {paymentToken}</p>}
+          </div>
+        )}
+      </StatusCard>
     );
   }
 
@@ -189,7 +234,7 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     return (
       <StatusCard
         variant="success"
-        title="Payment successful"
+        title="Payment completed"
         message={
           link.success_redirect_url
             ? "Thank you! Redirecting you back to the merchant…"
@@ -202,7 +247,7 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
 
   if (state === "failed") {
     const outcomeCopy = outcome ? OUTCOME_COPY[outcome] : null;
-    const title = outcomeCopy?.title ?? "Payment failed";
+    const title = outcomeCopy?.title ?? "Payment reversed/failed";
     const baseMessage = errorMessage ?? outcomeCopy?.message ?? "Your payment could not be completed.";
 
     return (
@@ -224,11 +269,12 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     );
   }
 
+  // state === "choose" | "phone_entry"
+  const needsPhoneStep = state === "phone_entry";
+
   return (
-    <form onSubmit={handleSubmit} className="p-6 sm:p-8">
-      <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
-        Paying {link.merchant_name}
-      </p>
+    <div className="p-6 sm:p-8">
+      <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">Paying {link.merchant_name}</p>
       <p className="mt-2 text-3xl font-bold text-on-surface">{formatCurrency(link.amount, link.currency)}</p>
 
       {link.description && <p className="mt-2 text-sm text-on-surface-variant">{link.description}</p>}
@@ -239,14 +285,12 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
         </p>
       )}
 
-      {link.expires_at && (
-        <p className="mt-1 text-xs text-on-surface-variant">Expires {formatDateTime(link.expires_at)}</p>
-      )}
+      {link.expires_at && <p className="mt-1 text-xs text-on-surface-variant">Expires {formatDateTime(link.expires_at)}</p>}
 
       <div className="my-6 border-t border-outline-variant" />
 
-      {needsPhone && (
-        <div className="mt-4">
+      {needsPhoneStep ? (
+        <form onSubmit={handlePhoneSubmit}>
           <label htmlFor="phone" className="block text-sm font-medium text-on-surface">
             Phone number
           </label>
@@ -254,24 +298,76 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
             id="phone"
             type="tel"
             required
+            autoFocus
             value={phone}
             onChange={(event) => setPhone(event.target.value)}
             placeholder="e.g. 0700 000 000"
             className="mt-1 w-full rounded border border-outline-variant px-3 py-2 text-sm text-on-surface focus:border-primary-container focus:outline-none focus:ring-1 focus:ring-primary-container"
           />
-        </div>
+          <button
+            type="submit"
+            disabled={!phone.trim()}
+            className="mt-4 w-full rounded bg-primary-container px-4 py-3 text-sm font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {method ? METHOD_LABEL[method] : "Continue"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMethod(null);
+              setState("choose");
+            }}
+            className="mt-2 w-full text-center text-xs font-medium text-on-surface-variant hover:underline"
+          >
+            Choose a different method
+          </button>
+        </form>
+      ) : (
+        <>
+          <p className="text-sm font-medium text-on-surface mb-3">Choose how you want to pay</p>
+          <div className="space-y-2.5">
+            <PaymentMethodButton
+              label={METHOD_LABEL.WALLET_PUSH}
+              description="Approve with your mobile money PIN"
+              onClick={() => handleChooseMethod("WALLET_PUSH")}
+            />
+            <PaymentMethodButton
+              label={METHOD_LABEL.SELCOM_PESA}
+              description="Approve in your Selcom Pesa app"
+              onClick={() => handleChooseMethod("SELCOM_PESA")}
+            />
+            <PaymentMethodButton
+              label={METHOD_LABEL.TANQR}
+              description="Scan with any supported payment app"
+              onClick={() => handleChooseMethod("TANQR")}
+            />
+          </div>
+        </>
       )}
+    </div>
+  );
+}
 
-      <button
-        type="submit"
-        disabled={!phone.trim()}
-        className="mt-6 w-full rounded bg-primary-container px-4 py-3 text-sm font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        Pay now
-      </button>
-      <p className="mt-3 text-center text-xs text-on-surface-variant">
-        You&apos;ll get a prompt on your phone to approve with your PIN.
-      </p>
-    </form>
+function PaymentMethodButton({ label, description, onClick }: { label: string; description: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center justify-between rounded border border-outline-variant px-4 py-3.5 text-left transition-colors hover:border-primary-container hover:bg-primary-container/5"
+    >
+      <span>
+        <span className="block text-sm font-semibold text-on-surface">{label}</span>
+        <span className="block text-xs text-on-surface-variant">{description}</span>
+      </span>
+      <ChevronIcon />
+    </button>
+  );
+}
+
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" className="h-4 w-4 shrink-0 text-on-surface-variant">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+    </svg>
   );
 }

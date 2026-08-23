@@ -57,6 +57,13 @@ def _configure_settings(monkeypatch):
     monkeypatch.setenv("SELCOM_CHECKOUT_API_KEY", "test-key")
     monkeypatch.setenv("SELCOM_CHECKOUT_API_SECRET", "test-secret")
     monkeypatch.setenv("SELCOM_CHECKOUT_VENDOR", "VENDORTEST")
+    # Hosted checkout is inactive by default (2026-08-24, see
+    # docs/selcom-checkout-collections.md's "Known issue" section) — this
+    # whole file tests the underlying mechanism, which must still work
+    # correctly once explicitly re-enabled, so every test here opts in.
+    # The "off by default" behavior itself is covered separately in
+    # test_unified_pay_endpoint.py.
+    monkeypatch.setenv("HOSTED_CHECKOUT_ENABLED", "true")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

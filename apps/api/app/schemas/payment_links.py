@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -157,6 +158,44 @@ class PaymentLinkCheckoutResponse(BaseModel):
     on Infinity's side, since the customer leaves this site entirely."""
 
     collection_id: uuid.UUID
+    payment_gateway_url: str | None = None
+
+
+class PaymentLinkPayRequest(BaseModel):
+    """POST /public/payment-links/{public_slug}/pay — the customer's
+    method choice on the "Choose how you want to pay" screen. The three
+    active methods (app/services/collection_payment.py) — HOSTED_CHECKOUT
+    is deliberately not a valid value here, it stays behind its own
+    separate, disabled-by-default endpoint.
+
+    customer_phone is required for WALLET_PUSH/SELCOM_PESA (a push has
+    nowhere to go without one) and optional for TANQR — enforced in the
+    router, not here, since the requirement depends on `method`."""
+
+    method: Literal["WALLET_PUSH", "SELCOM_PESA", "TANQR"]
+    customer_phone: str | None = None
+
+    @field_validator("customer_phone")
+    @classmethod
+    def _check_phone(cls, value: str | None) -> str | None:
+        return validate_and_normalize_phone(value) if value is not None else None
+
+
+class PaymentLinkPayResponse(BaseModel):
+    """What the customer's browser gets back from POST .../pay —
+    deliberately never reports "paid"/"successful" here, same rule as
+    PaymentLinkWalletPushResponse above. qr/payment_token/
+    payment_gateway_url are only ever populated for TANQR, and only ever
+    Selcom's own values from create-order-minimal, passed through
+    unaltered — never generated or re-encoded by this codebase (see
+    app/services/dynamic_qr.py)."""
+
+    collection_id: uuid.UUID
+    method: Literal["WALLET_PUSH", "SELCOM_PESA", "TANQR"]
+    status: str
+    message: str
+    qr: str | None = None
+    payment_token: str | None = None
     payment_gateway_url: str | None = None
 
 

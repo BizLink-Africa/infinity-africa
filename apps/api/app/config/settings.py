@@ -137,6 +137,19 @@ class Settings(BaseSettings):
     # back; reconciliation still works via the manual refresh endpoints).
     selcom_checkout_webhook_url: str = ""
 
+    # Hosted checkout (payment_gateway_url from create-order-minimal) —
+    # confirmed broken on Selcom's own side as of 2026-08-23 (returns
+    # "Page Not Found" for every order tested — see
+    # docs/selcom-checkout-collections.md, "Known issue" section).
+    # Active customer payment methods are wallet-push/Selcom Pesa/TanQR
+    # instead (app/services/collection_payment.py). This flag is the
+    # explicit, backend-level guard keeping hosted checkout inactive —
+    # POST /public/payment-links/{slug}/pay/checkout refuses to run
+    # while this is False (the default), even though no current frontend
+    # calls it either. Flip only once Selcom confirms hosted checkout is
+    # fixed; the endpoint/service code itself is untouched and ready.
+    hosted_checkout_enabled: bool = False
+
     # Platform economics — simple placeholders until real pricing rules exist.
     platform_fee_percentage: Decimal = Decimal("1.5")
     disbursement_approval_threshold: Decimal = Decimal(1000000)  # TZS
