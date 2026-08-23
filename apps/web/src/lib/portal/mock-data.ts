@@ -8,7 +8,7 @@
 
 import { CollectionMethod, InvoiceStatus } from "@infinity/shared";
 
-import type { ApiKey, Collection, Customer, Invoice, SupportTicket, Transaction } from "./types";
+import type { ApiKey, Collection, Invoice, SupportTicket, Transaction } from "./types";
 
 export const MOCK_MERCHANT_ID = "5c1f0b2a-0000-4000-8000-000000000001";
 
@@ -167,9 +167,8 @@ export function mockInvoices(): Invoice[] {
 
 export function mockCollections(): Collection[] {
   // Customer names aren't a field on the collections table (only
-  // customer_phone/customer_id are) — the page component resolves a
-  // display name by matching customer_phone against mockCustomers(),
-  // exactly like a real page would need to join the two resources.
+  // customer_phone/customer_id are) — a real page resolving a display
+  // name would need to join against the customers table separately.
   const rows: Array<[CollectionMethod, string, string, Collection["status"], string]> = [
     [CollectionMethod.STK_PUSH, "85000.00", "+255754221908", "successful", "2026-08-13T10:00:00Z"],
     [CollectionMethod.USSD_PUSH, "420000.00", "+255712445310", "processing", "2026-08-13T08:00:00Z"],
@@ -240,17 +239,6 @@ export function mockTransactions(): Transaction[] {
     status,
     created_at,
   }));
-}
-
-export function mockCustomers(): Customer[] {
-  return [
-    { id: nextId("cus"), merchant_id: MOCK_MERCHANT_ID, name: "Grace Mwakalinga", phone: "+255754221908", email: null, total_spent: "1240000.00", last_transaction_at: "2026-08-13T00:00:00Z", status: "active", created_at: "2026-05-01T00:00:00Z" },
-    { id: nextId("cus"), merchant_id: MOCK_MERCHANT_ID, name: "Juma Traders", phone: "+255712445310", email: null, total_spent: "4820000.00", last_transaction_at: "2026-08-13T00:00:00Z", status: "active", created_at: "2026-03-11T00:00:00Z" },
-    { id: nextId("cus"), merchant_id: MOCK_MERCHANT_ID, name: "Amani Store", phone: "+255767903214", email: null, total_spent: "2150000.00", last_transaction_at: "2026-08-12T00:00:00Z", status: "active", created_at: "2026-04-22T00:00:00Z" },
-    { id: nextId("cus"), merchant_id: MOCK_MERCHANT_ID, name: "Neema Salon", phone: "+255689552771", email: null, total_spent: "610000.00", last_transaction_at: "2026-08-12T00:00:00Z", status: "inactive", created_at: "2026-06-02T00:00:00Z" },
-    { id: nextId("cus"), merchant_id: MOCK_MERCHANT_ID, name: "Baraka Mushi", phone: "+255745118062", email: null, total_spent: "340000.00", last_transaction_at: "2026-08-11T00:00:00Z", status: "active", created_at: "2026-07-01T00:00:00Z" },
-    { id: nextId("cus"), merchant_id: MOCK_MERCHANT_ID, name: "Zainab Hassan", phone: "+255678340526", email: null, total_spent: "95000.00", last_transaction_at: "2026-07-02T00:00:00Z", status: "inactive", created_at: "2026-06-18T00:00:00Z" },
-  ];
 }
 
 export function mockApiKeys(): ApiKey[] {

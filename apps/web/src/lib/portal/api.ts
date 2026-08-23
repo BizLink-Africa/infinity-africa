@@ -15,7 +15,7 @@
 
 import { getAccessTokenClient } from "@/lib/supabase/client-session";
 
-import { mockCustomers, mockSupportTickets, MOCK_MERCHANT_ID } from "./mock-data";
+import { mockSupportTickets, MOCK_MERCHANT_ID } from "./mock-data";
 import type {
   ApiEnvelope,
   ApiKey,
@@ -468,7 +468,12 @@ export async function deactivateMerchantUser(userRowId: string): Promise<Merchan
 // ============================================================================
 
 const mockStore = {
-  customers: mockCustomers(),
+  // Starts empty, not seeded with mockCustomers()'s demo rows (Grace
+  // Mwakalinga, Juma Traders, ...) — those were fabricated data with no
+  // backend behind them. A merchant can still add real entries via the
+  // "Add Customer" form below; they just won't persist past this
+  // session/reload until a real /v1/merchant/customers endpoint exists.
+  customers: [] as Customer[],
   supportTickets: mockSupportTickets(),
 };
 
