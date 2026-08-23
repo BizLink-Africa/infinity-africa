@@ -173,6 +173,78 @@ endpoints. Response `data[0].payment_status` is the same authoritative
 field the webhook carries; `data[0].transid`/`channel`/`reference` are
 folded into the collection the same way a webhook delivery would be.
 
+## Known issue: Selcom's own payment_gateway_url returns "Page Not Found"
+
+**As of 2026-08-23, every hosted-checkout redirect is broken on Selcom's
+side, not ours.** `create-order-minimal` succeeds every time
+(`resultcode=000`, `result=SUCCESS`), and the returned
+`payment_gateway_url` decodes to a well-formed
+`https://tza.selcom.online/paymentgw/checkout/<token>` URL — but opening
+that exact URL (a plain browser GET, nothing submitted) returns Selcom's
+own "Page Not Found" page, served with HTTP 200.
+
+This has now been confirmed **eight separate times**, across two live
+customer-facing tests (`S20690637508`, `S20691093139`) and a full
+six-variant diagnostic sweep run 2026-08-23
+(`scripts/diagnose_selcom_checkout_gateway_url.py`) that isolated every
+optional field this client can send:
+
+| Variant | Optional fields sent | Result |
+|---|---|---|
+| `bare-minimum` | none | Page Not Found |
+| `webhook-only` | `webhook` (today's real production behavior) | Page Not Found |
+| `redirect-cancel-only` | `redirect_url`, `cancel_url` | Page Not Found |
+| `expiry-future-only` | `expiry=3600` | Page Not Found |
+| `remarks-only` | `buyer_remarks`, `merchant_remarks` | Page Not Found |
+| `all-optional-combined` | all of the above except `expiry` | Page Not Found |
+
+Every single response body was byte-identical (4765 bytes) regardless of
+what was sent — the strongest possible evidence that **no field this
+client sends or omits changes the outcome**. This rules out:
+
+- Optional URL fields (`redirect_url`/`cancel_url`/`webhook`) causing it
+  — confirmed absent in `bare-minimum` and present in three other
+  variants, all identical.
+- `expiry` causing it — confirmed absent in every other variant and
+  present in exactly one, no difference. (Its exact format —
+  seconds-from-now vs. Unix epoch — is still unconfirmed by Selcom's
+  docs, but moot: even the "safe" omitted case fails identically.)
+- Our own base64 decode pipeline — independently confirmed correct:
+  `parse_create_order_minimal_response()` calls `base64_decode_url()`
+  exactly once (see `test_base64_decode_url_decodes_exactly_once_never_double_decoded`
+  in `tests/test_selcom_checkout_parsing.py`), the decoded value in the
+  database matches byte-for-byte what a fresh `curl` fetch of the same
+  URL receives, and the frontend does a single, unmodified
+  `window.location.href = payment_gateway_url` — no
+  `encodeURIComponent`/`decodeURIComponent`, no Next.js route
+  interception (a raw `window.location` assignment bypasses the Next.js
+  router entirely), no relative-URL conversion.
+- Signed-Fields/signing mismatch — every variant's Signed-Fields header
+  is asserted (in `test_signed_fields_header_contains_only_fields_actually_in_the_body`)
+  to contain exactly the fields present in the body, in the same order;
+  and every variant still got a genuine `resultcode=000` SUCCESS from
+  Selcom, meaning signing was accepted every time — the failure happens
+  strictly *after* order creation, on Selcom's own hosted checkout web
+  app, not at the API layer.
+
+**One real, unconfirmed lead**: `SELCOM_CHECKOUT_VENDOR`'s configured
+value starts with `SB` (confirmed via the diagnostic script's masked
+output, `SB******93`) — worth checking directly with Selcom whether this
+vendor code was ever actually provisioned for a live hosted-checkout web
+deployment, versus being a business/API-only or sandbox-flavored vendor
+code that the API layer accepts but the separate hosted checkout web app
+doesn't recognize. This is a real, non-guessed observation, not a fix —
+nothing in this codebase was changed based on it, per the instruction not
+to make production changes without evidence a fix actually works.
+
+**No code changes were made as a result of this investigation** — the
+live evidence conclusively points away from our implementation, so per
+the explicit instruction not to change production logic without evidence
+a fix works, none was attempted. The next step is external: confirm with
+Selcom support (using the order references above as evidence) whether
+hosted checkout is actually deployed and reachable for this account's
+vendor code.
+
 ## Dynamic QR
 
 `POST /public/payment-links/{slug}/collect` with `{"method": "DYNAMIC_QR"}`

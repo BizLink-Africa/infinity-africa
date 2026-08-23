@@ -15,6 +15,7 @@ import app.services.selcom_checkout.client as selcom_checkout_client_module
 from app.core.errors import SelcomAPIError
 from app.services.selcom_checkout.client import SelcomCheckoutHTTPClient, _join_url
 from app.services.selcom_checkout.errors import SelcomCheckoutMisconfiguredError
+from app.services.selcom_checkout.parsing import base64_encode_url
 from app.services.selcom_checkout.schemas import SelcomCheckoutCredentials
 
 REAL_SUCCESS_RESPONSE = {
@@ -410,6 +411,164 @@ async def test_create_order_minimal_never_sends_api_secret_or_key_material():
 
 
 # --- non-2xx handling -----------------------------------------------------------------
+
+
+# --- gateway-URL "Page Not Found" investigation (2026-08-23) ------------------------
+#
+# All six real create-order-minimal field-variants tested live (bare
+# minimum through every optional field combined) returned the identical
+# "Page Not Found" from Selcom's own hosted checkout page — see
+# scripts/diagnose_selcom_checkout_gateway_url.py and
+# docs/selcom-checkout-collections.md. That live evidence already rules
+# out our request construction; these tests exist to keep it that way
+# going forward — a regression here would reopen a question the live
+# test matrix already closed.
+
+
+@pytest.mark.asyncio
+async def test_create_order_minimal_request_snapshot_with_every_optional_field():
+    """Exact request payload for a fully-optioned call — a snapshot, not
+    just a spot check, so any accidental field addition/removal/reorder
+    is caught immediately."""
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=2,
+        currency="TZS",
+        buyer_remarks="Buyer note",
+        merchant_remarks="Merchant note",
+        redirect_url="https://example.com/success",
+        cancel_url="https://example.com/cancel",
+        webhook="https://example.com/webhook",
+        header_colour="#000000",
+        link_colour="#111111",
+        button_colour="#222222",
+        expiry=3600,
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    body = call["json"]
+    assert body == {
+        "vendor": "VENDORTEST",
+        "order_id": "ORD-1",
+        "buyer_email": "john@example.com",
+        "buyer_name": "John Joh",
+        "buyer_phone": "255682000000",
+        "amount": "8000",
+        "currency": "TZS",
+        "redirect_url": base64_encode_url("https://example.com/success"),
+        "cancel_url": base64_encode_url("https://example.com/cancel"),
+        "webhook": base64_encode_url("https://example.com/webhook"),
+        "buyer_remarks": "Buyer note",
+        "merchant_remarks": "Merchant note",
+        "no_of_items": "2",
+        "header_colour": "#000000",
+        "link_colour": "#111111",
+        "button_colour": "#222222",
+        "expiry": "3600",
+    }
+    # Field order matters — it's what Signed-Fields is derived from.
+    assert list(body.keys()) == [
+        "vendor",
+        "order_id",
+        "buyer_email",
+        "buyer_name",
+        "buyer_phone",
+        "amount",
+        "currency",
+        "redirect_url",
+        "cancel_url",
+        "webhook",
+        "buyer_remarks",
+        "merchant_remarks",
+        "no_of_items",
+        "header_colour",
+        "link_colour",
+        "button_colour",
+        "expiry",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_create_order_minimal_expiry_omitted_when_not_provided():
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=1,
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    assert "expiry" not in call["json"]
+    assert "Expiry" not in call["headers"]["Signed-Fields"]
+
+
+@pytest.mark.asyncio
+async def test_create_order_minimal_expiry_included_when_provided():
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=1,
+        expiry=3600,
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    assert call["json"]["expiry"] == "3600"
+    assert "expiry" in call["headers"]["Signed-Fields"]
+
+
+@pytest.mark.asyncio
+async def test_signed_fields_header_contains_only_fields_actually_in_the_body():
+    """Regression guard: Signed-Fields must never name a field absent
+    from the JSON body (or vice versa) — a mismatch is exactly the kind
+    of subtle bug this whole investigation was trying to rule out."""
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=1,
+        webhook="https://example.com/webhook",
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    signed_field_names = call["headers"]["Signed-Fields"].split(",")
+    assert set(signed_field_names) == set(call["json"].keys())
+    # Same order too, not just the same set.
+    assert signed_field_names == list(call["json"].keys())
+
+
+@pytest.mark.asyncio
+async def test_redirect_and_cancel_url_are_base64_encoded_before_signing():
+    """The *signed* value (in the Digest, indirectly verifiable via
+    Signed-Fields matching the body) must be the encoded form — Selcom
+    verifies the signature over the exact bytes sent, so signing the raw
+    URL while sending the encoded one would break verification."""
+    await _client().create_order_minimal(
+        order_id="ORD-1",
+        buyer_email="john@example.com",
+        buyer_name="John Joh",
+        buyer_phone="255682000000",
+        amount="8000",
+        no_of_items=1,
+        redirect_url="https://example.com/success",
+        cancel_url="https://example.com/cancel",
+    )
+
+    call = _FakeAsyncClient.calls[0]
+    assert call["json"]["redirect_url"] == base64_encode_url("https://example.com/success")
+    assert call["json"]["cancel_url"] == base64_encode_url("https://example.com/cancel")
+    assert call["json"]["redirect_url"] != "https://example.com/success"
+    assert call["json"]["cancel_url"] != "https://example.com/cancel"
 
 
 @pytest.mark.asyncio

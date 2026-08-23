@@ -105,3 +105,35 @@ def test_base64_decode_url_falls_back_to_raw_value_on_bad_input():
     # Not valid base64 — must not raise, per the module's documented
     # "don't lose a genuinely-created order over a decode hiccup" rule.
     assert base64_decode_url("not-valid-base64!!!") == "not-valid-base64!!!"
+
+
+def test_base64_decode_url_decodes_exactly_once_never_double_decoded():
+    """Regression guard from the 2026-08-23 "Page Not Found" investigation
+    — confirms decoding never runs twice even when the *decoded* value
+    happens to itself look like valid base64 (a realistic risk: a real
+    Selcom gateway token is a long opaque base64-looking string)."""
+    # This decodes to another string that is itself valid base64 — if
+    # base64_decode_url ever ran twice, this would silently mangle it.
+    inner_looking_like_base64 = base64_encode_url("https://tza.selcom.online/paymentgw/checkout/abc123")
+    doubly_encoded = base64_encode_url(inner_looking_like_base64)
+
+    result = base64_decode_url(doubly_encoded)
+
+    # One decode only — lands on the inner base64-looking string itself,
+    # not the fully-unwrapped URL.
+    assert result == inner_looking_like_base64
+    assert result != "https://tza.selcom.online/paymentgw/checkout/abc123"
+
+
+def test_base64_decode_url_does_not_truncate_a_realistic_long_token():
+    """A real Selcom payment_gateway_url token is ~100+ characters —
+    confirms the full length survives the round trip, matching the
+    live-verified length (108 chars) from the 2026-08-23 diagnostic."""
+    long_token = "S18B/PPffzQYqxlumcvgBGsNYCcX2SCc24esxMw3pJwDobXOGVZdY8566y1u7Vwm3duN70gAbboGNQ=="
+    url = f"https://tza.selcom.online/paymentgw/checkout/{long_token}"
+    encoded = base64_encode_url(url)
+
+    decoded = base64_decode_url(encoded)
+
+    assert decoded == url
+    assert len(decoded) == len(url)
