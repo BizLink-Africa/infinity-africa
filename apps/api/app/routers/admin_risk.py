@@ -28,6 +28,7 @@ from app.schemas.fraud import (
 from app.schemas.notifications import NotificationResponse
 from app.services import document_requests_service
 from app.services.admin_directory import batch_merchant_names
+from app.services.collections import finalize_pending_review_collection
 from app.services.crud import get_by_id, insert_row, update_row
 from app.services.notifications_service import notify_merchant
 
@@ -82,6 +83,19 @@ def update_risk_alert_status(
         client.table("transaction_reviews").update({"status": "CLEARED", "cleared_at": utc_now_iso()}).eq(
             "transaction_id", alert["transaction_id"]
         ).execute()
+
+    if payload.status == "CLEARED" and alert.get("rule_code") == "SELF_PAYMENT_OWN_TILL":
+        # This alert is what held a collection in 'pending_review' instead
+        # of crediting it (app/services/fraud_monitoring_service.py::
+        # check_self_payment_risk, called from resolve_collection()) —
+        # clearing it here is the only place that collection ever gets
+        # credited. Idempotent: finalize_pending_review_collection() only
+        # acts on a collection still 'pending_review', so re-clearing an
+        # already-CLOSED alert (or clearing CLOSED after CLEARED) can't
+        # double-credit.
+        collection_id = (alert.get("metadata") or {}).get("collection_id")
+        if collection_id:
+            finalize_pending_review_collection(client, collection_id=uuid.UUID(collection_id))
 
     notify_merchant(
         client,

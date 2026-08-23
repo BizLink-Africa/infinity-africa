@@ -48,6 +48,10 @@ export function adminCollectionBadge(status: AdminCollectionRow["status"]): Badg
       return { label: "Pending", tone: "pending" };
     case "failed":
       return { label: "Failed", tone: "negative" };
+    case "reversed":
+      return { label: "Reversed", tone: "negative", icon: "warning" };
+    case "pending_review":
+      return { label: "Pending review", tone: "pending", icon: "warning" };
   }
 }
 

@@ -93,6 +93,7 @@ def seed_fraud_rules(fake_client, *rule_codes: str, config_overrides: dict | Non
         "PAYMENT_AFTER_LINK_EXPIRY": {},
         "HIGH_VALUE_TRANSACTION": {"threshold_amount": 5000000},
         "HIGH_CHARGEBACK_MERCHANT": {"window_days": 30, "max_dispute_count": 3, "max_dispute_ratio": 0.05},
+        "SELF_PAYMENT_OWN_TILL": {},
     }
     overrides = config_overrides or {}
     for code in rule_codes:

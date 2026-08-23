@@ -152,6 +152,17 @@ class Settings(BaseSettings):
     withdrawal_pilot_mode: bool = False
     withdrawal_pilot_max_amount_tzs: Decimal = Decimal(1000)
 
+    # Collection clearance (docs/ledger-reconciliation.md) — reserved
+    # config for a future delayed-settlement gate. Not yet wired to a
+    # background worker (none exists in this codebase); the active
+    # safety nets today are reverse_successful_collection() (real
+    # reversal after credit) and the SELF_PAYMENT_OWN_TILL fraud rule
+    # (pending_review hold before credit). Left False/unused rather than
+    # half-wired, so it does nothing until a real recheck mechanism backs
+    # it — see the docs file for why.
+    collection_auto_settle_enabled: bool = False
+    collection_clearance_delay_minutes: int = 10
+
     @model_validator(mode="after")
     def _reject_wildcard_cors_outside_development(self) -> "Settings":
         """allow_credentials=True in app/main.py's CORSMiddleware makes a

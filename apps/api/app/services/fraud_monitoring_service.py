@@ -31,7 +31,15 @@ _RISK_LEVEL_BY_RULE = {
     "PAYMENT_AFTER_LINK_EXPIRY": "MEDIUM",
     "HIGH_VALUE_TRANSACTION": "MEDIUM",
     "HIGH_CHARGEBACK_MERCHANT": "CRITICAL",
+    "SELF_PAYMENT_OWN_TILL": "CRITICAL",
 }
+
+
+def _normalize_phone(value: str | None) -> str | None:
+    if not value:
+        return None
+    digits = "".join(ch for ch in value if ch.isdigit())
+    return digits[-9:] if len(digits) >= 9 else digits or None
 
 
 def _parse_dt(value: str) -> datetime:
@@ -110,6 +118,46 @@ def _raise_alert(
         related_resource_id=uuid.UUID(alert["id"]),
     )
     return alert
+
+
+def check_self_payment_risk(client: Client, *, collection: dict, transaction: dict | None) -> dict | None:
+    """Gate, not just an alert: called from resolve_collection() *before*
+    a collection is credited, so a self-payment/own-till match can hold
+    the credit rather than only flag it after money already moved — the
+    live incident this rule exists for ("Payment unsuccessful. You are
+    trying to pay into your own till") was a case Selcom itself caught
+    and reversed, but nothing here would have caught proactively.
+    Returns the raised fraud_alerts row if the collection is held for
+    review, None if it's clear to credit normally. Never raises — same
+    "must never break a real payment flow" guarantee as evaluate_collection,
+    just structured as a direct call so its return value can gate the
+    caller instead of running fire-and-forget after the fact."""
+    try:
+        rules = _load_enabled_rules(client)
+        if "SELF_PAYMENT_OWN_TILL" not in rules:
+            return None
+
+        phone = _normalize_phone(collection.get("customer_phone"))
+        if not phone:
+            return None
+
+        merchant = get_by_id(client, "merchants", uuid.UUID(collection["merchant_id"]))
+        merchant_phone = _normalize_phone(merchant.get("contact_phone")) if merchant else None
+        if not merchant_phone or merchant_phone != phone:
+            return None
+
+        return _raise_alert(
+            client,
+            merchant_id=uuid.UUID(collection["merchant_id"]),
+            transaction_id=uuid.UUID(transaction["id"]) if transaction else None,
+            customer_phone=collection.get("customer_phone"),
+            rule_code="SELF_PAYMENT_OWN_TILL",
+            reason="Suspicious activity detected: the payer's phone number matches this merchant's own registered "
+            "contact phone. Held for review before funds become available.",
+            metadata={"collection_id": collection["id"]},
+        )
+    except Exception:  # noqa: BLE001 — a fraud-check failure must never break a real payment flow
+        return None
 
 
 def evaluate_collection(

@@ -25,12 +25,17 @@ from decimal import ROUND_HALF_UP, Decimal
 from supabase import Client
 
 from app.config import get_settings
+from app.core.errors import InsufficientBalanceError
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
-from app.schemas.enums import CollectionMethod
+from app.schemas.enums import CollectionMethod, NotificationType
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
-from app.services.fraud_monitoring_service import evaluate_collection
-from app.services.ledger import post_collection_entries
+from app.services.fraud_monitoring_service import (
+    check_self_payment_risk,
+    evaluate_collection,
+)
+from app.services.ledger import post_collection_entries, reverse_collection_entries
+from app.services.notifications_service import notify_admin, notify_merchant
 from app.services.selcom.client import get_selcom_client
 from app.services.selcom.schemas import CollectionResult
 from app.services.webhooks import enqueue_webhook_event
@@ -249,14 +254,48 @@ def resolve_collection(client: Client, *, collection_id: uuid.UUID, result: Coll
 
     merchant_id = uuid.UUID(collection["merchant_id"])
     currency = collection["currency"]
+    transaction = _find_transaction_for_collection(client, collection_id)
+
+    if result.status == "successful":
+        risk_alert = check_self_payment_risk(client, collection=collection, transaction=transaction)
+        if risk_alert:
+            # Held, not credited: the payer phone matches this merchant's
+            # own contact phone (see fraud_monitoring_service's
+            # SELF_PAYMENT_OWN_TILL rule) — the exact "trying to pay into
+            # your own till" pattern from the incident this whole reversal
+            # fix responds to. Transaction stays "processing"; an admin
+            # clearing the alert (PATCH /v1/admin/risk-alerts/{id}/status)
+            # is what actually credits it, via
+            # finalize_pending_review_collection().
+            collection = update_row(
+                client,
+                "collections",
+                collection_id,
+                {"status": "pending_review", "completed_at": utc_now_iso()},
+            )
+            notify_merchant(
+                client,
+                merchant_id=merchant_id,
+                notification_type=NotificationType.COLLECTION_PENDING_REVIEW,
+                title="Payment pending review",
+                body=f"A payment of {collection['amount']} {currency} is pending review before funds become available.",
+                related_resource_type="collection",
+                related_resource_id=collection_id,
+            )
+            enqueue_webhook_event(
+                client,
+                merchant_id=merchant_id,
+                event_name="collection.pending_review",
+                payload={"collection_id": str(collection_id), "amount": collection["amount"], "currency": currency},
+            )
+            return collection
+
     final_status = "successful" if result.status == "successful" else "failed"
 
     collection_update = {"status": final_status, "completed_at": utc_now_iso()}
     if final_status == "failed":
         collection_update["failure_reason"] = result.failure_reason
     collection = update_row(client, "collections", collection_id, collection_update)
-
-    transaction = _find_transaction_for_collection(client, collection_id)
 
     if final_status == "successful":
         update_row(client, "transactions", uuid.UUID(transaction["id"]), {"status": "successful"})
@@ -338,6 +377,194 @@ def _apply_payment_to_invoice(client: Client, *, invoice_id: uuid.UUID, amount: 
             event_name="invoice.paid",
             payload={"invoice_id": str(invoice_id)},
         )
+
+
+def _reverse_payment_to_invoice(client: Client, *, invoice_id: uuid.UUID, amount: Decimal) -> None:
+    invoice = get_by_id(client, "invoices", invoice_id)
+    if not invoice:
+        return
+
+    new_amount_paid = Decimal(str(invoice["amount_paid"])) - amount
+    if new_amount_paid < 0:
+        new_amount_paid = Decimal(0)
+    total_amount = Decimal(str(invoice["total_amount"]))
+    if new_amount_paid <= 0:
+        new_status = "SENT"
+    elif new_amount_paid < total_amount:
+        new_status = "PARTIALLY_PAID"
+    else:
+        new_status = "PAID"
+
+    update_row(client, "invoices", invoice_id, {"amount_paid": str(new_amount_paid), "status": new_status})
+
+
+def _apply_collection_reversal(client: Client, collection: dict) -> None:
+    """The opposite of _apply_collection_success() — reopens a payment
+    link/invoice that this collection had marked PAID, so the merchant can
+    request payment again. Never deletes anything, only moves status
+    forward (PAID -> ACTIVE/SENT/PARTIALLY_PAID)."""
+    if collection.get("payment_link_id"):
+        payment_link_id = uuid.UUID(collection["payment_link_id"])
+        payment_link = get_by_id(client, "payment_links", payment_link_id)
+        if payment_link and payment_link["status"] == "PAID":
+            update_row(client, "payment_links", payment_link_id, {"status": "ACTIVE", "paid_at": None})
+            enqueue_webhook_event(
+                client,
+                merchant_id=uuid.UUID(collection["merchant_id"]),
+                event_name="payment_link.payment_reversed",
+                payload={"payment_link_id": str(payment_link_id), "collection_id": collection["id"]},
+            )
+
+        linked_invoice = execute_maybe_single(
+            client.table("invoices").select("id").eq("payment_link_id", str(payment_link_id)).maybe_single()
+        )
+        if linked_invoice:
+            _reverse_payment_to_invoice(
+                client, invoice_id=uuid.UUID(linked_invoice["id"]), amount=Decimal(str(collection["amount"]))
+            )
+
+    if collection.get("invoice_id"):
+        _reverse_payment_to_invoice(
+            client, invoice_id=uuid.UUID(collection["invoice_id"]), amount=Decimal(str(collection["amount"]))
+        )
+
+
+def finalize_pending_review_collection(client: Client, *, collection_id: uuid.UUID) -> dict | None:
+    """Credits a collection that was held by check_self_payment_risk() —
+    called once a Super Admin clears the SELF_PAYMENT_OWN_TILL alert
+    (PATCH /v1/admin/risk-alerts/{id}/status). Guarded on status ==
+    'pending_review': a no-op (returns the row as-is) if already finalized
+    or if the alert is somehow cleared twice, so this can be called
+    idempotently."""
+    collection = get_by_id(client, "collections", collection_id)
+    if not collection or collection["status"] != "pending_review":
+        return collection
+
+    merchant_id = uuid.UUID(collection["merchant_id"])
+    currency = collection["currency"]
+    transaction = _find_transaction_for_collection(client, collection_id)
+
+    collection = update_row(client, "collections", collection_id, {"status": "successful"})
+    update_row(client, "transactions", uuid.UUID(transaction["id"]), {"status": "successful"})
+    post_collection_entries(
+        client,
+        transaction_id=uuid.UUID(transaction["id"]),
+        merchant_id=merchant_id,
+        gross_amount=Decimal(str(transaction["gross_amount"])),
+        fee_amount=Decimal(str(transaction["fee_amount"])),
+        net_amount=Decimal(str(transaction["net_amount"])),
+        currency=currency,
+    )
+    _apply_collection_success(client, collection)
+    notify_merchant(
+        client,
+        merchant_id=merchant_id,
+        notification_type=NotificationType.PAYMENT_RECEIVED,
+        title="Payment received",
+        body=f"You received a payment of {collection['amount']} {currency}.",
+        related_resource_type="collection",
+        related_resource_id=collection_id,
+    )
+    enqueue_webhook_event(
+        client,
+        merchant_id=merchant_id,
+        event_name="collection.success",
+        payload={"collection_id": str(collection_id), "amount": collection["amount"], "currency": currency},
+    )
+    return collection
+
+
+def reverse_successful_collection(client: Client, *, collection_id: uuid.UUID, reason: str | None) -> dict | None:
+    """Reverses an already-'successful' (already-credited) collection
+    after the provider reports it actually failed/reversed after the
+    fact — the exact gap the live incident exposed: resolve_collection()'s
+    idempotency guard means a second signal for an already-resolved
+    collection is normally a silent no-op, so any later reversal needs
+    this separate path instead.
+
+    Guarded by requiring status == 'successful': a retried/duplicate
+    reversal signal for the same collection finds it already 'reversed'
+    and no-ops, safe to call more than once (mirrors
+    disbursements.py::reverse_successful_disbursement_from_callback).
+    Never deletes the original ledger entries — only ever adds reversing
+    ones (post_collection_entries' transaction_id, reversed).
+
+    If the merchant's wallet no longer has the funds available (already
+    withdrawn), the ledger reversal itself is atomically rejected by the
+    database (InsufficientBalanceError) — that's caught here rather than
+    propagated, and the collection is still marked 'reversed' (so no UI
+    anywhere keeps claiming success) with a CRITICAL admin alert raised
+    for manual recovery of the shortfall, since the money truly isn't
+    recoverable from the ledger alone anymore."""
+    existing = get_by_id(client, "collections", collection_id)
+    if not existing or existing["status"] != "successful":
+        return existing
+
+    merchant_id = uuid.UUID(existing["merchant_id"])
+    currency = existing["currency"]
+    amount = existing["amount"]
+    transaction = _find_transaction_for_collection(client, collection_id)
+
+    ledger_reversed = True
+    if transaction:
+        try:
+            reverse_collection_entries(
+                client,
+                transaction_id=uuid.UUID(transaction["id"]),
+                merchant_id=merchant_id,
+                gross_amount=Decimal(str(transaction["gross_amount"])),
+                fee_amount=Decimal(str(transaction["fee_amount"])),
+                net_amount=Decimal(str(transaction["net_amount"])),
+                currency=currency,
+            )
+        except InsufficientBalanceError:
+            ledger_reversed = False
+        update_row(
+            client,
+            "transactions",
+            uuid.UUID(transaction["id"]),
+            {"status": "reversed" if ledger_reversed else transaction["status"]},
+        )
+
+    failure_reason = reason or "Reversed by provider after settlement"
+    collection = update_row(
+        client, "collections", collection_id, {"status": "reversed", "failure_reason": failure_reason}
+    )
+    _apply_collection_reversal(client, collection)
+
+    notify_merchant(
+        client,
+        merchant_id=merchant_id,
+        notification_type=NotificationType.COLLECTION_REVERSED,
+        title="Payment reversed",
+        body=f"A payment of {amount} {currency} was reversed by the provider after settlement."
+        + (f" Reason: {reason}" if reason else ""),
+        related_resource_type="collection",
+        related_resource_id=collection_id,
+    )
+
+    admin_body = f"Collection {collection_id} ({amount} {currency}) was reversed by the provider."
+    if not ledger_reversed:
+        admin_body += (
+            " The merchant's wallet balance was insufficient to claw back the funds automatically — "
+            "manual recovery required."
+        )
+    notify_admin(
+        client,
+        notification_type=NotificationType.COLLECTION_REVERSED,
+        title="Collection reversed" if ledger_reversed else "Collection reversed — manual recovery needed",
+        body=admin_body,
+        related_resource_type="collection",
+        related_resource_id=collection_id,
+    )
+
+    enqueue_webhook_event(
+        client,
+        merchant_id=merchant_id,
+        event_name="collection.reversed",
+        payload={"collection_id": str(collection_id), "reason": failure_reason},
+    )
+    return collection
 
 
 async def execute_collection(

@@ -39,6 +39,8 @@ _CURRENT_DATABASE_CONSTRAINT_VALUES = {
     "withdrawal_rejected",
     "withdrawal_success",
     "payment_received",
+    "collection_reversed",
+    "collection_pending_review",
 }
 
 

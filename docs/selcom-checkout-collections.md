@@ -339,24 +339,140 @@ one place: `app/services/checkout_reconciliation.py::map_checkout_status_to_prov
 
 | Selcom `payment_status` | Internal status | Credited? |
 |---|---|---|
-| `COMPLETED` (+ result/resultcode agree) | `successful` | **Yes** |
+| `COMPLETED` (+ result/resultcode agree) | `successful` | **Yes**, unless the self-payment/own-till rule holds it — see below |
 | `COMPLETED` (result/resultcode disagree) | `processing` | No — stays open |
 | `PENDING` | `processing` | No |
 | `INPROGRESS` | `processing` | No |
 | `CANCELLED` | `failed` | No |
 | `USERCANCELLED` | `failed` | No |
 | `REJECTED` | `failed` | No |
+| `REVERSED` | `failed` (or triggers a real reversal if already credited — see below) | No |
 | *(no payment_status yet — bare wallet-payment result)* | falls back to `resultcode`: `000`→successful, `111`/`927`→processing, `999`→processing (ambiguous, never a silent failure), else→failed | per mapping |
+
+Free-text `message`/`result` content is also checked for reversal
+wording (`"own till"`, `"unsuccessful"`, `"reversed"`, `"reversal"`) —
+see "Reversal after credit" below. This exists because the live incident
+that motivated it carried its true outcome only in that free-text field
+("Payment unsuccessful. You are trying to pay into your own till"), not
+in a clean coded status.
+
+## Reversal after credit (2026-08-23 incident and fix)
+
+**What happened**: a wallet-push collection resolved `COMPLETED` and was
+credited to the merchant wallet — Merchant Portal and Super Admin both
+showed it `successful`. Selcom then actually reversed the underlying
+M-Pesa payment ("Payment unsuccessful. You are trying to pay into your
+own till"), but nothing in this codebase could act on that later signal:
+`resolve_collection()` treats any collection that's no longer
+`"processing"` as already resolved and silently no-ops, so a second
+delivery/refresh reporting the true outcome changed nothing. The merchant
+stayed credited for money that was never actually settled.
+
+**A wallet-push (or hosted-checkout) API success is never final payment
+success** — Selcom's own rule: a success response from wallet-payment
+only means the push request was *accepted*, not that the customer's
+wallet was finally debited or that funds are settled. This codebase
+already never credited on the push response itself (see the flow diagram
+above — `"processing"` until `complete_checkout_collection_once()`
+resolves it); the gap was specifically a *second, later* signal for an
+already-`"successful"` collection.
+
+**The fix**: `complete_checkout_collection_once()` now checks, before
+calling `resolve_collection()`, whether the collection is already
+`"successful"` and the new signal indicates failure/reversal
+(`payment_status == REVERSED`, any terminal-failure `payment_status`, or
+a reversal-worded `message`). If so, it routes to
+`app/services/collections.py::reverse_successful_collection()` instead —
+a separate function, not a tweak to `resolve_collection()`, since
+`resolve_collection()`'s own idempotency guard is exactly what made this
+unreachable.
+
+`reverse_successful_collection()`:
+
+1. Posts **reversing ledger entries** via the new
+   `app/services/ledger.py::reverse_collection_entries()` — the exact
+   opposite of `post_collection_entries()`, against the *same*
+   `transaction_id` (mirrors the existing
+   `reverse_disbursement_entries()` pattern for withdrawals). **Never
+   deletes or edits the original entries** — only ever adds reversing
+   ones, so the full history stays auditable.
+2. If the merchant no longer has the funds available (already withdrawn),
+   the database's own atomic guard rejects the reversal
+   (`InsufficientBalanceError`) rather than driving the wallet negative.
+   This is caught, not propagated: the collection still moves to
+   `"reversed"` (so no UI keeps claiming success), and a **CRITICAL**
+   admin notification is raised naming the shortfall for manual recovery.
+3. Marks the collection `"reversed"` and the linked `transaction`
+   `"reversed"` (when the ledger reversal actually succeeded).
+4. Reopens a linked `payment_link` (`PAID` → `ACTIVE`) and/or `invoice`
+   (reduces `amount_paid`, recomputes `SENT`/`PARTIALLY_PAID`/`PAID`) so
+   the merchant can request payment again.
+5. Notifies **both** the merchant (`collection_reversed`, "Payment
+   reversed") and Super Admin (`collection_reversed`, plus the manual-
+   recovery detail when relevant).
+6. Enqueues a `collection.reversed` outbound webhook event.
+
+Idempotent by construction: guarded on `status == "successful"`, so a
+retried/duplicate reversal signal for an already-`"reversed"` collection
+is a safe no-op — it can't double-reverse or drive the wallet further
+negative.
+
+## Self-payment / own-till risk (pre-credit hold)
+
+The live incident's own root cause on Selcom's side was a **self-payment
+into the merchant's own till** — Selcom's own message said exactly that.
+As defense in depth (Selcom is still the authoritative decision-maker
+here), `resolve_collection()` now checks — **before** crediting, not
+after — whether the payer's phone matches the merchant's own
+`contact_phone` (via the new `SELF_PAYMENT_OWN_TILL` fraud rule,
+`app/services/fraud_monitoring_service.py::check_self_payment_risk()`,
+last-9-digit normalized comparison so `255…`/`0…`/bare formats all
+match).
+
+If it matches, the collection is held: status becomes `pending_review`
+(a new value added to `collections.status`'s CHECK constraint — see
+`supabase/migrations/20260823030000_collection_reversal_and_self_payment_review.sql`),
+no ledger entries are posted, no `payment_link`/`invoice` is marked
+`PAID`, and a `CRITICAL` fraud alert is raised (visible in Super Admin's
+existing risk-alerts screen, same review/clear flow as every other fraud
+rule). The merchant sees "Payment pending review" — never `"successful"`
+— until a Super Admin clears the alert.
+
+Clearing a `SELF_PAYMENT_OWN_TILL` alert (`PATCH
+/v1/admin/risk-alerts/{id}/status` with `status: "CLEARED"`) is the one
+place that actually credits it — `app/routers/admin_risk.py` calls
+`app/services/collections.py::finalize_pending_review_collection()`,
+which posts the ledger entries, marks the collection `"successful"`, and
+notifies the merchant, exactly as if it had resolved normally. This rule
+never blocks a payment forever — it only requires one review step before
+funds become available, and clearing/finalizing is idempotent (only acts
+on a collection still `pending_review`).
+
+## Delayed clearance (reserved, not yet enforced)
+
+`COLLECTION_AUTO_SETTLE_ENABLED` and `COLLECTION_CLEARANCE_DELAY_MINUTES`
+(`app/config/settings.py`) exist as reserved configuration for a future
+"hold every collection briefly before crediting, then recheck" gate.
+**Not wired to anything yet** — this codebase has no background
+worker/cron infrastructure, and half-wiring a delay with nothing to act
+on it would be worse than not having one. The two safety nets that are
+actually active today are the reversal handling and the self-payment
+hold described above; see `docs/ledger-reconciliation.md` for the full
+reasoning and what a real implementation would need.
 
 ## Shared completion / idempotency
 
 `app/services/checkout_reconciliation.py::complete_checkout_collection_once()`
 is the one function both the webhook and both refresh endpoints call.
-It doesn't reimplement crediting — it reuses
-`app/services/collections.py::resolve_collection()`, which was already
+For a collection still `"processing"`, it doesn't reimplement crediting —
+it reuses `app/services/collections.py::resolve_collection()`, which is
 idempotent (a no-op once a collection is no longer `"processing"`),
-already posts ledger entries exactly once, already marks a linked
-`payment_link` `PAID` and a linked `invoice` `PAID`/`PARTIALLY_PAID`.
+posts ledger entries exactly once, and marks a linked `payment_link`
+`PAID` and a linked `invoice` `PAID`/`PARTIALLY_PAID` (unless the
+self-payment/own-till rule holds it in `pending_review` instead — see
+above). For a collection that's already `"successful"` and receives a
+new failure/reversal signal, it routes to `reverse_successful_collection()`
+instead — see "Reversal after credit" above.
 
 What `complete_checkout_collection_once()` adds on top:
 

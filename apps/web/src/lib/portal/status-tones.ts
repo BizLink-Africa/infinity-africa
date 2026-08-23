@@ -79,11 +79,15 @@ export function disbursementBadge(status: DisbursementStatus): BadgeProps {
 export function collectionBadge(status: CollectionStatus): BadgeProps {
   switch (status) {
     case "processing":
-      return { label: "Pending", tone: "pending" };
+      return { label: "Awaiting confirmation", tone: "pending" };
     case "successful":
       return { label: "Success", tone: "positive", dot: true };
     case "failed":
       return { label: "Failed", tone: "negative" };
+    case "reversed":
+      return { label: "Reversed", tone: "negative", icon: "warning" };
+    case "pending_review":
+      return { label: "Pending review", tone: "pending", icon: "info" };
   }
 }
 

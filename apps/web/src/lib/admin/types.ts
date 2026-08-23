@@ -61,7 +61,7 @@ export interface AdminCollectionRow {
   currency: string;
   phone: string | null;
   provider_reference: string | null;
-  status: "successful" | "pending" | "processing" | "failed";
+  status: "successful" | "pending" | "processing" | "failed" | "reversed" | "pending_review";
   created_at: string;
   // Selcom Checkout reconciliation detail — see
   // docs/selcom-checkout-collections.md.

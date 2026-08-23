@@ -80,7 +80,7 @@ export interface Invoice {
 
 /** collections.status — a 3-state in-flight/resolved lifecycle, distinct
  * from the uppercase DisbursementStatus / TS-shared TransactionStatus. */
-export type CollectionStatus = "processing" | "successful" | "failed";
+export type CollectionStatus = "processing" | "successful" | "failed" | "reversed" | "pending_review";
 
 export interface Collection {
   id: string;

@@ -60,11 +60,12 @@ export function CollectionsTable({ collections: initialCollections }: { collecti
                     </td>
                     <td className={tdClass}>
                       <StatusBadge {...adminCollectionBadge(row.status)} />
-                      {row.status === "failed" && (row.failure_reason || row.provider_payment_status) && (
-                        <p className="text-xs text-on-surface-variant mt-1">
-                          {row.failure_reason ?? row.provider_payment_status}
-                        </p>
-                      )}
+                      {(row.status === "failed" || row.status === "reversed") &&
+                        (row.failure_reason || row.provider_payment_status) && (
+                          <p className="text-xs text-on-surface-variant mt-1">
+                            {row.failure_reason ?? row.provider_payment_status}
+                          </p>
+                        )}
                     </td>
                     <td className={`${tdClass} text-on-surface-variant text-xs`}>{formatDateTime(row.created_at)}</td>
                     <td className={`${tdClass} text-right`}>

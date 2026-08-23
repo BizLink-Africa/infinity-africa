@@ -210,9 +210,10 @@ export default function CollectionsPage() {
                     <td className={tdClass}>{formatCurrency(collection.amount, collection.currency)}</td>
                     <td className={tdClass}>
                       <StatusBadge {...badge} />
-                      {collection.status === "failed" && collection.failure_reason && (
-                        <p className="text-xs text-on-surface-variant mt-1">{collection.failure_reason}</p>
-                      )}
+                      {(collection.status === "failed" || collection.status === "reversed") &&
+                        collection.failure_reason && (
+                          <p className="text-xs text-on-surface-variant mt-1">{collection.failure_reason}</p>
+                        )}
                     </td>
                     <td className={`${tdClass} text-right`}>
                       {needsRefresh && (

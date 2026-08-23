@@ -301,3 +301,5 @@ class NotificationType(StrEnum):
     WITHDRAWAL_REJECTED = "withdrawal_rejected"
     WITHDRAWAL_SUCCESS = "withdrawal_success"
     PAYMENT_RECEIVED = "payment_received"
+    COLLECTION_REVERSED = "collection_reversed"
+    COLLECTION_PENDING_REVIEW = "collection_pending_review"

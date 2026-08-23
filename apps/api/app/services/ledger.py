@@ -320,6 +320,73 @@ def post_refund_entry(
     _post_entries(client, entries)
 
 
+def reverse_collection_entries(
+    client: Client,
+    *,
+    transaction_id: uuid.UUID,
+    merchant_id: uuid.UUID,
+    gross_amount: Decimal,
+    fee_amount: Decimal,
+    net_amount: Decimal,
+    currency: str,
+) -> None:
+    """The opposite of post_collection_entries(), against the *same*
+    transaction_id (same convention as reverse_disbursement_entries below)
+    — for a collection that was already marked successful and credited,
+    then later reported reversed/rejected by the provider (e.g. Selcom
+    reversing an M-Pesa "own till" payment after the fact). Unlike
+    reverse_disbursement_entries, this *debits* the wallet, so it can
+    raise InsufficientBalanceError if the merchant no longer has the
+    funds available (already withdrawn) — callers must handle that case
+    explicitly rather than letting it crash the caller."""
+    settlement_account_id = _get_or_create_ledger_account(
+        client, merchant_id=None, purpose="settlement_clearing", account_type="asset", currency=currency
+    )
+    wallet_account_id = _get_or_create_ledger_account(
+        client,
+        merchant_id=merchant_id,
+        purpose="merchant_wallet",
+        account_type="liability",
+        currency=currency,
+    )
+
+    entries = [
+        {
+            "transaction_id": str(transaction_id),
+            "ledger_account_id": str(wallet_account_id),
+            "direction": "debit",
+            "amount": str(net_amount),
+            "currency": currency,
+            "description": "Merchant wallet credit reversed (collection reversed by provider)",
+        },
+        {
+            "transaction_id": str(transaction_id),
+            "ledger_account_id": str(settlement_account_id),
+            "direction": "credit",
+            "amount": str(gross_amount),
+            "currency": currency,
+            "description": "Settlement clearing reversed (collection reversed by provider)",
+        },
+    ]
+
+    if fee_amount > 0:
+        revenue_account_id = _get_or_create_ledger_account(
+            client, merchant_id=None, purpose="platform_revenue", account_type="revenue", currency=currency
+        )
+        entries.append(
+            {
+                "transaction_id": str(transaction_id),
+                "ledger_account_id": str(revenue_account_id),
+                "direction": "debit",
+                "amount": str(fee_amount),
+                "currency": currency,
+                "description": "Platform fee revenue reversed (collection reversed by provider)",
+            }
+        )
+
+    _post_entries(client, entries)
+
+
 def reverse_disbursement_entries(
     client: Client,
     *,
