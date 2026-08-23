@@ -441,6 +441,17 @@ def test_selcom_raw_response_save_failure_still_reaches_failed_status(fake_clien
     assert not data["selcom_raw_response"]
     assert _wallet_balance(fake_client, merchant_id) == Decimal("10000.00")
 
+    # Regression: the merchant-facing notification must never leak this
+    # raw provider/HTTP detail — admin_status_reason above is exactly
+    # where that belongs (Super Admin/support visibility only).
+    notifications = fake_client.table("notifications")._table.rows
+    failed_notification = next(n for n in notifications if n["notification_type"] == "withdrawal_failed")
+    assert "HTTP 400" not in failed_notification["body"]
+    assert "/transaction/process" not in failed_notification["body"]
+    assert failed_notification["body"] == (
+        "Your withdrawal of 4000.00 TZS could not be completed. Please contact support for details."
+    )
+
 
 def test_blocked_ip_whitelist_does_not_reverse_reservation(fake_client, monkeypatch):
     """A 403 from Selcom (IP not whitelisted — Selcom's own error code 611)

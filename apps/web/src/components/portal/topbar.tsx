@@ -23,12 +23,27 @@ function initials(name: string | null, email: string | null): string {
   return email ? email[0].toUpperCase() : "?";
 }
 
+const SUPPORT_EMAIL = "support@infinityafrica.net";
+
 export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [emailCopied, setEmailCopied] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [profile, setProfile] = useState<MerchantUser | null>(null);
   const { role, setRole } = useRole();
+
+  async function handleCopySupportEmail() {
+    try {
+      await navigator.clipboard.writeText(SUPPORT_EMAIL);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable (e.g. insecure context) — the email is
+      // still visible and selectable in the popover text itself.
+    }
+  }
 
   useEffect(() => {
     listMyNotifications().then(setNotifications);
@@ -111,13 +126,47 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
             </>
           )}
         </div>
-        <a
-          href="mailto:support@infinityafrica.net"
-          className="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full hidden sm:block"
-          title="Contact support"
-        >
-          <Icon name="help_outline" />
-        </a>
+        <div className="relative hidden sm:block">
+          <button
+            onClick={() => setHelpOpen((open) => !open)}
+            className="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full"
+            aria-label="Help"
+            title="Help"
+          >
+            <Icon name="help_outline" />
+          </button>
+          {helpOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setHelpOpen(false)} aria-hidden />
+              <div className="absolute right-0 top-11 z-50 w-72 bg-surface border border-surface-container-highest rounded-lg shadow-ambient overflow-hidden">
+                <div className="px-4 py-3 border-b border-surface-container-highest">
+                  <p className="text-sm font-semibold text-on-background">Need help?</p>
+                  <p className="text-xs text-on-surface-variant mt-0.5">Reach the Infinity Africa team directly.</p>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2 bg-surface-container-low border border-surface-container-highest rounded-lg px-3 py-2.5">
+                    <span className="text-sm text-on-surface truncate">{SUPPORT_EMAIL}</span>
+                    <button
+                      type="button"
+                      onClick={handleCopySupportEmail}
+                      className="shrink-0 p-1.5 text-primary hover:bg-primary-container/10 rounded-md transition-colors"
+                      title="Copy email"
+                    >
+                      <Icon name={emailCopied ? "check" : "content_copy"} className="text-[18px]" />
+                    </button>
+                  </div>
+                  {emailCopied && <p className="text-xs font-medium text-primary">Copied!</p>}
+                  <a
+                    href={`mailto:${SUPPORT_EMAIL}`}
+                    className="block text-center bg-primary-container text-on-primary text-sm font-medium py-2.5 rounded-lg hover:opacity-90 transition-opacity"
+                  >
+                    Open in email app
+                  </a>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
         <div className="relative ml-2">
           <button
             onClick={() => setMenuOpen((open) => !open)}

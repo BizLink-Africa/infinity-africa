@@ -65,4 +65,17 @@ describe("Topbar", () => {
 
     expect(screen.getByRole("link", { name: /New Payment Link/i })).toHaveAttribute("href", "/merchant/payment-links");
   });
+
+  it("opens a help popover showing the real support email, instead of a silent mailto link", async () => {
+    const { Topbar } = await import("./topbar");
+    render(<Topbar onOpenSidebar={() => {}} />);
+
+    fireEvent.click(screen.getByLabelText("Help"));
+
+    expect(screen.getByText("support@infinityafrica.net")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open in email app" })).toHaveAttribute(
+      "href",
+      "mailto:support@infinityafrica.net",
+    );
+  });
 });

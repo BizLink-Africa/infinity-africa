@@ -375,8 +375,13 @@ def _fail_and_reverse(
         merchant_id=merchant_id,
         notification_type=NotificationType.WITHDRAWAL_FAILED,
         title="Withdrawal failed",
-        body=f"Your withdrawal of {amount} {currency} could not be completed."
-        + (f" Reason: {reason}" if reason else ""),
+        # Never includes `reason` verbatim — it can be a raw provider
+        # exception string (e.g. "Selcom Business API returned HTTP 400
+        # for /transaction/process"), which is diagnostic detail for
+        # Super Admin/support, not something a merchant should see. The
+        # raw reason is still fully preserved for support purposes: it's
+        # on disbursement.admin_status_reason and in the audit log above.
+        body=f"Your withdrawal of {amount} {currency} could not be completed. Please contact support for details.",
         related_resource_type="disbursement",
         related_resource_id=disbursement_id,
     )
