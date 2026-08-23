@@ -79,7 +79,9 @@ def _patch_checkout_client(monkeypatch):
     monkeypatch.setattr(wallet_push_module, "SelcomCheckoutHTTPClient", lambda **kwargs: fake)
 
 
-def _seed_pending_collection(fake_client, monkeypatch, *, customer_phone="255747730270", **merchant_overrides):
+def _seed_pending_collection(
+    fake_client, monkeypatch, *, customer_phone="255747730270", with_invoice=False, **merchant_overrides
+):
     _patch_checkout_client(monkeypatch)
     merchant = create_merchant(fake_client, **merchant_overrides)
     merchant_id = uuid.UUID(merchant["id"])
@@ -107,11 +109,24 @@ def _seed_pending_collection(fake_client, monkeypatch, *, customer_phone="255747
             "public_slug": "test-slug-" + uuid.uuid4().hex[:8],
         },
     )
+    invoice = None
+    if with_invoice:
+        invoice = fake_client.seed(
+            "invoices",
+            {
+                "merchant_id": str(merchant_id),
+                "payment_link_id": payment_link["id"],
+                "invoice_number": "INV-TEST-" + uuid.uuid4().hex[:8],
+                "total_amount": "1000.00",
+                "amount_paid": "0",
+                "status": "SENT",
+            },
+        )
     collection = asyncio.run(
         execute_wallet_push_for_payment_link(fake_client, payment_link=payment_link, buyer_phone=customer_phone)
     )
     assert collection["status"] == "processing"
-    return collection, merchant_id, payment_link
+    return collection, merchant_id, payment_link, invoice
 
 
 def _complete(fake_client, collection, **overrides):
@@ -126,7 +141,7 @@ def _complete(fake_client, collection, **overrides):
 
 
 def test_reversed_after_completed_reverses_ledger_and_wallet(fake_client, monkeypatch):
-    collection, _merchant_id, _payment_link = _seed_pending_collection(fake_client, monkeypatch)
+    collection, _merchant_id, _payment_link, _invoice = _seed_pending_collection(fake_client, monkeypatch)
 
     resolved = _complete(fake_client, collection)
     assert resolved["status"] == "successful"
@@ -152,12 +167,39 @@ def test_reversed_after_completed_reverses_ledger_and_wallet(fake_client, monkey
     assert "collection_reversed" in notification_types
 
 
+def test_reversal_reopens_linked_invoice_from_paid(fake_client, monkeypatch):
+    collection, _merchant_id, _link, invoice = _seed_pending_collection(
+        fake_client, monkeypatch, with_invoice=True
+    )
+
+    resolved = _complete(fake_client, collection)
+    assert resolved["status"] == "successful"
+    stored_invoice = fake_client.table("invoices")._table.rows[0]
+    assert stored_invoice["id"] == invoice["id"]
+    assert stored_invoice["status"] == "PAID"
+    assert Decimal(str(stored_invoice["amount_paid"])) == Decimal("1000.00")
+
+    reversed_result = _complete(
+        fake_client,
+        collection,
+        payment_status="REVERSED",
+        result="FAIL",
+        resultcode="651",
+        raw_response={"payment_status": "REVERSED"},
+    )
+    assert reversed_result["status"] == "reversed"
+
+    stored_invoice = fake_client.table("invoices")._table.rows[0]
+    assert stored_invoice["status"] == "SENT"  # reopened, not left PAID
+    assert Decimal(str(stored_invoice["amount_paid"])) == Decimal(0)
+
+
 def test_reversal_message_marker_triggers_reversal_even_with_ambiguous_status(fake_client, monkeypatch):
     """The live incident's own M-Pesa message ('Payment unsuccessful. You
     are trying to pay into your own till') is the kind of free-text
     reversal signal that may arrive without a clean payment_status —
     the message text alone must still trigger a real reversal."""
-    collection, _merchant_id, _link = _seed_pending_collection(fake_client, monkeypatch)
+    collection, _merchant_id, _link, _invoice = _seed_pending_collection(fake_client, monkeypatch)
     _complete(fake_client, collection)
 
     reversed_result = _complete(
@@ -175,7 +217,7 @@ def test_reversal_message_marker_triggers_reversal_even_with_ambiguous_status(fa
 
 
 def test_duplicate_reversal_signal_does_not_double_reverse(fake_client, monkeypatch):
-    collection, _merchant_id, _link = _seed_pending_collection(fake_client, monkeypatch)
+    collection, _merchant_id, _link, _invoice = _seed_pending_collection(fake_client, monkeypatch)
     _complete(fake_client, collection)
 
     kwargs = {
@@ -199,7 +241,7 @@ def test_reversal_with_insufficient_balance_marks_reversed_and_alerts_admin(fake
     negative, so the reversal can't fully claw back the money. The
     collection must still flip to 'reversed' (never keep claiming
     success) and an admin alert must be raised for manual recovery."""
-    collection, _merchant_id, _link = _seed_pending_collection(fake_client, monkeypatch)
+    collection, _merchant_id, _link, _invoice = _seed_pending_collection(fake_client, monkeypatch)
     _complete(fake_client, collection)
 
     wallet_row = fake_client.table("ledger_accounts")._table.rows[0]
@@ -220,7 +262,7 @@ def test_reversal_with_insufficient_balance_marks_reversed_and_alerts_admin(fake
 
 
 def test_reversing_an_already_reversed_collection_is_a_noop(fake_client, monkeypatch):
-    collection, _merchant_id, _link = _seed_pending_collection(fake_client, monkeypatch)
+    collection, _merchant_id, _link, _invoice = _seed_pending_collection(fake_client, monkeypatch)
     _complete(fake_client, collection)
     reverse_successful_collection(fake_client, collection_id=uuid.UUID(collection["id"]), reason="first")
     result = reverse_successful_collection(fake_client, collection_id=uuid.UUID(collection["id"]), reason="second")
@@ -234,7 +276,7 @@ def test_reversing_an_already_reversed_collection_is_a_noop(fake_client, monkeyp
 
 def test_self_payment_phone_match_holds_pending_review_not_credited(fake_client, monkeypatch):
     seed_fraud_rules(fake_client, "SELF_PAYMENT_OWN_TILL")
-    collection, _merchant_id, _link = _seed_pending_collection(
+    collection, _merchant_id, _link, _invoice = _seed_pending_collection(
         fake_client, monkeypatch, customer_phone="255747730270", contact_phone="255747730270"
     )
 
@@ -249,9 +291,28 @@ def test_self_payment_phone_match_holds_pending_review_not_credited(fake_client,
     assert any(a["rule_code"] == "SELF_PAYMENT_OWN_TILL" for a in alerts)
 
 
+def test_self_payment_holds_linked_invoice_from_being_marked_paid(fake_client, monkeypatch):
+    seed_fraud_rules(fake_client, "SELF_PAYMENT_OWN_TILL")
+    collection, _merchant_id, _link, invoice = _seed_pending_collection(
+        fake_client,
+        monkeypatch,
+        customer_phone="255747730270",
+        contact_phone="255747730270",
+        with_invoice=True,
+    )
+
+    resolved = _complete(fake_client, collection)
+
+    assert resolved["status"] == "pending_review"
+    stored_invoice = fake_client.table("invoices")._table.rows[0]
+    assert stored_invoice["id"] == invoice["id"]
+    assert stored_invoice["status"] == "SENT"  # not PAID — held pending review
+    assert Decimal(str(stored_invoice["amount_paid"])) == Decimal(0)
+
+
 def test_different_phone_from_merchant_credits_normally(fake_client, monkeypatch):
     seed_fraud_rules(fake_client, "SELF_PAYMENT_OWN_TILL")
-    collection, _merchant_id, _link = _seed_pending_collection(
+    collection, _merchant_id, _link, _invoice = _seed_pending_collection(
         fake_client, monkeypatch, customer_phone="255747730270", contact_phone="255700000000"
     )
 
@@ -264,7 +325,7 @@ def test_different_phone_from_merchant_credits_normally(fake_client, monkeypatch
 
 def test_finalizing_pending_review_collection_credits_it_exactly_once(fake_client, monkeypatch):
     seed_fraud_rules(fake_client, "SELF_PAYMENT_OWN_TILL")
-    collection, _merchant_id, _link = _seed_pending_collection(
+    collection, _merchant_id, _link, _invoice = _seed_pending_collection(
         fake_client, monkeypatch, customer_phone="255747730270", contact_phone="255747730270"
     )
     resolved = _complete(fake_client, collection)
@@ -293,7 +354,7 @@ def test_admin_clearing_self_payment_alert_finalizes_collection(fake_client, mon
     get_settings.cache_clear()
 
     seed_fraud_rules(fake_client, "SELF_PAYMENT_OWN_TILL")
-    collection, _merchant_id, _link = _seed_pending_collection(
+    collection, _merchant_id, _link, _invoice = _seed_pending_collection(
         fake_client, monkeypatch, customer_phone="255747730270", contact_phone="255747730270"
     )
     resolved = _complete(fake_client, collection)
