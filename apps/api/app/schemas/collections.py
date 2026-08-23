@@ -92,3 +92,12 @@ class DynamicQrCollectionResponse(CollectionResponse):
     # placeholder, not derived from qr_payload). Populate once a real
     # Selcom response is observed to actually return one.
     qr_image_url: str | None = None
+
+
+class HostedCheckoutCollectionResponse(CollectionResponse):
+    """Merchant Portal "Request Collection" — the merchant no longer
+    picks a channel; Selcom's own hosted checkout page shows whichever
+    methods are enabled on the account. See
+    app/services/hosted_checkout.py."""
+
+    payment_gateway_url: str | None = None

@@ -5,7 +5,7 @@ from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.phone import validate_and_normalize_phone
-from app.schemas.enums import CollectionMethod
+from app.schemas.enums import LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT, CollectionMethod
 
 
 class PaymentLinkCreate(BaseModel):
@@ -17,7 +17,13 @@ class PaymentLinkCreate(BaseModel):
     customer_phone: str | None = None
     customer_email: str | None = None
     description: str | None = None
-    allowed_payment_methods: list[CollectionMethod] = Field(default_factory=lambda: list(CollectionMethod))
+    # No longer collected from the merchant — every payment link now
+    # always offers the single "Pay securely" hosted-checkout flow. Kept
+    # nullable/defaulted only for backward compatibility with old rows
+    # and any external API caller still sending it explicitly.
+    allowed_payment_methods: list[CollectionMethod] = Field(
+        default_factory=lambda: list(LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT)
+    )
     expires_at: datetime | None = None
     merchant_reference: str | None = Field(default=None, max_length=100)
     success_redirect_url: str | None = None
@@ -126,6 +132,32 @@ class PaymentLinkWalletPushResponse(BaseModel):
     collection_id: uuid.UUID
     payment_status: str
     message: str
+
+
+class PaymentLinkCheckoutRequest(BaseModel):
+    """POST /public/payment-links/{public_slug}/pay/checkout — the single
+    "Pay securely" flow (2026-08-23): no channel to choose, always
+    redirects to Selcom's own hosted checkout. customer_phone is
+    optional here — only asked for on Infinity's page if the payment
+    link doesn't already have one on file (see
+    app/services/hosted_checkout.py's placeholder-phone fallback)."""
+
+    customer_phone: str | None = None
+
+    @field_validator("customer_phone")
+    @classmethod
+    def _check_phone(cls, value: str | None) -> str | None:
+        return validate_and_normalize_phone(value) if value is not None else None
+
+
+class PaymentLinkCheckoutResponse(BaseModel):
+    """What the customer's browser gets back — payment_gateway_url is
+    already base64-decoded (never sent as the raw base64 Selcom
+    returns); the frontend does a full-page redirect to it, no polling
+    on Infinity's side, since the customer leaves this site entirely."""
+
+    collection_id: uuid.UUID
+    payment_gateway_url: str | None = None
 
 
 class PublicCollectionStatusResponse(BaseModel):

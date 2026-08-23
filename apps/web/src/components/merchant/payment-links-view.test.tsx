@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CollectionMethod, PaymentLinkStatus } from "@infinity/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,5 +44,36 @@ describe("PaymentLinksView", () => {
     render(<PaymentLinksView />);
 
     await waitFor(() => expect(screen.getAllByTitle("Copy link").length).toBeGreaterThan(0));
+  });
+
+  it("does not render an Allowed Payment Channels checkbox section", async () => {
+    const { PaymentLinksView } = await import("./payment-links-view");
+    render(<PaymentLinksView />);
+
+    expect(screen.queryByText("Allowed Payment Channels")).not.toBeInTheDocument();
+    expect(screen.queryByText("USSD Push")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dynamic QR")).not.toBeInTheDocument();
+  });
+
+  it("shows the hosted-checkout explanation copy", async () => {
+    const { PaymentLinksView } = await import("./payment-links-view");
+    render(<PaymentLinksView />);
+
+    expect(
+      screen.getByText("Secure Selcom hosted checkout — the customer chooses their payment method on checkout."),
+    ).toBeInTheDocument();
+  });
+
+  it("submits a new link without an allowed_payment_methods field", async () => {
+    const { createPaymentLink } = await import("@/lib/portal/api");
+    vi.mocked(createPaymentLink).mockResolvedValue({ ...link, id: "link-2" });
+    const { PaymentLinksView } = await import("./payment-links-view");
+    render(<PaymentLinksView />);
+
+    fireEvent.change(screen.getByPlaceholderText("25,000"), { target: { value: "10000" } });
+    fireEvent.click(screen.getByRole("button", { name: /Generate Payment Link/ }));
+
+    await waitFor(() => expect(createPaymentLink).toHaveBeenCalled());
+    expect(vi.mocked(createPaymentLink).mock.calls[0][0]).not.toHaveProperty("allowed_payment_methods");
   });
 });

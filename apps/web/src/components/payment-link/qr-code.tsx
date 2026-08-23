@@ -8,8 +8,8 @@ import { formatDateTime } from "@/lib/format";
 /**
  * Renders a real, scannable QR code client-side (the `qrcode` package —
  * no network call, nothing sent to a third party) encoding whatever
- * payload the backend returned (e.g. a Dynamic QR collection's
- * qr_payload, or a payment link's own public_url). Standard black-on-white
+ * string payload is passed in (e.g. a payment link's own public_url, or
+ * Selcom's decoded payment_gateway_url). Standard black-on-white
  * modules — a colored/branded QR code can fail to scan reliably on some
  * wallet apps, and this is a money-moving code, so scan reliability wins
  * over theming here; the surrounding card stays green/white branded.

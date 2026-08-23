@@ -24,6 +24,8 @@ from app.schemas.auth import AuthenticatedCaller
 from app.schemas.common import APIResponse
 from app.schemas.enums import CollectionMethod, UserRole
 from app.schemas.payment_links import (
+    PaymentLinkCheckoutRequest,
+    PaymentLinkCheckoutResponse,
     PaymentLinkCollectRequest,
     PaymentLinkCreate,
     PaymentLinkResponse,
@@ -36,6 +38,7 @@ from app.services.audit import write_audit_log
 from app.services.collections import execute_collection
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
 from app.services.dynamic_qr import execute_dynamic_qr_for_payment_link
+from app.services.hosted_checkout import execute_hosted_checkout_for_payment_link
 from app.services.idempotency import run_idempotent
 from app.services.payment_links import (
     batch_collection_counts,
@@ -356,3 +359,55 @@ async def pay_payment_link_wallet_push(
     )
 
     return APIResponse(data=PaymentLinkWalletPushResponse(**body))
+
+
+@public_router.post(
+    "/{public_slug}/pay/checkout",
+    response_model=APIResponse[PaymentLinkCheckoutResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def pay_payment_link_checkout(
+    public_slug: str,
+    payload: PaymentLinkCheckoutRequest,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+):
+    """The single "Pay securely" flow (2026-08-23) — no channel to
+    choose. Creates the Selcom order via create-order-minimal
+    (app/services/hosted_checkout.py) and returns its decoded
+    payment_gateway_url; the frontend does a full-page redirect to it.
+    Never credits the merchant, posts a ledger entry, or marks this link
+    PAID — same rule as pay_payment_link_wallet_push above."""
+    client = get_supabase_admin()
+    link = execute_maybe_single(
+        client.table("payment_links").select("*").eq("public_slug", public_slug).maybe_single()
+    )
+
+    if not link:
+        raise NotFoundError("Payment link not found")
+
+    merchant_id = uuid.UUID(link["merchant_id"])
+
+    async def _handler() -> tuple[int, dict]:
+        current = with_effective_status(client, link)
+        if current["status"] != "ACTIVE":
+            raise ConflictError(f"This payment link cannot be paid (status: {current['status']})")
+
+        collection = await execute_hosted_checkout_for_payment_link(
+            client, payment_link=current, customer_phone=payload.customer_phone
+        )
+        body = {
+            "collection_id": collection["id"],
+            "payment_gateway_url": collection.get("payment_gateway_url"),
+        }
+        return status.HTTP_202_ACCEPTED, body
+
+    _status_code, body = await run_idempotent(
+        client,
+        merchant_id=merchant_id,
+        endpoint="POST /public/payment-links/{slug}/pay/checkout",
+        idempotency_key=idempotency_key,
+        request_payload={"public_slug": public_slug, **payload.model_dump(mode="json")},
+        handler=_handler,
+    )
+
+    return APIResponse(data=PaymentLinkCheckoutResponse(**body))

@@ -28,6 +28,7 @@ import type {
   DocumentRequest,
   FeeBreakdown,
   FraudAlert,
+  HostedCheckoutCollection,
   Invoice,
   InvoiceItem,
   MerchantProfile,
@@ -132,7 +133,11 @@ export interface CreatePaymentLinkInput {
   customer_phone: string | null;
   customer_email: string | null;
   description: string | null;
-  allowed_payment_methods: PaymentLink["allowed_payment_methods"];
+  // No longer collected from the merchant (2026-08-23) — every payment
+  // link now always offers the single "Pay securely" hosted-checkout
+  // flow. Backend defaults this when omitted; kept optional only for
+  // backward compatibility.
+  allowed_payment_methods?: PaymentLink["allowed_payment_methods"];
   expires_at: string | null;
   merchant_reference: string | null;
   success_redirect_url: string | null;
@@ -198,6 +203,10 @@ const COLLECTION_METHOD_PATHS: Record<Collection["method"], string> = {
   STK_PUSH: "stk-push",
   SELCOM_PESA_PUSH: "selcom-pesa-push",
   DYNAMIC_QR: "dynamic-qr",
+  // Never actually used by createCollection() below — HOSTED_CHECKOUT
+  // collections go through createHostedCheckoutCollection() instead.
+  // Listed only so this Record stays exhaustive over CollectionMethod.
+  HOSTED_CHECKOUT: "hosted-checkout",
 };
 
 export async function listCollections(): Promise<Collection[]> {
@@ -236,6 +245,37 @@ export async function createCollection(input: CreateCollectionInput): Promise<Co
       description: input.description,
       callback_url: input.callback_url ?? null,
       invoice_id: input.invoice_id ?? null,
+    },
+    { idempotent: true },
+  );
+}
+
+export interface CreateHostedCheckoutCollectionInput {
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  customer_email?: string | null;
+  amount: string;
+  description?: string | null;
+  merchant_reference?: string | null;
+}
+
+/** "Request Collection" (2026-08-23) — no channel to pick; Selcom's own
+ * hosted checkout page shows whichever methods are enabled on the
+ * account. Returns the collection plus its decoded payment_gateway_url. */
+export async function createHostedCheckoutCollection(
+  input: CreateHostedCheckoutCollectionInput,
+): Promise<HostedCheckoutCollection> {
+  return apiWrite<HostedCheckoutCollection>(
+    "/v1/merchant/collections/hosted-checkout",
+    "POST",
+    {
+      amount: input.amount,
+      currency: "TZS",
+      customer_name: input.customer_name ?? null,
+      customer_phone: input.customer_phone ?? null,
+      customer_email: input.customer_email ?? null,
+      description: input.description ?? null,
+      merchant_reference: input.merchant_reference ?? null,
     },
     { idempotent: true },
   );

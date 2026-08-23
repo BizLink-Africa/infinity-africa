@@ -32,7 +32,11 @@ from app.database.session import get_supabase_admin
 from app.schemas.api_keys import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyResponse
 from app.schemas.auth import MerchantMembership
 from app.schemas.checkout_orders import CheckoutOrderResponse
-from app.schemas.collections import CollectionResponse, DynamicQrCollectionResponse
+from app.schemas.collections import (
+    CollectionResponse,
+    DynamicQrCollectionResponse,
+    HostedCheckoutCollectionResponse,
+)
 from app.schemas.common import APIResponse
 from app.schemas.disbursements import DisbursementResponse
 from app.schemas.disputes import (
@@ -47,6 +51,7 @@ from app.schemas.invoices import InvoiceItemResponse, InvoiceResponse, InvoiceUp
 from app.schemas.merchant_portal import (
     CreateOrderMinimalRequest,
     MerchantDynamicQrCollectionRequest,
+    MerchantHostedCheckoutCollectionRequest,
     MerchantInvoiceCreate,
     MerchantOverviewResponse,
     MerchantPaymentLinkCreate,
@@ -79,6 +84,7 @@ from app.services.crud import (
     update_row,
 )
 from app.services.disbursements import execute_disbursement, quote_withdrawal_fee
+from app.services.hosted_checkout import execute_hosted_checkout_collection
 from app.services.idempotency import run_idempotent
 from app.services.ledger import list_wallet_ledger
 from app.services.merchant_overview import get_merchant_overview
@@ -686,6 +692,60 @@ async def create_my_dynamic_qr_collection(
         handler=_handler,
     )
     return APIResponse(data=DynamicQrCollectionResponse(**body))
+
+
+@router.post(
+    "/collections/hosted-checkout",
+    response_model=APIResponse[HostedCheckoutCollectionResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_my_hosted_checkout_collection(
+    payload: MerchantHostedCheckoutCollectionRequest,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+):
+    """"Request Collection" — no channel to pick. Creates a Selcom order
+    via create-order-minimal and returns its decoded payment_gateway_url
+    for the merchant to open or copy — Selcom's own hosted checkout page
+    shows whichever methods are enabled on the account (card confirmed
+    not enabled; no exclusion logic exists here on purpose)."""
+    client = get_supabase_admin()
+
+    async def _handler() -> tuple[int, dict]:
+        collection = await execute_hosted_checkout_collection(
+            client,
+            merchant_id=membership.merchant_id,
+            amount=payload.amount,
+            currency=payload.currency,
+            customer_id=payload.customer_id,
+            customer_name=payload.customer_name,
+            customer_email=payload.customer_email,
+            customer_phone=payload.customer_phone,
+            merchant_reference=payload.merchant_reference,
+            description=payload.description,
+            invoice_id=payload.invoice_id,
+        )
+        write_audit_log(
+            client,
+            actor_id=membership.user_id,
+            actor_type="user",
+            merchant_id=membership.merchant_id,
+            action="collection.initiated",
+            resource_type="collection",
+            resource_id=uuid.UUID(collection["id"]),
+            metadata={"method": "HOSTED_CHECKOUT"},
+        )
+        return status.HTTP_202_ACCEPTED, collection
+
+    _status_code, body = await run_idempotent(
+        client,
+        merchant_id=membership.merchant_id,
+        endpoint="POST /v1/merchant/collections/hosted-checkout",
+        idempotency_key=idempotency_key,
+        request_payload=payload.model_dump(mode="json"),
+        handler=_handler,
+    )
+    return APIResponse(data=HostedCheckoutCollectionResponse(**body))
 
 
 @router.post(

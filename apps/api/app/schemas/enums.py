@@ -10,12 +10,37 @@ from enum import StrEnum
 
 
 class CollectionMethod(StrEnum):
-    """How a customer pays a merchant (collections)."""
+    """How a customer pays a merchant (collections).
+
+    HOSTED_CHECKOUT (added 2026-08-23, migration
+    20260823020000_hosted_checkout_method.sql) is now the default for
+    every new collection/payment-link — Infinity no longer asks which of
+    the other four to use; Selcom's own hosted checkout page shows
+    whichever methods are enabled on the merchant's Selcom account. The
+    other four remain valid for old rows and are never removed."""
 
     USSD_PUSH = "USSD_PUSH"
     STK_PUSH = "STK_PUSH"
     SELCOM_PESA_PUSH = "SELCOM_PESA_PUSH"
     DYNAMIC_QR = "DYNAMIC_QR"
+    HOSTED_CHECKOUT = "HOSTED_CHECKOUT"
+
+
+# payment_links.allowed_payment_methods (DB CHECK constraint
+# payment_links_methods_valid) only ever allowed the original four values
+# — never migrated to include HOSTED_CHECKOUT, deliberately: that column
+# is legacy/informational only now (the customer-facing flow no longer
+# consults it to gate anything — every payment link always offers the
+# single "Pay securely" hosted-checkout button). Schemas defaulting this
+# field must use this constant, never `list(CollectionMethod)`, or a
+# request omitting the field would violate that CHECK constraint the
+# moment HOSTED_CHECKOUT exists in the enum.
+LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT = (
+    CollectionMethod.USSD_PUSH,
+    CollectionMethod.STK_PUSH,
+    CollectionMethod.SELCOM_PESA_PUSH,
+    CollectionMethod.DYNAMIC_QR,
+)
 
 
 class DisbursementMethod(StrEnum):

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.phone import validate_and_normalize_phone
 from app.schemas.enums import (
+    LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT,
     CollectionMethod,
     DestinationCode,
     DisbursementMethod,
@@ -63,7 +64,11 @@ class MerchantPaymentLinkCreate(BaseModel):
     customer_phone: str | None = None
     customer_email: str | None = None
     description: str | None = None
-    allowed_payment_methods: list[CollectionMethod] = Field(default_factory=lambda: list(CollectionMethod))
+    # No longer collected from the merchant — see PaymentLinkCreate's
+    # sibling field docstring in app/schemas/payment_links.py.
+    allowed_payment_methods: list[CollectionMethod] = Field(
+        default_factory=lambda: list(LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT)
+    )
     expires_at: datetime | None = None
     merchant_reference: str | None = Field(default=None, max_length=100)
     success_redirect_url: str | None = None
@@ -172,6 +177,27 @@ class MerchantDynamicQrCollectionRequest(BaseModel):
     invoice_id: uuid.UUID | None = None
     description: str | None = None
     callback_url: str | None = None
+
+    @field_validator("customer_phone")
+    @classmethod
+    def _check_phone(cls, value: str | None) -> str | None:
+        return validate_and_normalize_phone(value) if value is not None else None
+
+
+class MerchantHostedCheckoutCollectionRequest(BaseModel):
+    """"Request Collection" — no channel to pick; Selcom's own hosted
+    checkout page shows whichever methods are enabled on the account
+    (card confirmed not enabled — no exclusion logic needed here)."""
+
+    amount: Decimal = Field(gt=0)
+    currency: str = "TZS"
+    customer_id: uuid.UUID | None = None
+    customer_name: str | None = None
+    customer_email: str | None = None
+    customer_phone: str | None = None
+    merchant_reference: str | None = Field(default=None, max_length=100)
+    invoice_id: uuid.UUID | None = None
+    description: str | None = None
 
     @field_validator("customer_phone")
     @classmethod

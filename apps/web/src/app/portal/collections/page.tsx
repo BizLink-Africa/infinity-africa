@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { COLLECTION_METHOD_LABELS, CollectionMethod } from "@infinity/shared";
+import { COLLECTION_METHOD_LABELS } from "@infinity/shared";
 
 import { Card, tdClass, thClass } from "@/components/portal/card";
 import { Icon } from "@/components/portal/icon";
@@ -9,11 +9,9 @@ import { PageHeader } from "@/components/portal/page-header";
 import { RefreshStatusButton } from "@/components/portal/refresh-status-button";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { createCollection, listCollections, refreshCollectionStatus } from "@/lib/portal/api";
+import { createHostedCheckoutCollection, listCollections, refreshCollectionStatus } from "@/lib/portal/api";
 import { collectionBadge } from "@/lib/portal/status-tones";
-import type { Collection } from "@/lib/portal/types";
-
-const METHODS = Object.values(CollectionMethod);
+import type { Collection, HostedCheckoutCollection } from "@/lib/portal/types";
 
 export default function CollectionsPage() {
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -24,10 +22,13 @@ export default function CollectionsPage() {
   const [refreshedIds, setRefreshedIds] = useState<Set<string>>(new Set());
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
   const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState<CollectionMethod>(CollectionMethod.STK_PUSH);
   const [description, setDescription] = useState("");
+  const [merchantReference, setMerchantReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [lastCheckout, setLastCheckout] = useState<HostedCheckoutCollection | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     listCollections().then(setCollections);
@@ -35,33 +36,52 @@ export default function CollectionsPage() {
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!customerName || !customerPhone || !amount) return;
+    if (!amount) return;
 
     setSubmitting(true);
+    setCopied(false);
     try {
-      const collection = await createCollection({
-        customer_name: customerName,
-        customer_phone: customerPhone,
+      const collection = await createHostedCheckoutCollection({
+        customer_name: customerName || null,
+        customer_phone: customerPhone || null,
+        customer_email: customerEmail || null,
         amount,
-        method,
         description: description || null,
+        merchant_reference: merchantReference || null,
       });
       setCollections((prev) => [collection, ...prev]);
+      setLastCheckout(collection);
       setCustomerName("");
       setCustomerPhone("");
+      setCustomerEmail("");
       setAmount("");
       setDescription("");
+      setMerchantReference("");
     } finally {
       setSubmitting(false);
     }
   }
 
+  async function handleCopy() {
+    if (!lastCheckout?.payment_gateway_url) return;
+    try {
+      await navigator.clipboard.writeText(lastCheckout.payment_gateway_url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable (e.g. insecure context) — no-op.
+    }
+  }
+
   return (
     <div className="space-y-8">
-      <PageHeader title="Collections" description="Request one-off payments from customers via mobile money." />
+      <PageHeader title="Collections" description="Request one-off payments from customers via secure Selcom hosted checkout." />
 
       <Card id="create-collection" className="scroll-mt-24">
-        <h3 className="text-2xl font-semibold text-on-background mb-5">Create Collection</h3>
+        <h3 className="text-2xl font-semibold text-on-background mb-1">Request Collection</h3>
+        <p className="text-sm text-on-surface-variant mb-5">
+          Secure Selcom hosted checkout — the customer chooses their payment method on checkout.
+        </p>
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
@@ -79,7 +99,7 @@ export default function CollectionsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-on-surface-variant mb-1.5" htmlFor="cust-phone">
-                Phone Number
+                Phone Number <span className="text-on-surface-variant/70 font-normal">(if needed)</span>
               </label>
               <input
                 id="cust-phone"
@@ -92,6 +112,19 @@ export default function CollectionsPage() {
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1.5" htmlFor="cust-email">
+                Customer Email <span className="text-on-surface-variant/70 font-normal">(optional)</span>
+              </label>
+              <input
+                id="cust-email"
+                className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+                placeholder="grace@example.com"
+                type="email"
+                value={customerEmail}
+                onChange={(event) => setCustomerEmail(event.target.value)}
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium text-on-surface-variant mb-1.5" htmlFor="cust-amount">
                 Amount in TZS
@@ -111,36 +144,34 @@ export default function CollectionsPage() {
                 />
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-on-surface-variant mb-1.5" htmlFor="cust-channel">
-                Channel
-              </label>
-              <select
-                id="cust-channel"
-                className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
-                value={method}
-                onChange={(event) => setMethod(event.target.value as CollectionMethod)}
-              >
-                {METHODS.map((m) => (
-                  <option key={m} value={m}>
-                    {COLLECTION_METHOD_LABELS[m]}
-                  </option>
-                ))}
-              </select>
-            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-on-surface-variant mb-1.5" htmlFor="cust-desc">
-              Description
-            </label>
-            <input
-              id="cust-desc"
-              className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
-              placeholder="e.g. Payment for 2 bags of maize flour"
-              type="text"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1.5" htmlFor="cust-desc">
+                Description
+              </label>
+              <input
+                id="cust-desc"
+                className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+                placeholder="e.g. Payment for 2 bags of maize flour"
+                type="text"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1.5" htmlFor="cust-ref">
+                Internal Reference <span className="text-on-surface-variant/70 font-normal">(if available)</span>
+              </label>
+              <input
+                id="cust-ref"
+                className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+                placeholder="e.g. ORDER-4821"
+                type="text"
+                value={merchantReference}
+                onChange={(event) => setMerchantReference(event.target.value)}
+              />
+            </div>
           </div>
           <button
             className="w-full sm:w-auto bg-primary-container text-on-primary text-sm font-medium py-3 px-6 rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-60"
@@ -151,6 +182,36 @@ export default function CollectionsPage() {
             {submitting ? "Requesting…" : "Request Collection"}
           </button>
         </form>
+
+        {lastCheckout && (
+          <div className="mt-6 pt-5 border-t border-surface-container-highest">
+            <h4 className="text-sm font-semibold text-on-background mb-1">Checkout ready</h4>
+            <p className="text-sm text-on-surface-variant mb-3">
+              Share this link with your customer, or open it yourself to complete the payment.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <a
+                href={lastCheckout.payment_gateway_url ?? "#"}
+                target="_blank"
+                rel="noreferrer"
+                aria-disabled={!lastCheckout.payment_gateway_url}
+                className="flex-1 flex items-center justify-center gap-2 bg-primary-container text-on-primary text-sm font-medium py-2.5 rounded-lg hover:opacity-90 transition-opacity"
+              >
+                <Icon name="open_in_new" className="text-[18px]" />
+                Open checkout
+              </a>
+              <button
+                type="button"
+                onClick={handleCopy}
+                disabled={!lastCheckout.payment_gateway_url}
+                className="flex-1 flex items-center justify-center gap-2 border border-surface-container-highest text-on-surface text-sm font-medium py-2.5 rounded-lg hover:bg-surface-container-low transition-colors disabled:opacity-60"
+              >
+                <Icon name={copied ? "check" : "content_copy"} className="text-[18px]" />
+                {copied ? "Copied!" : "Copy checkout link"}
+              </button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card padded={false}>

@@ -115,6 +115,13 @@ export interface Collection {
   channel: string | null;
 }
 
+/** "Request Collection" response (2026-08-23) — no channel to pick;
+ * payment_gateway_url is Selcom's own hosted checkout page, already
+ * decoded, for the merchant to open or copy. */
+export interface HostedCheckoutCollection extends Collection {
+  payment_gateway_url: string | null;
+}
+
 export interface Disbursement {
   id: string;
   merchant_id: string;

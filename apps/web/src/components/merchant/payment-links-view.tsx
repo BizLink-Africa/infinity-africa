@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { COLLECTION_METHOD_LABELS, CollectionMethod } from "@infinity/shared";
 
 import { Card, tdClass, thClass } from "@/components/portal/card";
 import { Icon } from "@/components/portal/icon";
@@ -13,7 +12,6 @@ import { cancelPaymentLink, createPaymentLink, listPaymentLinks } from "@/lib/po
 import { paymentLinkBadge } from "@/lib/portal/status-tones";
 import type { PaymentLink } from "@/lib/portal/types";
 
-const CHANNEL_OPTIONS = Object.values(CollectionMethod);
 const FILTERS = ["All", "Active", "Paid", "Expired", "Cancelled"] as const;
 
 function whatsappShareUrl(link: Pick<PaymentLink, "amount" | "currency" | "public_url">): string {
@@ -107,11 +105,9 @@ function PaymentLinkDetail({
         </a>
       </div>
 
-      {link.allowed_payment_methods.includes(CollectionMethod.DYNAMIC_QR) && (
-        <div className="flex flex-col items-center gap-2 pt-2 border-t border-surface-container-highest">
-          <QrCode payload={link.public_url} expiresAt={link.expires_at} />
-        </div>
-      )}
+      <div className="flex flex-col items-center gap-2 pt-2 border-t border-surface-container-highest">
+        <QrCode payload={link.public_url} expiresAt={link.expires_at} />
+      </div>
     </div>
   );
 }
@@ -135,11 +131,6 @@ export function PaymentLinksView() {
   const [merchantReference, setMerchantReference] = useState("");
   const [successRedirectUrl, setSuccessRedirectUrl] = useState("");
   const [failureRedirectUrl, setFailureRedirectUrl] = useState("");
-  const [channels, setChannels] = useState<CollectionMethod[]>([
-    CollectionMethod.USSD_PUSH,
-    CollectionMethod.STK_PUSH,
-    CollectionMethod.SELCOM_PESA_PUSH,
-  ]);
 
   useEffect(() => {
     listPaymentLinks().then((data) => {
@@ -153,13 +144,9 @@ export function PaymentLinksView() {
     return links.filter((link) => link.status === filter.toUpperCase());
   }, [links, filter]);
 
-  function toggleChannel(channel: CollectionMethod) {
-    setChannels((prev) => (prev.includes(channel) ? prev.filter((c) => c !== channel) : [...prev, channel]));
-  }
-
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!amount || channels.length === 0) return;
+    if (!amount) return;
 
     setSubmitting(true);
     try {
@@ -170,7 +157,6 @@ export function PaymentLinksView() {
         customer_phone: customerPhone || null,
         customer_email: customerEmail || null,
         description: description || null,
-        allowed_payment_methods: channels,
         expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
         merchant_reference: merchantReference || null,
         success_redirect_url: successRedirectUrl || null,
@@ -246,6 +232,9 @@ export function PaymentLinksView() {
       <section id="create-link" className="scroll-mt-24 grid grid-cols-1 lg:grid-cols-5 gap-6">
         <form onSubmit={handleSubmit} className="lg:col-span-3 bg-surface rounded-xl border border-surface-container-highest shadow-ambient p-6 space-y-5">
           <h3 className="text-2xl font-semibold text-on-background mb-1">Create Payment Link</h3>
+          <p className="text-sm text-on-surface-variant -mt-3">
+            Secure Selcom hosted checkout — the customer chooses their payment method on checkout.
+          </p>
           <div className="grid sm:grid-cols-2 gap-5">
             <div>
               <label className="block text-sm font-medium text-on-surface-variant mb-1.5">Customer Name</label>
@@ -350,25 +339,6 @@ export function PaymentLinksView() {
                 value={failureRedirectUrl}
                 onChange={(event) => setFailureRedirectUrl(event.target.value)}
               />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-on-surface-variant mb-2">Allowed Payment Channels</label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {CHANNEL_OPTIONS.map((channel) => (
-                <label
-                  key={channel}
-                  className="flex items-center gap-2 bg-surface-container-low border border-surface-container-highest rounded-lg px-3 py-2.5 cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary-container/10"
-                >
-                  <input
-                    checked={channels.includes(channel)}
-                    onChange={() => toggleChannel(channel)}
-                    className="rounded border-outline-variant text-primary-container focus:ring-primary"
-                    type="checkbox"
-                  />
-                  <span className="text-sm font-medium text-on-surface">{COLLECTION_METHOD_LABELS[channel]}</span>
-                </label>
-              ))}
             </div>
           </div>
           <button
