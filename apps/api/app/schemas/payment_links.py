@@ -210,3 +210,27 @@ class PublicCollectionStatusResponse(BaseModel):
 
     status: str
     message: str
+
+
+class PublicCollectionReceiptResponse(BaseModel):
+    """GET /public/payment-links/{public_slug}/collections/{collection_id}/receipt
+    — only ever served once the collection is genuinely `"successful"`
+    (see the router: a `pending_review`/`reversed`/`processing`
+    collection gets a 409, never a receipt that could be mistaken for
+    proof of a settled payment). Every field here is Selcom's own
+    confirmed data already captured by the existing webhook/reconciliation
+    pipeline (app/services/checkout_reconciliation.py) — nothing on this
+    receipt is generated or guessed by this codebase."""
+
+    collection_id: uuid.UUID
+    merchant_name: str
+    amount: Decimal
+    currency: str
+    description: str | None = None
+    customer_name: str | None = None
+    customer_phone: str | None = None
+    method: str
+    provider_reference: str | None = None
+    provider_transid: str | None = None
+    channel: str | None = None
+    completed_at: datetime | None = None

@@ -242,7 +242,16 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
             : "Thank you! Your payment has been received."
         }
         summary={{ merchantName: link.merchant_name, amount: link.amount, currency: link.currency }}
-      />
+      >
+        {!link.success_redirect_url && collectionId && (
+          <a
+            href={`/pay/${slug}/receipt/${collectionId}`}
+            className="mt-5 block w-full rounded bg-primary-container px-4 py-3 text-center text-sm font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary"
+          >
+            View & Download Receipt
+          </a>
+        )}
+      </StatusCard>
     );
   }
 

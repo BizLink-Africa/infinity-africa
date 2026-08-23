@@ -34,6 +34,7 @@ from app.schemas.payment_links import (
     PaymentLinkResponse,
     PaymentLinkWalletPushRequest,
     PaymentLinkWalletPushResponse,
+    PublicCollectionReceiptResponse,
     PublicCollectionStatusResponse,
     PublicPaymentLinkResponse,
 )
@@ -232,6 +233,66 @@ def get_public_collection_status(public_slug: str, collection_id: uuid.UUID):
         )
 
     return APIResponse(data=PublicCollectionStatusResponse(status=status, message=message))
+
+
+# Internal collections.method DB value -> the customer-facing method name
+# shown on the receipt (same three active methods as the payment page
+# itself — app/services/collection_payment.py). Not exhaustive over
+# every legacy method value on purpose: a receipt only exists for a
+# collection that actually reached "successful", and only these three
+# methods can do that going forward.
+_RECEIPT_METHOD_LABELS: dict[str, str] = {
+    "STK_PUSH": "Mobile Money Push",
+    "SELCOM_PESA_PUSH": "Selcom Pesa",
+    "DYNAMIC_QR": "Scan QR / TanQR",
+}
+
+
+@public_router.get(
+    "/{public_slug}/collections/{collection_id}/receipt", response_model=APIResponse[PublicCollectionReceiptResponse]
+)
+def get_public_collection_receipt(public_slug: str, collection_id: uuid.UUID):
+    """Only ever returns data for a collection that is genuinely
+    `"successful"` — a `pending_review`/`reversed`/`processing`/`failed`
+    collection gets a 409, never a receipt a customer could mistake for
+    proof of a completed payment (same "don't claim success early" rule
+    as everywhere else in this codebase). Every field is Selcom's own
+    already-captured data (app/services/checkout_reconciliation.py) —
+    nothing here is generated."""
+    client = get_supabase_admin()
+    link = execute_maybe_single(
+        client.table("payment_links").select("*").eq("public_slug", public_slug).maybe_single()
+    )
+    if not link:
+        raise NotFoundError("Payment link not found")
+
+    collection = execute_maybe_single(
+        client.table("collections").select("*").eq("id", str(collection_id)).eq("payment_link_id", link["id"]).maybe_single()
+    )
+    if not collection:
+        raise NotFoundError("Collection not found")
+    if collection["status"] != "successful":
+        raise ConflictError("A receipt is only available for a completed payment")
+
+    merchant = get_by_id(client, "merchants", uuid.UUID(link["merchant_id"]))
+    merchant_name = merchant["business_name"] if merchant else "Unknown merchant"
+
+    return APIResponse(
+        data=PublicCollectionReceiptResponse(
+            collection_id=collection_id,
+            merchant_name=merchant_name,
+            amount=collection["amount"],
+            currency=collection["currency"],
+            description=link.get("description"),
+            customer_name=link.get("customer_name"),
+            customer_phone=collection.get("customer_phone") or link.get("customer_phone"),
+            method=_RECEIPT_METHOD_LABELS.get(collection["method"], collection["method"]),
+            provider_reference=collection.get("provider_reference"),
+            provider_transid=collection.get("provider_transid"),
+            channel=collection.get("channel"),
+            completed_at=collection.get("completed_at"),
+        )
+    )
 
 
 @public_router.post(

@@ -30,8 +30,8 @@ export default async function CustomerPaymentPage({
   const link = await fetchPublicPaymentLink(slug);
 
   return (
-    <div className="flex flex-1 flex-col items-center bg-surface-container px-4 py-10 sm:py-16">
-      <div className="w-full max-w-md">
+    <div className="flex flex-1 flex-col items-center bg-surface-container px-4 py-6 sm:py-16">
+      <div className="w-full max-w-xl">
         <div className="mb-6 flex items-center justify-center">
           <span className="text-lg font-bold tracking-tight text-primary">Infinity Africa</span>
         </div>

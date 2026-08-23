@@ -16,6 +16,21 @@ export interface PublicPaymentLink {
   failure_redirect_url: string | null;
 }
 
+export interface PublicCollectionReceipt {
+  collection_id: string;
+  merchant_name: string;
+  amount: string;
+  currency: string;
+  description: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  method: string;
+  provider_reference: string | null;
+  provider_transid: string | null;
+  channel: string | null;
+  completed_at: string | null;
+}
+
 /** Mirrors apps/api's {success, data} / {success, error} envelope. */
 interface ApiEnvelope<T> {
   success: boolean;
@@ -41,6 +56,34 @@ export async function fetchPublicPaymentLink(slug: string): Promise<PublicPaymen
     }
 
     const body: ApiEnvelope<PublicPaymentLink> = await response.json();
+    return body.success && body.data ? body.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches a payment receipt — only ever succeeds once the backend has
+ * confirmed the collection genuinely reached "successful" (a 409 for
+ * anything else comes back as null here, same as an unknown slug/id).
+ * Every field returned is Selcom's own already-captured data; nothing
+ * is generated client-side.
+ */
+export async function fetchPublicCollectionReceipt(
+  slug: string,
+  collectionId: string,
+): Promise<PublicCollectionReceipt | null> {
+  try {
+    const response = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/public/payment-links/${slug}/collections/${collectionId}/receipt`,
+      { cache: "no-store" },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const body: ApiEnvelope<PublicCollectionReceipt> = await response.json();
     return body.success && body.data ? body.data : null;
   } catch {
     return null;

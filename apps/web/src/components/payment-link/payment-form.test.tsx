@@ -292,4 +292,90 @@ describe("PaymentForm", () => {
       vi.useRealTimers();
     }
   });
+
+  it("links to the receipt page once payment completes", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: {
+              collection_id: "col-3",
+              method: "WALLET_PUSH",
+              status: "pending",
+              message: "Payment prompt sent. Please approve on your phone.",
+              qr: null,
+              payment_token: null,
+              payment_gateway_url: null,
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true, data: { status: "completed", message: "Payment completed successfully." } }),
+        });
+
+      render(<PaymentForm slug="test-slug" link={{ ...link, customer_phone: "255747730270" }} />);
+      fireEvent.click(screen.getByRole("button", { name: /Pay by Mobile Money Push/ }));
+
+      await vi.waitFor(() =>
+        expect(screen.getByText("Payment prompt sent. Please approve on your phone.")).toBeInTheDocument(),
+      );
+      await vi.advanceTimersByTimeAsync(3000);
+
+      await vi.waitFor(() => expect(screen.getByText("Payment completed")).toBeInTheDocument());
+      expect(screen.getByRole("link", { name: "View & Download Receipt" })).toHaveAttribute(
+        "href",
+        "/pay/test-slug/receipt/col-3",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not show a receipt link when a success_redirect_url will navigate the customer away", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: {
+              collection_id: "col-4",
+              method: "WALLET_PUSH",
+              status: "pending",
+              message: "Payment prompt sent. Please approve on your phone.",
+              qr: null,
+              payment_token: null,
+              payment_gateway_url: null,
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true, data: { status: "completed", message: "Payment completed successfully." } }),
+        });
+
+      render(
+        <PaymentForm
+          slug="test-slug"
+          link={{ ...link, customer_phone: "255747730270", success_redirect_url: "https://merchant.example/thanks" }}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /Pay by Mobile Money Push/ }));
+
+      await vi.waitFor(() =>
+        expect(screen.getByText("Payment prompt sent. Please approve on your phone.")).toBeInTheDocument(),
+      );
+      await vi.advanceTimersByTimeAsync(3000);
+
+      await vi.waitFor(() => expect(screen.getByText("Payment completed")).toBeInTheDocument());
+      expect(screen.queryByRole("link", { name: "View & Download Receipt" })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

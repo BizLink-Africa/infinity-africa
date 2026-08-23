@@ -1,0 +1,89 @@
+"use client";
+
+import { formatCurrency, formatDateTime } from "@/lib/format";
+import type { PublicCollectionReceipt } from "@/lib/payment-links";
+
+/**
+ * A printable payment receipt — every value here came straight from
+ * Selcom's own confirmed data (see the backend receipt endpoint's
+ * docstring), nothing is generated. "Download Receipt" uses the
+ * browser's native print dialog (Save as PDF works the same way on
+ * desktop and mobile) rather than a client-side PDF library — no new
+ * dependency, and it's the most reliable way to get a real, saved file
+ * across every device this page might be opened on.
+ *
+ * print:hidden / print:* utilities (Tailwind's print variant) strip the
+ * chrome (button, "Secured by" footer via the parent page) so only the
+ * receipt itself ends up in the saved PDF.
+ */
+export function ReceiptCard({ receipt }: { receipt: PublicCollectionReceipt }) {
+  return (
+    <div>
+      <div
+        id="receipt"
+        className="rounded-lg border border-outline-variant bg-surface p-6 shadow-sm print:rounded-none print:border-0 print:shadow-none sm:p-8"
+      >
+        <div className="flex items-center justify-between border-b border-dashed border-outline-variant pb-5">
+          <div>
+            <p className="text-lg font-bold tracking-tight text-primary">Infinity Africa</p>
+            <p className="text-xs text-on-surface-variant">Payment Receipt</p>
+          </div>
+          <CheckBadge />
+        </div>
+
+        <div className="mt-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">Amount paid</p>
+          <p className="mt-1 text-3xl font-bold text-on-surface">{formatCurrency(receipt.amount, receipt.currency)}</p>
+        </div>
+
+        <dl className="mt-6 space-y-3 text-sm">
+          <Row label="Paid to" value={receipt.merchant_name} />
+          {receipt.description && <Row label="Description" value={receipt.description} />}
+          {(receipt.customer_name || receipt.customer_phone) && (
+            <Row
+              label="Paid by"
+              value={[receipt.customer_name, receipt.customer_phone].filter(Boolean).join(" · ")}
+            />
+          )}
+          <Row label="Payment method" value={receipt.method} />
+          {receipt.channel && <Row label="Channel" value={receipt.channel} />}
+          {receipt.provider_reference && <Row label="Selcom reference" value={receipt.provider_reference} mono />}
+          {receipt.provider_transid && <Row label="Transaction ID" value={receipt.provider_transid} mono />}
+          {receipt.completed_at && <Row label="Date" value={formatDateTime(receipt.completed_at)} />}
+          <Row label="Receipt no." value={receipt.collection_id} mono />
+        </dl>
+
+        <p className="mt-6 border-t border-dashed border-outline-variant pt-4 text-center text-xs text-on-surface-variant">
+          This receipt reflects a payment confirmed by Selcom. Secured by Infinity Africa.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => window.print()}
+        className="mt-5 w-full rounded bg-primary-container px-4 py-3 text-sm font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary print:hidden"
+      >
+        Download Receipt
+      </button>
+    </div>
+  );
+}
+
+function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <dt className="text-on-surface-variant">{label}</dt>
+      <dd className={`text-right font-medium text-on-surface ${mono ? "font-mono text-xs" : ""}`}>{value}</dd>
+    </div>
+  );
+}
+
+function CheckBadge() {
+  return (
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
+      <svg viewBox="0 0 24 24" fill="none" strokeWidth={2.5} stroke="currentColor" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+      </svg>
+    </span>
+  );
+}
