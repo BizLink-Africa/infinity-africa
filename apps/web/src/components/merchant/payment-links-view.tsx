@@ -129,8 +129,6 @@ export function PaymentLinksView() {
   const [expiresAt, setExpiresAt] = useState("");
   const [description, setDescription] = useState("");
   const [merchantReference, setMerchantReference] = useState("");
-  const [successRedirectUrl, setSuccessRedirectUrl] = useState("");
-  const [failureRedirectUrl, setFailureRedirectUrl] = useState("");
 
   useEffect(() => {
     listPaymentLinks().then((data) => {
@@ -159,8 +157,8 @@ export function PaymentLinksView() {
         description: description || null,
         expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
         merchant_reference: merchantReference || null,
-        success_redirect_url: successRedirectUrl || null,
-        failure_redirect_url: failureRedirectUrl || null,
+        success_redirect_url: null,
+        failure_redirect_url: null,
       });
       setLinks((prev) => [link, ...prev]);
       setLastCreated(link);
@@ -172,8 +170,6 @@ export function PaymentLinksView() {
       setExpiresAt("");
       setDescription("");
       setMerchantReference("");
-      setSuccessRedirectUrl("");
-      setFailureRedirectUrl("");
     } finally {
       setSubmitting(false);
     }
@@ -314,32 +310,6 @@ export function PaymentLinksView() {
               value={description}
               onChange={(event) => setDescription(event.target.value)}
             />
-          </div>
-          <div className="grid sm:grid-cols-2 gap-5">
-            <div>
-              <label className="block text-sm font-medium text-on-surface-variant mb-1.5">
-                Success Redirect URL <span className="text-on-surface-variant/70 font-normal">(optional)</span>
-              </label>
-              <input
-                className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
-                placeholder="https://yourstore.com/thank-you"
-                type="url"
-                value={successRedirectUrl}
-                onChange={(event) => setSuccessRedirectUrl(event.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-on-surface-variant mb-1.5">
-                Failure Redirect URL <span className="text-on-surface-variant/70 font-normal">(optional)</span>
-              </label>
-              <input
-                className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
-                placeholder="https://yourstore.com/try-again"
-                type="url"
-                value={failureRedirectUrl}
-                onChange={(event) => setFailureRedirectUrl(event.target.value)}
-              />
-            </div>
           </div>
           <button
             className="w-full bg-primary-container text-on-primary text-sm font-medium py-3 rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-60"
