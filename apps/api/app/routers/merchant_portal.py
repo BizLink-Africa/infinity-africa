@@ -96,6 +96,7 @@ from app.services.payment_links import (
     validate_payment_link_for_collection,
     with_effective_status,
 )
+from app.services.wallet_push import execute_wallet_push_collection
 
 router = APIRouter(prefix="/merchant", tags=["merchant-portal"])
 
@@ -746,6 +747,62 @@ async def create_my_hosted_checkout_collection(
         handler=_handler,
     )
     return APIResponse(data=HostedCheckoutCollectionResponse(**body))
+
+
+@router.post(
+    "/collections/wallet-push",
+    response_model=APIResponse[CollectionResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_my_wallet_push_collection(
+    payload: MerchantPushCollectionRequest,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+):
+    """TEMPORARY (2026-08-23): "Request Collection" via wallet-push —
+    added back specifically because Selcom's hosted checkout is
+    confirmed broken account-side (see
+    docs/selcom-checkout-collections.md, "Known issue" section).
+    Sends a real STK/USSD push to payload.customer_phone immediately.
+    Swap back to /collections/hosted-checkout once Selcom confirms
+    fixed — see app/services/wallet_push.py's module docstring."""
+    client = get_supabase_admin()
+
+    async def _handler() -> tuple[int, dict]:
+        collection = await execute_wallet_push_collection(
+            client,
+            merchant_id=membership.merchant_id,
+            amount=payload.amount,
+            currency=payload.currency,
+            customer_phone=payload.customer_phone,
+            customer_id=payload.customer_id,
+            customer_name=payload.customer_name,
+            customer_email=payload.customer_email,
+            merchant_reference=payload.merchant_reference,
+            description=payload.description,
+            invoice_id=payload.invoice_id,
+        )
+        write_audit_log(
+            client,
+            actor_id=membership.user_id,
+            actor_type="user",
+            merchant_id=membership.merchant_id,
+            action="collection.initiated",
+            resource_type="collection",
+            resource_id=uuid.UUID(collection["id"]),
+            metadata={"method": "STK_PUSH"},
+        )
+        return status.HTTP_202_ACCEPTED, collection
+
+    _status_code, body = await run_idempotent(
+        client,
+        merchant_id=membership.merchant_id,
+        endpoint="POST /v1/merchant/collections/wallet-push",
+        idempotency_key=idempotency_key,
+        request_payload=payload.model_dump(mode="json"),
+        handler=_handler,
+    )
+    return APIResponse(data=CollectionResponse(**body))
 
 
 @router.post(

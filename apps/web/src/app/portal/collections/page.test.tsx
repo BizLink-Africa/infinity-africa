@@ -2,15 +2,15 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CollectionMethod } from "@infinity/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Collection, HostedCheckoutCollection } from "@/lib/portal/types";
+import type { Collection } from "@/lib/portal/types";
 
 const listCollections = vi.fn();
-const createHostedCheckoutCollection = vi.fn();
+const createWalletPushCollection = vi.fn();
 const refreshCollectionStatus = vi.fn();
 
 vi.mock("@/lib/portal/api", () => ({
   listCollections: (...args: unknown[]) => listCollections(...args),
-  createHostedCheckoutCollection: (...args: unknown[]) => createHostedCheckoutCollection(...args),
+  createWalletPushCollection: (...args: unknown[]) => createWalletPushCollection(...args),
   refreshCollectionStatus: (...args: unknown[]) => refreshCollectionStatus(...args),
 }));
 
@@ -22,7 +22,7 @@ function collection(overrides: Partial<Collection>): Collection {
     payment_link_id: null,
     invoice_id: null,
     merchant_reference: null,
-    method: CollectionMethod.HOSTED_CHECKOUT,
+    method: CollectionMethod.STK_PUSH,
     amount: "1000.00",
     currency: "TZS",
     customer_phone: "255762474101",
@@ -47,16 +47,12 @@ function collection(overrides: Partial<Collection>): Collection {
   };
 }
 
-function hostedCheckoutCollection(overrides: Partial<HostedCheckoutCollection> = {}): HostedCheckoutCollection {
-  return { ...collection({}), payment_gateway_url: "https://tza.selcom.online/paymentgw/checkout/abc", ...overrides };
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   listCollections.mockResolvedValue([]);
 });
 
-describe("Merchant portal CollectionsPage — Request Collection form", () => {
+describe("Merchant portal CollectionsPage — Request Collection form (temporary wallet-push)", () => {
   it("does not render a channel/method selector", async () => {
     const { default: CollectionsPage } = await import("./page");
     render(<CollectionsPage />);
@@ -66,34 +62,32 @@ describe("Merchant portal CollectionsPage — Request Collection form", () => {
     expect(screen.queryByText("Allowed Payment Channels")).not.toBeInTheDocument();
   });
 
-  it("shows the hosted-checkout explanation copy", async () => {
+  it("requires a phone number to submit", async () => {
     const { default: CollectionsPage } = await import("./page");
     render(<CollectionsPage />);
 
-    expect(
-      screen.getByText("Secure Selcom hosted checkout — the customer chooses their payment method on checkout."),
-    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Phone Number")).toBeRequired();
   });
 
-  it("submits amount/customer details without a method field, then shows Open checkout / Copy checkout link", async () => {
-    createHostedCheckoutCollection.mockResolvedValue(hostedCheckoutCollection());
+  it("submits customer details to createWalletPushCollection, then shows the payment request sent confirmation", async () => {
+    createWalletPushCollection.mockResolvedValue(collection({ customer_phone: "255747730270" }));
     const { default: CollectionsPage } = await import("./page");
     render(<CollectionsPage />);
 
     fireEvent.change(screen.getByLabelText("Customer Name"), { target: { value: "Grace" } });
+    fireEvent.change(screen.getByLabelText("Phone Number"), { target: { value: "255747730270" } });
     fireEvent.change(screen.getByLabelText("Amount in TZS"), { target: { value: "5000" } });
     fireEvent.click(screen.getByRole("button", { name: /Request Collection/ }));
 
     await waitFor(() =>
-      expect(createHostedCheckoutCollection).toHaveBeenCalledWith(
-        expect.objectContaining({ customer_name: "Grace", amount: "5000" }),
+      expect(createWalletPushCollection).toHaveBeenCalledWith(
+        expect.objectContaining({ customer_name: "Grace", customer_phone: "255747730270", amount: "5000" }),
       ),
     );
-    expect(createHostedCheckoutCollection.mock.calls[0][0]).not.toHaveProperty("method");
+    expect(createWalletPushCollection.mock.calls[0][0]).not.toHaveProperty("method");
 
-    const openCheckout = await screen.findByRole("link", { name: /Open checkout/ });
-    expect(openCheckout).toHaveAttribute("href", "https://tza.selcom.online/paymentgw/checkout/abc");
-    expect(screen.getByRole("button", { name: /Copy checkout link/ })).toBeInTheDocument();
+    expect(await screen.findByText("Payment request sent")).toBeInTheDocument();
+    expect(screen.getAllByText(/255747730270/).length).toBeGreaterThan(0);
   });
 });
 

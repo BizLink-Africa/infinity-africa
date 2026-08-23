@@ -1,6 +1,15 @@
 """Orchestrates the two-step Selcom Checkout wallet-push flow
 (create_order_minimal -> process_wallet_payment) for a customer paying a
-public payment link via mobile money push (STK/USSD/wallet pull).
+public payment link via mobile money push (STK/USSD/wallet pull) —
+execute_wallet_push_for_payment_link() — plus a standalone variant for
+the Merchant Portal's own "Request Collection" — execute_wallet_push_collection(),
+added back 2026-08-23 (TEMPORARY) because Selcom's hosted checkout
+(payment_gateway_url) is confirmed broken account-side — see
+docs/selcom-checkout-collections.md, "Known issue" section — while
+wallet-push itself is proven working (two real successful payments this
+session). Swap the customer-facing/Request-Collection UI back to hosted
+checkout once Selcom confirms it's fixed; nothing here needs to change
+to do that, this module just needs to stop being called.
 
 **This module never credits a merchant, posts a ledger entry, or marks a
 payment_link PAID.** Selcom's wallet-payment response is normally
@@ -36,7 +45,10 @@ from supabase import Client
 
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
-from app.services.checkout_orders import get_or_create_checkout_order_for_payment_link
+from app.services.checkout_orders import (
+    create_checkout_order_minimal,
+    get_or_create_checkout_order_for_payment_link,
+)
 from app.services.collections import create_processing_transaction
 from app.services.crud import execute_maybe_single, insert_row
 from app.services.selcom_checkout.client import (
@@ -164,6 +176,118 @@ async def execute_wallet_push_for_payment_link(client: Client, *, payment_link: 
             provider_reference=result.reference or transid,
             amount=Decimal(str(payment_link["amount"])),
             currency=payment_link["currency"],
+        )
+
+    return collection
+
+
+_PLACEHOLDER_BUYER_EMAIL_DOMAIN = "customers.infinityafrica.net"
+
+
+async def execute_wallet_push_collection(
+    client: Client,
+    *,
+    merchant_id: uuid.UUID,
+    amount: Decimal,
+    currency: str,
+    customer_phone: str,
+    customer_name: str | None = None,
+    customer_email: str | None = None,
+    customer_id: uuid.UUID | None = None,
+    merchant_reference: str | None = None,
+    description: str | None = None,
+    invoice_id: uuid.UUID | None = None,
+) -> dict:
+    """TEMPORARY (2026-08-23): Merchant Portal "Request Collection" —
+    standalone wallet-push, not tied to any payment link. Added back
+    specifically because Selcom's hosted checkout (payment_gateway_url)
+    is confirmed broken account-side (see
+    docs/selcom-checkout-collections.md, "Known issue" section) — this
+    is the proven-working alternative while that's escalated with
+    Selcom. Mirrors execute_wallet_push_for_payment_link's two-step
+    flow, but always creates a fresh Selcom order (no existing-attempt
+    reuse — there's no persistent payment-link resource to reuse
+    against here, only the router's own Idempotency-Key replay).
+
+    customer_phone is required (unlike hosted_checkout_collection's
+    optional one) — a push has nowhere to go without one."""
+    buyer_name = customer_name or "Infinity Africa Customer"
+    buyer_email = customer_email or f"collection-{uuid.uuid4()}@{_PLACEHOLDER_BUYER_EMAIL_DOMAIN}"
+
+    order = await create_checkout_order_minimal(
+        client,
+        merchant_id=merchant_id,
+        buyer_email=buyer_email,
+        buyer_name=buyer_name,
+        buyer_phone=customer_phone,
+        amount=amount,
+        currency=currency,
+        no_of_items=1,
+        merchant_reference=merchant_reference,
+    )
+
+    base_row = {
+        "merchant_id": str(merchant_id),
+        "customer_id": str(customer_id) if customer_id else None,
+        "invoice_id": str(invoice_id) if invoice_id else None,
+        "merchant_reference": merchant_reference,
+        "checkout_order_id": order["id"],
+        "method": _WALLET_PUSH_METHOD_LABEL,
+        "amount": str(amount),
+        "currency": currency,
+        "customer_phone": customer_phone,
+        "provider": "selcom",
+        "initiated_at": utc_now_iso(),
+    }
+
+    if order["status"] != "created":
+        return insert_row(
+            client,
+            "collections",
+            {
+                **base_row,
+                "status": "failed",
+                "failure_reason": "Could not create the payment order with the provider",
+                "provider_resultcode": order.get("provider_result_code"),
+                "provider_result": order.get("provider_result"),
+                "provider_message": order.get("provider_message"),
+                "raw_response": order.get("raw_response") or {},
+            },
+        )
+
+    transid = generate_reference("TXN")
+    checkout_client = SelcomCheckoutHTTPClient(credentials=get_selcom_checkout_credentials())
+    result = await checkout_client.process_wallet_payment(
+        transid=transid, order_id=order["order_id"], msisdn=customer_phone
+    )
+
+    collection_status = "failed" if result.status == "failed" else "processing"
+
+    collection = insert_row(
+        client,
+        "collections",
+        {
+            **base_row,
+            "status": collection_status,
+            "failure_reason": result.message if collection_status == "failed" else None,
+            "provider_reference": result.reference or None,
+            "provider_transid": transid,
+            "provider_resultcode": result.resultcode,
+            "provider_result": result.result,
+            "provider_message": result.message,
+            "raw_response": result.raw_response,
+        },
+    )
+
+    if collection_status == "processing":
+        create_processing_transaction(
+            client,
+            merchant_id=merchant_id,
+            method=_WALLET_PUSH_METHOD_LABEL,
+            collection_id=collection["id"],
+            provider_reference=result.reference or transid,
+            amount=amount,
+            currency=currency,
         )
 
     return collection

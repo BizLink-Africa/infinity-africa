@@ -245,6 +245,33 @@ Selcom support (using the order references above as evidence) whether
 hosted checkout is actually deployed and reachable for this account's
 vendor code.
 
+**Update 2026-08-23**: the account's vendor code was confirmed by the
+user to be linked to a live checkout deployment — ruling out the one
+lead above. A further check strengthened the evidence rather than
+resolving it: the `qr` field's embedded `https://selcom.link/<id>` short
+link (Selcom's own official redirector, not something we constructed)
+was fetched directly and confirmed to `302`-redirect to the *exact same*
+`payment_gateway_url` token stored for that order — two independent
+paths Selcom itself generates agree on the destination, and that
+destination still returns "Page Not Found". This is now escalated to
+Selcom support directly; the specific ask is for them to generate a test
+order themselves (this vendor code) and confirm whether they can open
+the resulting checkout page on their end.
+
+**Interim measure while this is blocked (2026-08-23, TEMPORARY)**: both
+customer-facing payment (the public payment-link page) and the Merchant
+Portal's "Request Collection" now use wallet-push again
+(`app/services/wallet_push.py::execute_wallet_push_for_payment_link` /
+`execute_wallet_push_collection`, `POST /public/payment-links/{slug}/pay/wallet-push`,
+`POST /v1/merchant/collections/wallet-push`) instead of hosted checkout —
+fully working, proven with two real successful payments earlier this
+session. The hosted-checkout backend endpoints
+(`POST /public/payment-links/{slug}/pay/checkout`,
+`POST /v1/merchant/collections/hosted-checkout`) are untouched and ready
+to swap back into the frontend the moment Selcom confirms a fix — see
+the module docstrings on the wallet-push functions above for exactly
+what to revert.
+
 ## Dynamic QR
 
 `POST /public/payment-links/{slug}/collect` with `{"method": "DYNAMIC_QR"}`

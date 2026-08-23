@@ -278,6 +278,37 @@ export async function createHostedCheckoutCollection(
   );
 }
 
+export interface CreateWalletPushCollectionInput {
+  customer_name?: string | null;
+  customer_phone: string;
+  customer_email?: string | null;
+  amount: string;
+  description?: string | null;
+  merchant_reference?: string | null;
+}
+
+/** TEMPORARY (2026-08-23): "Request Collection" via wallet-push — sends
+ * a real STK/USSD push to customer_phone immediately. Brought back
+ * because Selcom's hosted checkout is confirmed broken account-side;
+ * see docs/selcom-checkout-collections.md. Swap back to
+ * createHostedCheckoutCollection() once Selcom confirms it's fixed. */
+export async function createWalletPushCollection(input: CreateWalletPushCollectionInput): Promise<Collection> {
+  return apiWrite<Collection>(
+    "/v1/merchant/collections/wallet-push",
+    "POST",
+    {
+      amount: input.amount,
+      currency: "TZS",
+      customer_name: input.customer_name ?? null,
+      customer_phone: input.customer_phone,
+      customer_email: input.customer_email ?? null,
+      description: input.description ?? null,
+      merchant_reference: input.merchant_reference ?? null,
+    },
+    { idempotent: true },
+  );
+}
+
 // --- Withdrawals (LIVE — /v1/merchant/withdrawals; frontend keeps calling
 // this "disbursement" internally, matching the existing Disbursement type
 // and the established "Withdrawals" (UI) / "disbursement" (code) naming

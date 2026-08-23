@@ -9,9 +9,9 @@ import { PageHeader } from "@/components/portal/page-header";
 import { RefreshStatusButton } from "@/components/portal/refresh-status-button";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { createHostedCheckoutCollection, listCollections, refreshCollectionStatus } from "@/lib/portal/api";
+import { createWalletPushCollection, listCollections, refreshCollectionStatus } from "@/lib/portal/api";
 import { collectionBadge } from "@/lib/portal/status-tones";
-import type { Collection, HostedCheckoutCollection } from "@/lib/portal/types";
+import type { Collection } from "@/lib/portal/types";
 
 export default function CollectionsPage() {
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -27,8 +27,7 @@ export default function CollectionsPage() {
   const [description, setDescription] = useState("");
   const [merchantReference, setMerchantReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [lastCheckout, setLastCheckout] = useState<HostedCheckoutCollection | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [lastRequest, setLastRequest] = useState<Collection | null>(null);
 
   useEffect(() => {
     listCollections().then(setCollections);
@@ -36,21 +35,20 @@ export default function CollectionsPage() {
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!amount) return;
+    if (!amount || !customerPhone) return;
 
     setSubmitting(true);
-    setCopied(false);
     try {
-      const collection = await createHostedCheckoutCollection({
+      const collection = await createWalletPushCollection({
         customer_name: customerName || null,
-        customer_phone: customerPhone || null,
+        customer_phone: customerPhone,
         customer_email: customerEmail || null,
         amount,
         description: description || null,
         merchant_reference: merchantReference || null,
       });
       setCollections((prev) => [collection, ...prev]);
-      setLastCheckout(collection);
+      setLastRequest(collection);
       setCustomerName("");
       setCustomerPhone("");
       setCustomerEmail("");
@@ -62,25 +60,14 @@ export default function CollectionsPage() {
     }
   }
 
-  async function handleCopy() {
-    if (!lastCheckout?.payment_gateway_url) return;
-    try {
-      await navigator.clipboard.writeText(lastCheckout.payment_gateway_url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard API unavailable (e.g. insecure context) — no-op.
-    }
-  }
-
   return (
     <div className="space-y-8">
-      <PageHeader title="Collections" description="Request one-off payments from customers via secure Selcom hosted checkout." />
+      <PageHeader title="Collections" description="Request one-off payments from customers via mobile money push." />
 
       <Card id="create-collection" className="scroll-mt-24">
         <h3 className="text-2xl font-semibold text-on-background mb-1">Request Collection</h3>
         <p className="text-sm text-on-surface-variant mb-5">
-          Secure Selcom hosted checkout — the customer chooses their payment method on checkout.
+          Your customer gets a prompt on their phone to approve with their mobile money PIN.
         </p>
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -99,10 +86,11 @@ export default function CollectionsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-on-surface-variant mb-1.5" htmlFor="cust-phone">
-                Phone Number <span className="text-on-surface-variant/70 font-normal">(if needed)</span>
+                Phone Number
               </label>
               <input
                 id="cust-phone"
+                required
                 className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
                 placeholder="+255 7XX XXX XXX"
                 type="tel"
@@ -183,33 +171,13 @@ export default function CollectionsPage() {
           </button>
         </form>
 
-        {lastCheckout && (
+        {lastRequest && (
           <div className="mt-6 pt-5 border-t border-surface-container-highest">
-            <h4 className="text-sm font-semibold text-on-background mb-1">Checkout ready</h4>
-            <p className="text-sm text-on-surface-variant mb-3">
-              Share this link with your customer, or open it yourself to complete the payment.
+            <h4 className="text-sm font-semibold text-on-background mb-1">Payment request sent</h4>
+            <p className="text-sm text-on-surface-variant">
+              A prompt was sent to {lastRequest.customer_phone}. Ask your customer to approve it with their PIN — the
+              status below will update automatically once they do.
             </p>
-            <div className="flex flex-col sm:flex-row gap-2.5">
-              <a
-                href={lastCheckout.payment_gateway_url ?? "#"}
-                target="_blank"
-                rel="noreferrer"
-                aria-disabled={!lastCheckout.payment_gateway_url}
-                className="flex-1 flex items-center justify-center gap-2 bg-primary-container text-on-primary text-sm font-medium py-2.5 rounded-lg hover:opacity-90 transition-opacity"
-              >
-                <Icon name="open_in_new" className="text-[18px]" />
-                Open checkout
-              </a>
-              <button
-                type="button"
-                onClick={handleCopy}
-                disabled={!lastCheckout.payment_gateway_url}
-                className="flex-1 flex items-center justify-center gap-2 border border-surface-container-highest text-on-surface text-sm font-medium py-2.5 rounded-lg hover:bg-surface-container-low transition-colors disabled:opacity-60"
-              >
-                <Icon name={copied ? "check" : "content_copy"} className="text-[18px]" />
-                {copied ? "Copied!" : "Copy checkout link"}
-              </button>
-            </div>
           </div>
         )}
       </Card>
