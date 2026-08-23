@@ -1,7 +1,7 @@
 import { Card, tdClass, thClass } from "@/components/portal/card";
-import { Icon } from "@/components/portal/icon";
 import { PageHeader } from "@/components/portal/page-header";
 import { StatusBadge } from "@/components/portal/status-badge";
+import { ExportTransactionsCsvButton } from "@/components/super-admin/export-transactions-csv-button";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { listAdminTransactions } from "@/lib/admin/live-api";
 import type { BadgeProps } from "@/lib/portal/status-tones";
@@ -31,12 +31,7 @@ export default async function SuperAdminTransactionsPage() {
       <PageHeader
         title="Transactions"
         description="The full platform ledger — every collection, withdrawal, and fee across all merchants."
-        action={
-          <button className="flex items-center gap-2 bg-surface border border-outline-variant text-on-surface px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-surface-container-low transition-colors">
-            <Icon name="download" className="text-[18px]" />
-            Export CSV
-          </button>
-        }
+        action={<ExportTransactionsCsvButton transactions={transactions} />}
       />
 
       <Card>

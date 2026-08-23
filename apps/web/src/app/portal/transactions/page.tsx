@@ -13,6 +13,33 @@ import type { Transaction } from "@/lib/portal/types";
 
 const OPEN_ALERT_STATUSES = new Set(["OPEN", "UNDER_REVIEW", "DOCUMENTS_REQUESTED", "ESCALATED"]);
 
+const CSV_HEADER = ["Date", "Type", "Reference", "Channel", "Amount", "Currency", "Status"];
+
+function csvCell(value: string): string {
+  // Quote every cell and escape embedded quotes — simplest way to stay
+  // correct for references/channels that might contain a comma.
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function transactionsToCsv(transactions: Transaction[]): string {
+  const rows = transactions.map((transaction) => {
+    const positive = transaction.type === "collection";
+    const amount = `${positive ? "+" : "-"}${transaction.gross_amount}`;
+    return [
+      formatDateTime(transaction.created_at),
+      transaction.type,
+      transaction.reference,
+      transaction.method,
+      amount,
+      transaction.currency,
+      transaction.status,
+    ]
+      .map(csvCell)
+      .join(",");
+  });
+  return [CSV_HEADER.map(csvCell).join(","), ...rows].join("\r\n");
+}
+
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [flaggedTransactionIds, setFlaggedTransactionIds] = useState<Set<string>>(new Set());
@@ -26,13 +53,30 @@ export default function TransactionsPage() {
     });
   }, []);
 
+  function handleExportCsv() {
+    const blob = new Blob([transactionsToCsv(transactions)], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `infinity-africa-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-8">
       <PageHeader
         title="Transactions"
         description="A unified ledger of every collection, withdrawal, and fee."
         action={
-          <button className="flex items-center gap-2 bg-surface border border-outline-variant text-on-surface px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-surface-container-low transition-colors">
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={transactions.length === 0}
+            className="flex items-center gap-2 bg-surface border border-outline-variant text-on-surface px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-surface-container-low transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Icon name="download" className="text-[18px]" />
             Export CSV
           </button>
