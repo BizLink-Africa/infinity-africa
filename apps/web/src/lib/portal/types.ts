@@ -241,14 +241,6 @@ export const API_KEY_SCOPES = [
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
-export interface WalletAccount {
-  id: string;
-  method: DisbursementMethod;
-  label: string;
-  masked_identifier: string;
-  is_default: boolean;
-}
-
 export interface WalletLedgerEntry {
   id: string;
   date: string;

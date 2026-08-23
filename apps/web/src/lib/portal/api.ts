@@ -6,9 +6,7 @@
  * apps/api /v1/merchant/* endpoints — see docs/api.md. Everything else
  * (customers, team, support) still resolves against the in-memory
  * mock-data.ts arrays, since no corresponding self-service endpoint exists
- * yet; each section below is labeled LIVE or MOCK accordingly. Linked
- * withdrawal accounts (listWalletAccounts) has no backend concept at all
- * yet — not even mocked, it's a real empty array.
+ * yet; each section below is labeled LIVE or MOCK accordingly.
  *
  * No component should import mock-data.ts directly — only this file does.
  */
@@ -37,7 +35,6 @@ import type {
   Refund,
   SupportTicket,
   Transaction,
-  WalletAccount,
   WalletLedgerEntry,
   WebhookConfig,
   WebhookConfigWithSecret,
@@ -519,14 +516,6 @@ export async function createCustomer(input: CreateCustomerInput): Promise<Custom
 
 export async function listWalletLedger(): Promise<WalletLedgerEntry[]> {
   return (await apiGet<WalletLedgerEntry[]>("/v1/merchant/wallet/ledger")) ?? [];
-}
-
-/** No backend concept of a "linked withdrawal account" exists yet — a
- * withdrawal takes its destination fresh at submission time, nothing is
- * saved. Returns [] (an honest empty state, not mock data) until that
- * feature exists for real. */
-export async function listWalletAccounts(): Promise<WalletAccount[]> {
-  return [];
 }
 
 // --- Support (MOCK) ------------------------------------------------------------
