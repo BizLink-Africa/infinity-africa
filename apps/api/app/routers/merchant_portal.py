@@ -1097,6 +1097,73 @@ def revoke_my_api_key(
     return APIResponse(data=ApiKeyResponse(**row))
 
 
+@router.post(
+    "/api-keys/{api_key_id}/rotate", response_model=APIResponse[ApiKeyCreateResponse], status_code=status.HTTP_201_CREATED
+)
+def rotate_my_api_key(
+    api_key_id: uuid.UUID,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
+):
+    """Revokes the named key and creates a fresh one with the same
+    name/environment/scopes in a single action — the "rotate" a
+    developer reaches for on a schedule or after a suspected leak,
+    without hand-copying the old key's settings into a new "Generate
+    key" form. The new key's plaintext is returned exactly once, same
+    rule as create_my_api_key — copy it now, it can never be retrieved
+    again."""
+    client = get_supabase_admin()
+    old_row = get_by_id(client, "api_keys", api_key_id)
+    if not old_row or uuid.UUID(old_row["merchant_id"]) != membership.merchant_id:
+        raise NotFoundError("API key not found")
+    if old_row["status"] == "revoked":
+        raise ConflictError("This key was already revoked")
+
+    update_row(
+        client,
+        "api_keys",
+        api_key_id,
+        {"status": "revoked", "revoked_at": datetime.now(timezone.utc).isoformat()},
+        merchant_id=membership.merchant_id,
+    )
+
+    plaintext, prefix = _generate_api_key(old_row["environment"])
+    new_row = insert_row(
+        client,
+        "api_keys",
+        {
+            "merchant_id": str(membership.merchant_id),
+            "name": old_row["name"],
+            "environment": old_row["environment"],
+            "key_prefix": prefix,
+            "hashed_key": hash_api_key(plaintext),
+            "scopes": old_row["scopes"],
+            "status": "active",
+            "created_by": str(membership.user_id),
+        },
+    )
+    write_audit_log(
+        client,
+        actor_id=membership.user_id,
+        actor_type="user",
+        merchant_id=membership.merchant_id,
+        action="api_key.rotated",
+        resource_type="api_key",
+        resource_id=uuid.UUID(new_row["id"]),
+        metadata={"replaced_api_key_id": str(api_key_id)},
+    )
+    return APIResponse(
+        data=ApiKeyCreateResponse(
+            id=new_row["id"],
+            name=new_row["name"],
+            environment=new_row["environment"],
+            key_prefix=new_row["key_prefix"],
+            scopes=new_row["scopes"],
+            plaintext_key=plaintext,
+            created_at=new_row["created_at"],
+        )
+    )
+
+
 # --- Risk monitoring ---------------------------------------------------------
 
 

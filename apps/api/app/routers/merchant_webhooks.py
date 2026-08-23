@@ -44,12 +44,14 @@ _ADMIN_AND_DEVELOPER = (UserRole.MERCHANT_ADMIN, UserRole.DEVELOPER)
 _SAMPLE_TEST_PAYLOAD = {
     "event": "collection.success",
     "test": True,
-    "data": {
-        "reference": "TXN-TEST0000",
-        "amount": "1000.00",
-        "currency": "TZS",
-        "status": "successful",
-    },
+    "collection_id": "00000000-0000-0000-0000-000000000000",
+    "reference": "TXN-TEST0000",
+    "amount": "1000.00",
+    "fee": "15.00",
+    "net_amount": "985.00",
+    "currency": "TZS",
+    "status": "successful",
+    "timestamp": "2026-08-24T09:00:00+03:00",
 }
 
 

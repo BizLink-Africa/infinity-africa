@@ -153,6 +153,35 @@ def _find_transaction_for_collection(client: Client, collection_id: uuid.UUID) -
     return execute_maybe_single(query)
 
 
+def _collection_webhook_payload(
+    *,
+    collection: dict,
+    external_status: str,
+    transaction: dict | None = None,
+    reason: str | None = None,
+) -> dict:
+    """The canonical outbound payload shape for every collection.*
+    webhook event — documented in apps/web/src/app/developers/webhooks/page.tsx.
+    fee/net_amount are only ever populated once a transaction exists and
+    a fee was actually calculated (i.e. once the collection has reached
+    a state post_collection_entries() ran for) — never fabricated for a
+    still-pending or held collection."""
+    payload = {
+        "collection_id": collection["id"],
+        "reference": collection.get("merchant_reference"),
+        "amount": collection["amount"],
+        "currency": collection["currency"],
+        "status": external_status,
+        "timestamp": utc_now_iso(),
+    }
+    if transaction:
+        payload["fee"] = transaction.get("fee_amount")
+        payload["net_amount"] = transaction.get("net_amount")
+    if reason:
+        payload["reason"] = reason
+    return payload
+
+
 _PUSH_INITIATION_MESSAGES: dict[str, str] = {
     "USSD_PUSH": "A USSD prompt was sent to the customer's phone — awaiting approval.",
     "STK_PUSH": "An STK push was sent to the customer's phone — awaiting approval.",
@@ -286,7 +315,9 @@ def resolve_collection(client: Client, *, collection_id: uuid.UUID, result: Coll
                 client,
                 merchant_id=merchant_id,
                 event_name="collection.pending_review",
-                payload={"collection_id": str(collection_id), "amount": collection["amount"], "currency": currency},
+                payload=_collection_webhook_payload(
+                    collection=collection, external_status="pending_clearance", transaction=transaction
+                ),
             )
             return collection
 
@@ -314,7 +345,9 @@ def resolve_collection(client: Client, *, collection_id: uuid.UUID, result: Coll
             client,
             merchant_id=merchant_id,
             event_name="collection.success",
-            payload={"collection_id": str(collection_id), "amount": collection["amount"], "currency": currency},
+            payload=_collection_webhook_payload(
+                collection=collection, external_status="successful", transaction=transaction
+            ),
         )
     else:
         update_row(client, "transactions", uuid.UUID(transaction["id"]), {"status": "failed"})
@@ -322,7 +355,9 @@ def resolve_collection(client: Client, *, collection_id: uuid.UUID, result: Coll
             client,
             merchant_id=merchant_id,
             event_name="collection.failed",
-            payload={"collection_id": str(collection_id), "reason": result.failure_reason},
+            payload=_collection_webhook_payload(
+                collection=collection, external_status="failed", reason=result.failure_reason
+            ),
         )
 
     return collection
@@ -469,7 +504,9 @@ def finalize_pending_review_collection(client: Client, *, collection_id: uuid.UU
         client,
         merchant_id=merchant_id,
         event_name="collection.success",
-        payload={"collection_id": str(collection_id), "amount": collection["amount"], "currency": currency},
+        payload=_collection_webhook_payload(
+            collection=collection, external_status="successful", transaction=transaction
+        ),
     )
     return collection
 
@@ -562,7 +599,9 @@ def reverse_successful_collection(client: Client, *, collection_id: uuid.UUID, r
         client,
         merchant_id=merchant_id,
         event_name="collection.reversed",
-        payload={"collection_id": str(collection_id), "reason": failure_reason},
+        payload=_collection_webhook_payload(
+            collection=collection, external_status="reversed", transaction=transaction, reason=failure_reason
+        ),
     )
     return collection
 

@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/portal/page-header";
 import { SegmentedControl } from "@/components/portal/segmented-control";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatDateTime } from "@/lib/format";
-import { createApiKey, listApiKeys, revokeApiKey } from "@/lib/portal/api";
+import { createApiKey, listApiKeys, revokeApiKey, rotateApiKey } from "@/lib/portal/api";
 import { API_KEY_SCOPES, type ApiKey, type ApiKeyScope } from "@/lib/portal/types";
 
 const SCOPE_LABELS: Record<ApiKeyScope, string> = {
@@ -36,6 +36,7 @@ export function ApiKeysView() {
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [keyName, setKeyName] = useState("");
   const [scopes, setScopes] = useState<ApiKeyScope[]>([]);
@@ -84,6 +85,18 @@ export function ApiKeysView() {
     }
   }
 
+  async function handleRotate(keyId: string) {
+    setRotatingId(keyId);
+    try {
+      const { key, plaintext_key } = await rotateApiKey(keyId);
+      setKeys((prev) => [key, ...prev.map((k) => (k.id === keyId ? { ...k, status: "revoked" as const } : k))]);
+      setRevealed(plaintext_key);
+      setCopied(false);
+    } finally {
+      setRotatingId(null);
+    }
+  }
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -103,6 +116,16 @@ export function ApiKeysView() {
           />
         }
       />
+
+      <div className="flex items-start gap-3 rounded-lg border border-error/30 bg-error-container/30 px-4 py-3.5">
+        <Icon name="warning" className="text-[20px] text-error shrink-0 mt-0.5" />
+        <p className="text-sm text-on-error-container">
+          <span className="font-semibold">Use secret keys only on your backend.</span> Never expose them in
+          frontend or mobile apps — anyone who sees your source code, a browser DevTools request, or an
+          unpacked app bundle can read a key embedded there. Have your client app call your own backend, and
+          have your backend call Infinity Africa.
+        </p>
+      </div>
 
       {revealed && (
         <Card className="border-primary">
@@ -254,14 +277,25 @@ export function ApiKeysView() {
                     </td>
                     <td className={`${tdClass} text-right`}>
                       {key.status === "active" && (
-                        <button
-                          type="button"
-                          onClick={() => handleRevoke(key.id)}
-                          disabled={revokingId === key.id}
-                          className="text-error text-xs font-semibold hover:underline disabled:opacity-60"
-                        >
-                          {revokingId === key.id ? "Revoking…" : "Revoke"}
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleRotate(key.id)}
+                            disabled={rotatingId === key.id || revokingId === key.id}
+                            className="text-primary text-xs font-semibold hover:underline disabled:opacity-60"
+                            title="Revoke this key and generate a replacement with the same name and scopes"
+                          >
+                            {rotatingId === key.id ? "Rotating…" : "Rotate"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRevoke(key.id)}
+                            disabled={revokingId === key.id || rotatingId === key.id}
+                            className="text-error text-xs font-semibold hover:underline disabled:opacity-60"
+                          >
+                            {revokingId === key.id ? "Revoking…" : "Revoke"}
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>

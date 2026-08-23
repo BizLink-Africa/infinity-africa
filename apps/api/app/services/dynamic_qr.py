@@ -25,7 +25,10 @@ from supabase import Client
 
 from app.core.phone import normalize_tz_phone
 from app.core.time import utc_now_iso
-from app.services.checkout_orders import get_or_create_checkout_order_for_payment_link
+from app.services.checkout_orders import (
+    create_checkout_order_minimal,
+    get_or_create_checkout_order_for_payment_link,
+)
 from app.services.collections import create_processing_transaction
 from app.services.crud import execute_maybe_single, insert_row
 
@@ -42,6 +45,7 @@ _METHOD_LABEL = "DYNAMIC_QR"
 # Mirrors app/services/checkout_orders.py's placeholder buyer_email
 # convention: a well-formed but inert value, never claimed to be real.
 _PLACEHOLDER_BUYER_PHONE = "255700000000"
+_PLACEHOLDER_BUYER_EMAIL_DOMAIN = "customers.infinityafrica.net"
 
 
 async def execute_dynamic_qr_for_payment_link(client: Client, *, payment_link: dict, customer_phone: str | None) -> dict:
@@ -126,6 +130,110 @@ async def execute_dynamic_qr_for_payment_link(client: Client, *, payment_link: d
         provider_reference=order.get("provider_reference") or order["order_id"],
         amount=Decimal(str(payment_link["amount"])),
         currency=payment_link["currency"],
+    )
+
+    return {
+        **collection,
+        "payment_gateway_url": order.get("payment_gateway_url"),
+        "qr": order.get("qr"),
+        "payment_token": order.get("payment_token"),
+    }
+
+
+async def execute_qr_collection(
+    client: Client,
+    *,
+    merchant_id: uuid.UUID,
+    amount: Decimal,
+    currency: str,
+    customer_phone: str | None = None,
+    customer_name: str | None = None,
+    customer_email: str | None = None,
+    customer_id: uuid.UUID | None = None,
+    merchant_reference: str | None = None,
+    description: str | None = None,
+    invoice_id: uuid.UUID | None = None,
+) -> dict:
+    """Standalone Scan QR / TanQR collection, not tied to any payment
+    link — for a developer/merchant creating a QR collection directly
+    (POST /v1/collections/qr, e.g. a POS/counter or delivery scan-to-pay
+    flow) rather than through a payment link's public page. Mirrors
+    execute_dynamic_qr_for_payment_link's shape but always creates a
+    fresh Selcom order.
+
+    **Never generates a QR payload itself** — `qr`/`payment_token` in the
+    returned dict are exactly what Selcom's create-order-minimal
+    response contained (app/services/checkout_orders.py), passed through
+    unaltered. customer_phone is optional (unlike the push methods) —
+    Selcom's create-order-minimal still requires *a* value, so a
+    well-formed placeholder is used when none is given, same convention
+    as execute_dynamic_qr_for_payment_link."""
+    buyer_phone = normalize_tz_phone(customer_phone) if customer_phone else _PLACEHOLDER_BUYER_PHONE
+    buyer_name = customer_name or "Infinity Africa Customer"
+    buyer_email = customer_email or f"collection-{uuid.uuid4()}@{_PLACEHOLDER_BUYER_EMAIL_DOMAIN}"
+
+    order = await create_checkout_order_minimal(
+        client,
+        merchant_id=merchant_id,
+        buyer_email=buyer_email,
+        buyer_name=buyer_name,
+        buyer_phone=buyer_phone,
+        amount=amount,
+        currency=currency,
+        no_of_items=1,
+        merchant_reference=merchant_reference,
+    )
+
+    base_row = {
+        "merchant_id": str(merchant_id),
+        "customer_id": str(customer_id) if customer_id else None,
+        "invoice_id": str(invoice_id) if invoice_id else None,
+        "merchant_reference": merchant_reference,
+        "checkout_order_id": order["id"],
+        "method": _METHOD_LABEL,
+        "amount": str(amount),
+        "currency": currency,
+        "customer_phone": customer_phone,
+        "provider": "selcom",
+        "initiated_at": utc_now_iso(),
+    }
+
+    if order["status"] != "created":
+        return insert_row(
+            client,
+            "collections",
+            {
+                **base_row,
+                "status": "failed",
+                "failure_reason": "Could not create the payment order with the provider",
+                "provider_resultcode": order.get("provider_result_code"),
+                "provider_result": order.get("provider_result"),
+                "provider_message": order.get("provider_message"),
+                "raw_response": order.get("raw_response") or {},
+            },
+        )
+
+    collection = insert_row(
+        client,
+        "collections",
+        {
+            **base_row,
+            "status": "processing",
+            "provider_reference": order.get("provider_reference"),
+            "provider_result": order.get("provider_result"),
+            "provider_resultcode": order.get("provider_result_code"),
+            "raw_response": order.get("raw_response") or {},
+        },
+    )
+
+    create_processing_transaction(
+        client,
+        merchant_id=merchant_id,
+        method=_METHOD_LABEL,
+        collection_id=collection["id"],
+        provider_reference=order.get("provider_reference") or order["order_id"],
+        amount=amount,
+        currency=currency,
     )
 
     return {

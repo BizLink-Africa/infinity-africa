@@ -11,6 +11,7 @@ from app.routers import (
     admin_risk,
     admin_withdrawals,
     collections,
+    collections_api,
     developer_docs,
     disbursements,
     health,
@@ -61,6 +62,7 @@ app.include_router(payment_links.public_router)  # /public/payment-links — no 
 app.include_router(invoices.router, prefix="/v1")
 app.include_router(collections.router, prefix="/v1")
 app.include_router(collections.initiate_router, prefix="/v1")
+app.include_router(collections_api.router, prefix="/v1")
 app.include_router(disbursements.router, prefix="/v1")  # /v1/disbursements — fully flat
 app.include_router(transactions.router, prefix="/v1")
 app.include_router(transactions.by_reference_router, prefix="/v1")

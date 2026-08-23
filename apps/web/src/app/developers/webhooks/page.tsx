@@ -8,14 +8,19 @@ export const metadata = {
 };
 
 const EVENTS: Array<{ event: string; description: string; live: boolean }> = [
-  { event: "collection.success", description: "A push or QR collection was confirmed by the customer.", live: true },
-  { event: "collection.failed", description: "A push or QR collection was declined or timed out.", live: true },
+  { event: "collection.success", description: "A collection reached successful — the merchant wallet was credited. The only event safe to mark an order paid from.", live: true },
+  { event: "collection.failed", description: "A push or QR collection was declined, rejected, or timed out.", live: true },
+  { event: "collection.pending_review", description: "Held before crediting — the payer's phone matched the merchant's own registered phone (self-payment/\"own till\" risk). Requires Super Admin review.", live: true },
+  { event: "collection.reversed", description: "A previously successful collection was reversed by the provider after settlement — the wallet credit was clawed back.", live: true },
   { event: "disbursement.success", description: "A payout was delivered.", live: true },
   { event: "disbursement.failed", description: "A payout was declined; its balance reservation was reversed.", live: true },
   { event: "disbursement.reversed", description: "A previously successful payout was reversed by the provider after settlement.", live: true },
   { event: "payment_link.paid", description: "A payment link (including one generated from an invoice) was paid.", live: true },
+  { event: "payment_link.payment_reversed", description: "A payment link's PAID status was reopened because its collection was reversed.", live: true },
   { event: "invoice.paid", description: "An invoice reached PAID.", live: true },
   { event: "collection.pending", description: "Reserved for a future intermediate collection state.", live: false },
+  { event: "collection.processing", description: "Reserved — a push was sent or a QR/token was generated; not emitted as its own event yet (visible via GET/refresh-status instead).", live: false },
+  { event: "collection.cancelled", description: "Reserved — no code path sets a collection to cancelled yet.", live: false },
   { event: "invoice.overdue", description: "Reserved for a scheduled past-due sweep.", live: false },
   { event: "payment_link.created", description: "Reserved.", live: false },
   { event: "payment_link.expired", description: "Reserved for a scheduled expiry sweep.", live: false },
@@ -23,6 +28,16 @@ const EVENTS: Array<{ event: string; description: string; live: boolean }> = [
   { event: "refund.failed", description: "Reserved.", live: false },
   { event: "chargeback.opened", description: "Reserved.", live: false },
   { event: "chargeback.resolved", description: "Reserved.", live: false },
+];
+
+const LIFECYCLE: Array<{ status: string; meaning: string }> = [
+  { status: "created", meaning: "Collection created (an Infinity Payment Page with no method chosen yet). Payment has not started." },
+  { status: "processing", meaning: "A prompt was sent or a QR/token was generated. The customer has not yet approved anything." },
+  { status: "pending_clearance", meaning: "The provider signaled completion, but a review step still applies before funds become available (currently: self-payment/\"own till\" risk review). Not yet safe to treat as paid." },
+  { status: "successful", meaning: "Final, safe, completed state. The merchant wallet was credited. The only status safe to mark an order paid from." },
+  { status: "failed", meaning: "The attempt did not complete. Not payable, not credited." },
+  { status: "cancelled", meaning: "The attempt was cancelled. Not payable, not credited." },
+  { status: "reversed", meaning: "Was successful, then clawed back by the provider after settlement. Not credited — treat exactly like a failed payment." },
 ];
 
 export default function WebhooksPage() {
@@ -86,16 +101,59 @@ export default function WebhooksPage() {
       </section>
 
       <section className="mb-12">
+        <h2 className="text-xl font-semibold text-on-surface mb-3">Status lifecycle</h2>
+        <p className="text-sm text-on-surface-variant leading-relaxed mb-4">
+          The <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">status</code> field
+          on a collection webhook (and on <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">GET /v1/collections/{"{id}"}</code>)
+          is always one of these seven values:
+        </p>
+        <div className="overflow-x-auto mb-4">
+          <table className="w-full text-left text-sm border border-outline-variant/40 rounded-xl overflow-hidden">
+            <thead className="bg-surface-container-low">
+              <tr>
+                <th className="px-4 py-2.5 font-semibold text-on-surface-variant">Status</th>
+                <th className="px-4 py-2.5 font-semibold text-on-surface-variant">Meaning</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-outline-variant/30">
+              {LIFECYCLE.map((item) => (
+                <tr key={item.status}>
+                  <td className="px-4 py-2.5 font-mono text-xs text-on-surface whitespace-nowrap">{item.status}</td>
+                  <td className="px-4 py-2.5 text-on-surface-variant">{item.meaning}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <Callout tone="warning" title="Mark an order paid only on collection.successful">
+          Never mark an order paid from a wallet-push/Selcom Pesa prompt being sent, a QR/token being generated,
+          or a resultcode of <code className="font-mono text-xs">000</code> on the initial push response — all of
+          those only mean the provider <em>accepted the request</em>, not that the customer paid. Wait for{" "}
+          <code className="font-mono text-xs">collection.successful</code> (webhook) or poll{" "}
+          <code className="font-mono text-xs">GET /v1/collections/{"{id}"}</code> until{" "}
+          <code className="font-mono text-xs">status</code> is <code className="font-mono text-xs">successful</code>.
+        </Callout>
+      </section>
+
+      <section className="mb-12">
         <h2 className="text-xl font-semibold text-on-surface mb-3">Payload shape</h2>
         <CodeBlock language="json — POST to your webhook_url">{`{
-  "event_name": "collection.success",
-  "payload": {
-    "collection_id": "9b7e2c1a-...",
-    "amount": "25000.00",
-    "currency": "TZS"
-  },
-  "created_at": "2026-08-14T09:00:12Z"
+  "event": "collection.successful",
+  "collection_id": "col_xxxxx",
+  "reference": "ORDER-4821",
+  "amount": 50000,
+  "fee": 750,
+  "net_amount": 49250,
+  "currency": "TZS",
+  "status": "successful",
+  "timestamp": "2026-08-23T10:00:00+03:00"
 }`}</CodeBlock>
+        <p className="text-xs text-on-surface-variant leading-relaxed mt-3">
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">fee</code>/<code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">net_amount</code> are
+          only present once a fee has actually been calculated (i.e. from{" "}
+          <code className="font-mono text-xs">collection.successful</code>/<code className="font-mono text-xs">collection.reversed</code> onward)
+          — never fabricated for an event where no fee exists yet.
+        </p>
       </section>
 
       <section className="mb-12">
@@ -106,12 +164,38 @@ export default function WebhooksPage() {
           HMAC-SHA256 hex digest of the exact raw request body. Recompute it and compare — don&apos;t trust a
           delivery that doesn&apos;t match, and use a constant-time comparison to avoid leaking timing information.
         </p>
-        <CodeBlock language="python">{`import hashlib
+        <div className="space-y-4">
+          <CodeBlock language="python">{`import hashlib
 import hmac
 
 def verify_signature(raw_body: bytes, signature: str, secret: str) -> bool:
     expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)`}</CodeBlock>
+          <CodeBlock language="javascript — Node.js">{`const crypto = require("crypto");
+
+function verifySignature(rawBody, signature, secret) {
+  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(signature || "", "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Express example — read the raw body BEFORE any JSON-parsing middleware
+// runs, since the signature is computed over the exact raw bytes:
+app.post(
+  "/api/infinity/webhook",
+  express.raw({ type: "application/json" }),
+  (req, res) => {
+    const signature = req.header("X-Infinity-Signature");
+    if (!verifySignature(req.body, signature, process.env.INFINITY_WEBHOOK_SECRET)) {
+      return res.status(401).send("invalid signature");
+    }
+    const event = JSON.parse(req.body);
+    // ... handle event.event / event.status / event.collection_id
+    res.status(200).send("ok");
+  },
+);`}</CodeBlock>
+        </div>
       </section>
 
       <section>

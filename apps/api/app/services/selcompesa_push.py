@@ -24,7 +24,10 @@ from supabase import Client
 
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
-from app.services.checkout_orders import get_or_create_checkout_order_for_payment_link
+from app.services.checkout_orders import (
+    create_checkout_order_minimal,
+    get_or_create_checkout_order_for_payment_link,
+)
 from app.services.collections import create_processing_transaction
 from app.services.crud import execute_maybe_single
 from app.services.crud import insert_row as _insert_row
@@ -34,6 +37,7 @@ from app.services.selcom_checkout.client import (
 )
 
 _METHOD_LABEL = "SELCOM_PESA_PUSH"
+_PLACEHOLDER_BUYER_EMAIL_DOMAIN = "customers.infinityafrica.net"
 
 
 async def execute_selcompesa_push_for_payment_link(client: Client, *, payment_link: dict, buyer_phone: str) -> dict:
@@ -131,6 +135,110 @@ async def execute_selcompesa_push_for_payment_link(client: Client, *, payment_li
             provider_reference=result.reference or transid,
             amount=Decimal(str(payment_link["amount"])),
             currency=payment_link["currency"],
+        )
+
+    return collection
+
+
+async def execute_selcompesa_push_collection(
+    client: Client,
+    *,
+    merchant_id: uuid.UUID,
+    amount: Decimal,
+    currency: str,
+    customer_phone: str,
+    customer_name: str | None = None,
+    customer_email: str | None = None,
+    customer_id: uuid.UUID | None = None,
+    merchant_reference: str | None = None,
+    description: str | None = None,
+    invoice_id: uuid.UUID | None = None,
+) -> dict:
+    """Standalone Selcom Pesa push, not tied to any payment link — the
+    Selcom Pesa counterpart to
+    app/services/wallet_push.py::execute_wallet_push_collection(), for
+    the same reason: a developer/merchant creating a collection directly
+    (POST /v1/collections/selcom-pesa) rather than through a payment
+    link's public page. Always creates a fresh Selcom order — no
+    existing-attempt reuse, since there's no persistent resource to
+    reuse against here, only the router's own Idempotency-Key replay.
+
+    customer_phone is required — a push has nowhere to go without one."""
+    buyer_name = customer_name or "Infinity Africa Customer"
+    buyer_email = customer_email or f"collection-{uuid.uuid4()}@{_PLACEHOLDER_BUYER_EMAIL_DOMAIN}"
+
+    order = await create_checkout_order_minimal(
+        client,
+        merchant_id=merchant_id,
+        buyer_email=buyer_email,
+        buyer_name=buyer_name,
+        buyer_phone=customer_phone,
+        amount=amount,
+        currency=currency,
+        no_of_items=1,
+        merchant_reference=merchant_reference,
+    )
+
+    base_row = {
+        "merchant_id": str(merchant_id),
+        "customer_id": str(customer_id) if customer_id else None,
+        "invoice_id": str(invoice_id) if invoice_id else None,
+        "merchant_reference": merchant_reference,
+        "checkout_order_id": order["id"],
+        "method": _METHOD_LABEL,
+        "amount": str(amount),
+        "currency": currency,
+        "customer_phone": customer_phone,
+        "provider": "selcom",
+        "initiated_at": utc_now_iso(),
+    }
+
+    if order["status"] != "created":
+        return _insert_row(
+            client,
+            "collections",
+            {
+                **base_row,
+                "status": "failed",
+                "failure_reason": "Could not create the payment order with the provider",
+                "provider_resultcode": order.get("provider_result_code"),
+                "provider_result": order.get("provider_result"),
+                "provider_message": order.get("provider_message"),
+                "raw_response": order.get("raw_response") or {},
+            },
+        )
+
+    transid = generate_reference("TXN")
+    checkout_client = SelcomCheckoutHTTPClient(credentials=get_selcom_checkout_credentials())
+    result = await checkout_client.selcompesa_payment(transid=transid, order_id=order["order_id"], msisdn=customer_phone)
+
+    collection_status = "failed" if result.status == "failed" else "processing"
+
+    collection = _insert_row(
+        client,
+        "collections",
+        {
+            **base_row,
+            "status": collection_status,
+            "failure_reason": result.message if collection_status == "failed" else None,
+            "provider_reference": result.reference or None,
+            "provider_transid": transid,
+            "provider_resultcode": result.resultcode,
+            "provider_result": result.result,
+            "provider_message": result.message,
+            "raw_response": result.raw_response,
+        },
+    )
+
+    if collection_status == "processing":
+        create_processing_transaction(
+            client,
+            merchant_id=merchant_id,
+            method=_METHOD_LABEL,
+            collection_id=collection["id"],
+            provider_reference=result.reference or transid,
+            amount=amount,
+            currency=currency,
         )
 
     return collection

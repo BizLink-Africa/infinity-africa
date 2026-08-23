@@ -413,6 +413,19 @@ export async function revokeApiKey(apiKeyId: string): Promise<ApiKey> {
   return apiWrite<ApiKey>(`/v1/merchant/api-keys/${apiKeyId}/revoke`, "PATCH", {});
 }
 
+/** Revokes the given key and creates a fresh one with the same name/
+ * environment/scopes in one action — the new plaintext key is shown
+ * exactly once, same rule as createApiKey. */
+export async function rotateApiKey(apiKeyId: string): Promise<{ key: ApiKey; plaintext_key: string }> {
+  const created = await apiWrite<ApiKey & { plaintext_key: string }>(
+    `/v1/merchant/api-keys/${apiKeyId}/rotate`,
+    "POST",
+    {},
+  );
+  const { plaintext_key, ...key } = created;
+  return { key: key as ApiKey, plaintext_key };
+}
+
 // --- Overview (LIVE) ---------------------------------------------------------
 
 export interface MerchantOverview {

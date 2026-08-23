@@ -387,6 +387,41 @@ def test_revoke_api_key_keeps_scopes_and_marks_revoked(fake_client):
     assert body["scopes"] == ["invoices:read"]
 
 
+def test_rotate_api_key_revokes_old_and_creates_new_with_same_settings(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    created = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={"name": "Prod key", "environment": "live", "scopes": ["collections:write", "collections:read"]},
+    ).json()["data"]
+
+    response = client.post(f"/v1/merchant/api-keys/{created['id']}/rotate", headers=auth_headers(user_id))
+
+    assert response.status_code == 201, response.text
+    new_key = response.json()["data"]
+    assert new_key["id"] != created["id"]
+    assert new_key["name"] == "Prod key"
+    assert new_key["environment"] == "live"
+    assert new_key["scopes"] == ["collections:write", "collections:read"]
+    assert "plaintext_key" in new_key
+    assert new_key["plaintext_key"].startswith("inf_live_")
+
+    rows = {row["id"]: row for row in fake_client.table("api_keys")._table.rows}
+    assert rows[created["id"]]["status"] == "revoked"
+    assert rows[new_key["id"]]["status"] == "active"
+
+
+def test_rotate_already_revoked_key_is_rejected(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    created = client.post(
+        "/v1/merchant/api-keys", headers=auth_headers(user_id), json={"name": "Key", "scopes": ["invoices:read"]}
+    ).json()["data"]
+    client.patch(f"/v1/merchant/api-keys/{created['id']}/revoke", headers=auth_headers(user_id))
+
+    response = client.post(f"/v1/merchant/api-keys/{created['id']}/rotate", headers=auth_headers(user_id))
+    assert response.status_code == 409, response.text
+
+
 def test_staff_cannot_manage_api_keys(fake_client):
     _merchant_id, user_id = _merchant_and_member(fake_client, role="MERCHANT_STAFF")
     response = client.post(

@@ -1,3 +1,4 @@
+import { Callout } from "@/components/docs/callout";
 import { CodeBlock } from "@/components/docs/code-block";
 import { DocsPager } from "@/components/docs/docs-pager";
 import { EndpointRow } from "@/components/docs/endpoint-row";
@@ -13,8 +14,24 @@ export default function PaymentLinksApiPage() {
       <h1 className="text-3xl md:text-4xl font-bold text-on-surface tracking-tight mb-4">Payment Links API</h1>
       <p className="text-lg text-on-surface-variant leading-relaxed mb-10 max-w-2xl">
         Generate a secure, shareable checkout URL for a fixed amount — no website required on your end. Share it via
-        SMS, WhatsApp, or email; the customer pays it on Infinity Africa&apos;s hosted checkout page.
+        SMS, WhatsApp, or email; the customer pays it on Infinity Africa&apos;s own payment page, where they choose
+        Mobile Money Push, Selcom Pesa, or Scan QR / TanQR themselves. This is the same underlying resource{" "}
+        <a href="/developers/collections" className="text-primary font-semibold hover:underline">
+          POST /v1/collections
+        </a>{" "}
+        (the Collections API&apos;s &quot;Infinity Payment Page&quot; flow) creates — use whichever endpoint shape
+        fits your integration.
       </p>
+
+      <Callout tone="warning" title="Selcom Hosted Checkout is not used">
+        &quot;Infinity Africa&apos;s payment page&quot; above means Infinity&apos;s own <code className="font-mono text-xs">/pay/…</code> page,
+        not a redirect to Selcom&apos;s hosted checkout — that product is currently inactive platform-wide (see the{" "}
+        <a href="/developers/go-live-checklist" className="text-primary font-semibold hover:underline">
+          Go-Live Checklist
+        </a>
+        ). A payment link&apos;s <code className="font-mono text-xs">public_url</code> always points at Infinity&apos;s
+        own page.
+      </Callout>
 
       <section className="mb-12">
         <h2 className="text-xl font-semibold text-on-surface mb-3">Endpoints</h2>
@@ -37,7 +54,6 @@ export default function PaymentLinksApiPage() {
   "customer_name": "Grace Mwakalinga",
   "customer_phone": "+255754221908",
   "description": "Web design deposit",
-  "allowed_payment_methods": ["USSD_PUSH", "STK_PUSH", "SELCOM_PESA_PUSH"],
   "expires_at": "2026-08-24T00:00:00Z"
 }`}</CodeBlock>
           <CodeBlock language="json — 201 Created">{`{
@@ -50,11 +66,10 @@ export default function PaymentLinksApiPage() {
     "customer_name": "Grace Mwakalinga",
     "customer_phone": "+255754221908",
     "description": "Web design deposit",
-    "allowed_payment_methods": ["USSD_PUSH", "STK_PUSH", "SELCOM_PESA_PUSH"],
     "expires_at": "2026-08-24T00:00:00Z",
     "status": "ACTIVE",
     "public_slug": "PLK-7X29QK",
-    "public_url": "https://pay.infinityafrica.net/link/PLK-7X29QK",
+    "public_url": "https://pay.infinityafrica.net/pay/PLK-7X29QK",
     "created_at": "2026-08-14T09:00:00Z",
     "updated_at": "2026-08-14T09:00:00Z"
   }
@@ -62,8 +77,9 @@ export default function PaymentLinksApiPage() {
         </div>
         <p className="text-sm text-on-surface-variant leading-relaxed mt-4">
           Share <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">public_url</code> with
-          your customer directly — it already points at Infinity Africa&apos;s hosted checkout page, so nothing else on your
-          side needs to render a payment form.
+          your customer directly — it already points at Infinity&apos;s own payment page, so nothing else on your
+          side needs to render a payment form. You don&apos;t choose which methods are accepted — the customer picks
+          Mobile Money Push, Selcom Pesa, or Scan QR / TanQR themselves on that page.
         </p>
       </section>
 
@@ -99,7 +115,9 @@ export default function PaymentLinksApiPage() {
         <p className="text-sm text-on-surface-variant leading-relaxed mb-4">
           If you&apos;d rather render your own checkout page instead of redirecting to{" "}
           <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">public_url</code>, fetch
-          the link&apos;s public details and let the customer choose a method and confirm from there:
+          the link&apos;s public details, then call{" "}
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">POST /public/payment-links/{"{public_slug}"}/pay</code> once
+          the customer picks a method:
         </p>
         <div className="space-y-4">
           <CodeBlock language="json — GET /public/payment-links/PLK-7X29QK">{`{
@@ -112,20 +130,23 @@ export default function PaymentLinksApiPage() {
     "customer_name": "Grace Mwakalinga",
     "customer_phone": "+255754221908",
     "expires_at": "2026-08-24T00:00:00Z",
-    "allowed_payment_methods": ["USSD_PUSH", "STK_PUSH", "SELCOM_PESA_PUSH"],
     "status": "ACTIVE"
   }
 }`}</CodeBlock>
-          <CodeBlock language="json — POST /public/payment-links/PLK-7X29QK/collect">{`{
-  "method": "STK_PUSH",
+          <CodeBlock language="json — POST /public/payment-links/PLK-7X29QK/pay">{`{
+  "method": "WALLET_PUSH",
   "customer_phone": "+255754221908"
 }`}</CodeBlock>
         </div>
         <p className="text-sm text-on-surface-variant leading-relaxed mt-4">
-          This one resolves synchronously — the response comes back{" "}
-          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">successful</code> or{" "}
-          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">failed</code> in the same
-          request, since the customer is watching the page.
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">method</code> is one
+          of <code className="font-mono text-xs">WALLET_PUSH</code>, <code className="font-mono text-xs">SELCOM_PESA</code>,
+          or <code className="font-mono text-xs">TANQR</code> — same three methods documented on the{" "}
+          <a href="/developers/collections" className="text-primary font-semibold hover:underline">Collections API</a> page.
+          The response comes back <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">pending</code>,
+          not <code className="font-mono text-xs">successful</code> — poll{" "}
+          <code className="font-mono text-xs">GET /public/payment-links/{"{public_slug}"}/collections/{"{collection_id}"}/status</code> or
+          listen for the webhook, exactly like every other collection method.
         </p>
       </section>
 

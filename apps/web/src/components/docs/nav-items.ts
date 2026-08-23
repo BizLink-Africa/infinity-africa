@@ -31,7 +31,10 @@ export const DOCS_NAV: DocsNavGroup[] = [
   },
   {
     label: "Reference",
-    items: [{ label: "Error Codes", href: "/developers/errors" }],
+    items: [
+      { label: "Error Codes", href: "/developers/errors" },
+      { label: "Go-Live Checklist", href: "/developers/go-live-checklist" },
+    ],
   },
   {
     label: "Examples",
