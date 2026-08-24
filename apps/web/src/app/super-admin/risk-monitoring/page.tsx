@@ -22,10 +22,10 @@ export default async function SuperAdminRiskMonitoringPage() {
       <PageHeader title="Risk Monitoring" description="Suspicious activity detected across the platform, awaiting review." />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <AdminKpiCard icon="gpp_maybe" label="Open Alerts" value={counts.open.toLocaleString()} />
-        <AdminKpiCard icon="hourglass_empty" label="Under Review" value={counts.underReview.toLocaleString()} />
-        <AdminKpiCard icon="warning" label="High / Critical Risk" value={counts.critical.toLocaleString()} tone={counts.critical > 0 ? "warning" : "default"} />
-        <AdminKpiCard icon="priority_high" label="Escalated" value={counts.escalated.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="gpp_maybe" label="Open Alerts" value={counts.open.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="hourglass_empty" label="Under Review" value={counts.underReview.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="warning" label="High / Critical Risk" value={counts.critical.toLocaleString()} tone={counts.critical > 0 ? "warning" : "default"} />
+        <AdminKpiCard variant="brand" icon="priority_high" label="Escalated" value={counts.escalated.toLocaleString()} />
       </div>
 
       <RiskMonitoringTable rows={alerts} />

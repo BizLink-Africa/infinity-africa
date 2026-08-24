@@ -21,10 +21,10 @@ export default async function SuperAdminInvoicesPage() {
       <PageHeader title="Invoice Management" description="Track every invoice issued across all merchants on the platform." />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <AdminKpiCard icon="receipt" label="Total Invoices" value={invoices.length.toLocaleString()} />
-        <AdminKpiCard icon="check_circle" label="Paid Today" value={paidToday.toLocaleString()} />
-        <AdminKpiCard icon="error" label="Overdue" value={overdue.toLocaleString()} />
-        <AdminKpiCard icon="payments" label="Value Outstanding" value={overview ? formatCurrency(overview.outstanding_invoice_value, "TZS") : "—"} />
+        <AdminKpiCard variant="brand" icon="receipt" label="Total Invoices" value={invoices.length.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="check_circle" label="Paid Today" value={paidToday.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="error" label="Overdue" value={overdue.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="payments" label="Value Outstanding" value={overview ? formatCurrency(overview.outstanding_invoice_value, "TZS") : "—"} />
       </div>
 
       <Card>

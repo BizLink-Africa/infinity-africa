@@ -22,10 +22,10 @@ export default async function SuperAdminPaymentLinksPage() {
       <PageHeader title="Payment Links Monitoring" description="Platform-wide view of every payment link created by merchants." />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <AdminKpiCard icon="link" label="Total Links" value={links.length.toLocaleString()} />
-        <AdminKpiCard icon="bolt" label="Active" value={active.toLocaleString()} />
-        <AdminKpiCard icon="check_circle" label="Paid" value={paid.toLocaleString()} />
-        <AdminKpiCard icon="event_busy" label="Expired" value={expired.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="link" label="Total Links" value={links.length.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="bolt" label="Active" value={active.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="check_circle" label="Paid" value={paid.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="event_busy" label="Expired" value={expired.toLocaleString()} />
       </div>
 
       <Card>

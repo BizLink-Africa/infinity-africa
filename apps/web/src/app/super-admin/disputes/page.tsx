@@ -22,10 +22,10 @@ export default async function SuperAdminDisputesPage() {
       <PageHeader title="Disputes" description="Customer-reported chargebacks and product/service issues across all merchants." />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <AdminKpiCard icon="gavel" label="Total Disputes" value={counts.total.toLocaleString()} />
-        <AdminKpiCard icon="hourglass_empty" label="Under Review" value={counts.underReview.toLocaleString()} />
-        <AdminKpiCard icon="request_quote" label="Refund Requested" value={counts.refundRequested.toLocaleString()} />
-        <AdminKpiCard icon="check_circle" label="Refunded" value={counts.refunded.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="gavel" label="Total Disputes" value={counts.total.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="hourglass_empty" label="Under Review" value={counts.underReview.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="request_quote" label="Refund Requested" value={counts.refundRequested.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="check_circle" label="Refunded" value={counts.refunded.toLocaleString()} />
       </div>
 
       <DisputesTable rows={disputes} />

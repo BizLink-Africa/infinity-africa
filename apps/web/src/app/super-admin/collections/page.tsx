@@ -44,10 +44,10 @@ export default async function SuperAdminCollectionsPage({ searchParams }: SuperA
       <PageHeader title="Collections" description="Platform-wide mobile money collections across every merchant." />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <AdminKpiCard icon="payments" label="Collections Today" value={overview ? formatCurrency(overview.collections_today, "TZS") : "—"} />
-        <AdminKpiCard icon="check_circle" label="Successful" value={successful.toLocaleString()} />
-        <AdminKpiCard icon="hourglass_empty" label="Pending" value={pending.toLocaleString()} />
-        <AdminKpiCard icon="error" label="Failed" value={failed.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="payments" label="Collections Today" value={overview ? formatCurrency(overview.collections_today, "TZS") : "—"} />
+        <AdminKpiCard variant="brand" icon="check_circle" label="Successful" value={successful.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="hourglass_empty" label="Pending" value={pending.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="error" label="Failed" value={failed.toLocaleString()} />
       </div>
 
       <CollectionsFilters

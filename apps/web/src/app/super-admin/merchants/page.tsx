@@ -22,10 +22,10 @@ export default async function SuperAdminMerchantsPage() {
       <PageHeader title="Merchant Management" description="Onboard, verify, and manage merchants on the Infinity Africa platform." />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <AdminKpiCard icon="store" label="Total Merchants" value={counts.total.toLocaleString()} />
-        <AdminKpiCard icon="check_circle" label="Active" value={counts.active.toLocaleString()} />
-        <AdminKpiCard icon="hourglass_empty" label="Pending Verification" value={counts.pending.toLocaleString()} />
-        <AdminKpiCard icon="block" label="Suspended" value={counts.suspended.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="store" label="Total Merchants" value={counts.total.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="check_circle" label="Active" value={counts.active.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="hourglass_empty" label="Pending Verification" value={counts.pending.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="block" label="Suspended" value={counts.suspended.toLocaleString()} />
       </div>
 
       <MerchantsTable rows={merchants} />

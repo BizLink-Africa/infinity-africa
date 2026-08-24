@@ -21,9 +21,9 @@ export default async function SuperAdminWebhooksPage() {
       <PageHeader title="Webhooks" description="Inbound payment provider callbacks received by the platform." />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <AdminKpiCard icon="check_circle" label="Processed" value={processed.toLocaleString()} />
-        <AdminKpiCard icon="hourglass_empty" label="Received (Unprocessed)" value={received.toLocaleString()} />
-        <AdminKpiCard icon="error" label="Failed" value={failed.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="check_circle" label="Processed" value={processed.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="hourglass_empty" label="Received (Unprocessed)" value={received.toLocaleString()} />
+        <AdminKpiCard variant="brand" icon="error" label="Failed" value={failed.toLocaleString()} />
       </div>
 
       <Card padded={false}>

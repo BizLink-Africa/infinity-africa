@@ -39,16 +39,16 @@ export default async function SuperAdminCommandCenterPage() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          <AdminKpiCard icon="store" label="Total Merchants" value={overview.total_merchants.toLocaleString()} />
-          <AdminKpiCard icon="account_balance_wallet" label="Collections Today" value={formatCurrency(overview.collections_today, "TZS")} />
-          <AdminKpiCard icon="send_money" label="Withdrawals Today" value={formatCurrency(overview.withdrawals_today, "TZS")} />
-          <AdminKpiCard icon="link" label="Active Payment Links" value={overview.active_payment_links.toLocaleString()} />
-          <AdminKpiCard icon="receipt" label="Paid Invoices Today" value={overview.paid_invoices_today.toLocaleString()} />
-          <AdminKpiCard icon="payments" label="Value Outstanding" value={formatCurrency(overview.outstanding_invoice_value, "TZS")} />
-          <AdminKpiCard icon="warning" label="Failed Transactions" value={overview.failed_transactions.toLocaleString()} tone={overview.failed_transactions > 0 ? "warning" : "default"} />
-          <AdminKpiCard icon="monetization_on" label="Platform Revenue" value={formatCurrency(overview.platform_revenue, "TZS")} caption="Month to date" />
-          <AdminKpiCard icon="assignment_ind" label="Pending Onboarding" value={overview.pending_onboarding_requests.toLocaleString()} />
-          <AdminKpiCard icon="hourglass_empty" label="Pending Withdrawals" value={overview.pending_withdrawals.toLocaleString()} tone={overview.pending_withdrawals > 0 ? "warning" : "default"} />
+          <AdminKpiCard variant="brand" icon="store" label="Total Merchants" value={overview.total_merchants.toLocaleString()} />
+          <AdminKpiCard variant="brand" icon="account_balance_wallet" label="Collections Today" value={formatCurrency(overview.collections_today, "TZS")} />
+          <AdminKpiCard variant="brand" icon="send_money" label="Withdrawals Today" value={formatCurrency(overview.withdrawals_today, "TZS")} />
+          <AdminKpiCard variant="brand" icon="link" label="Active Payment Links" value={overview.active_payment_links.toLocaleString()} />
+          <AdminKpiCard variant="brand" icon="receipt" label="Paid Invoices Today" value={overview.paid_invoices_today.toLocaleString()} />
+          <AdminKpiCard variant="brand" icon="payments" label="Value Outstanding" value={formatCurrency(overview.outstanding_invoice_value, "TZS")} />
+          <AdminKpiCard variant="brand" icon="warning" label="Failed Transactions" value={overview.failed_transactions.toLocaleString()} tone={overview.failed_transactions > 0 ? "warning" : "default"} />
+          <AdminKpiCard variant="brand" icon="monetization_on" label="Platform Revenue" value={formatCurrency(overview.platform_revenue, "TZS")} caption="Month to date" />
+          <AdminKpiCard variant="brand" icon="assignment_ind" label="Pending Onboarding" value={overview.pending_onboarding_requests.toLocaleString()} />
+          <AdminKpiCard variant="brand" icon="hourglass_empty" label="Pending Withdrawals" value={overview.pending_withdrawals.toLocaleString()} tone={overview.pending_withdrawals > 0 ? "warning" : "default"} />
         </div>
       )}
 
