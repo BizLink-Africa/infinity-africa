@@ -54,6 +54,28 @@ def test_list_admin_webhooks_reads_selcom_events(fake_client):
     assert row["status"] == "received"
 
 
+def test_list_admin_webhooks_exposes_processing_error_for_reconciliation(fake_client):
+    """The Webhooks page's "Unmatched Transactions" reconciliation metric
+    is computed client-side from this field — has to actually be
+    returned by the API, not silently dropped."""
+    stored, _ = store_incoming_selcom_event(
+        fake_client,
+        event_id="evt-456",
+        event_type="collection.success",
+        raw_body="{}",
+        signature="sig",
+        signature_valid=True,
+    )
+    fake_client.table("selcom_webhook_events").update(
+        {"status": "failed", "processing_error": "no matching collection for this transid/order_id"}
+    ).eq("id", stored["id"]).execute()
+
+    _, headers = _admin_headers(fake_client)
+    response = client.get("/v1/admin/webhooks", headers=headers)
+    row = response.json()["data"][0]
+    assert row["processing_error"] == "no matching collection for this transid/order_id"
+
+
 def test_list_admin_audit_logs_resolves_actor_name(fake_client):
     actor_id = uuid.uuid4()
     fake_client.seed_auth_user(actor_id, email="admin@example.com", full_name="Admin Person")

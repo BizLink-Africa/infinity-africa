@@ -235,6 +235,7 @@ export interface AdminWebhookEventRow {
   status: "received" | "processed" | "failed";
   processed_at: string | null;
   created_at: string;
+  processing_error: string | null;
 }
 
 export interface FailedCallbackRow {

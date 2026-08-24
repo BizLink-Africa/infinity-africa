@@ -630,6 +630,7 @@ def list_admin_webhooks(
             processed_at=row.get("processed_at"),
             created_at=row["created_at"],
             status=row["status"],
+            processing_error=row.get("processing_error"),
         )
         for row in (result.data or [])
     ]

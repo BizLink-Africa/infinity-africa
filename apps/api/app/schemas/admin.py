@@ -174,6 +174,7 @@ class AdminWebhookEventResponse(BaseModel):
     processed_at: datetime | None = None
     created_at: datetime
     status: str
+    processing_error: str | None = None
 
 
 class AdminAuditLogResponse(BaseModel):
