@@ -16,3 +16,27 @@ export const COLLECTION_METHOD_LABELS: Record<CollectionMethod, string> = {
   [CollectionMethod.DYNAMIC_QR]: "Dynamic QR",
   [CollectionMethod.HOSTED_CHECKOUT]: "Selcom Hosted Checkout",
 };
+
+/** How a collection was initiated — matches collections.source in the DB
+ * schema (app/schemas/enums.py::CollectionSource on the backend). Distinct
+ * from CollectionMethod (how the customer paid): a Super Admin uses this to
+ * see which product surface brought in the payment. */
+export enum CollectionSource {
+  DASHBOARD_REQUEST = "DASHBOARD_REQUEST",
+  PAYMENT_LINK = "PAYMENT_LINK",
+  INVOICE = "INVOICE",
+  API_PAYMENT_PAGE = "API_PAYMENT_PAGE",
+  API_WALLET_PUSH = "API_WALLET_PUSH",
+  API_SELCOM_PESA = "API_SELCOM_PESA",
+  API_TANQR = "API_TANQR",
+}
+
+export const COLLECTION_SOURCE_LABELS: Record<CollectionSource, string> = {
+  [CollectionSource.DASHBOARD_REQUEST]: "Dashboard Request",
+  [CollectionSource.PAYMENT_LINK]: "Payment Link",
+  [CollectionSource.INVOICE]: "Invoice",
+  [CollectionSource.API_PAYMENT_PAGE]: "API Payment Page",
+  [CollectionSource.API_WALLET_PUSH]: "API Wallet Push",
+  [CollectionSource.API_SELCOM_PESA]: "API Selcom Pesa",
+  [CollectionSource.API_TANQR]: "API TanQR",
+};

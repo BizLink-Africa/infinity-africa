@@ -111,6 +111,8 @@ async def create_collection(
                 "failure_redirect_url": payload.cancel_url,
                 "public_slug": generate_public_slug(),
                 "status": "ACTIVE",
+                "created_via": "api",
+                "api_key_id": str(caller.actor_id) if caller.actor_type == "api_key" else None,
             },
         )
         write_audit_log(
@@ -169,6 +171,8 @@ async def create_wallet_push_collection(
             customer_name=payload.customer_name,
             merchant_reference=payload.reference,
             description=payload.description,
+            source="API_WALLET_PUSH",
+            api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
         )
         message = (
             collection.get("failure_reason") or "This payment attempt failed."
@@ -219,6 +223,8 @@ async def create_selcom_pesa_collection(
             customer_name=payload.customer_name,
             merchant_reference=payload.reference,
             description=payload.description,
+            source="API_SELCOM_PESA",
+            api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
         )
         message = (
             collection.get("failure_reason") or "This payment attempt failed."
@@ -269,6 +275,8 @@ async def create_qr_collection(
             customer_name=payload.customer_name,
             merchant_reference=payload.reference,
             description=payload.description,
+            source="API_TANQR",
+            api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
         )
         body = {
             "collection_id": collection["id"],

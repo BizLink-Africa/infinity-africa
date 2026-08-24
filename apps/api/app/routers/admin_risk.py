@@ -8,7 +8,7 @@ Own file, not admin.py, matching that router's own stated convention
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.auth import require_super_admin
 from app.core.errors import NotFoundError
@@ -39,15 +39,13 @@ router = APIRouter(prefix="/admin", tags=["admin-risk"])
 def list_risk_alerts(
     _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
 ):
     client = get_supabase_admin()
-    result = (
-        client.table("fraud_alerts")
-        .select("*", count="exact")
-        .order("created_at", desc=True)
-        .range(pagination.start, pagination.end)
-        .execute()
-    )
+    query = client.table("fraud_alerts").select("*", count="exact")
+    if merchant_id is not None:
+        query = query.eq("merchant_id", str(merchant_id))
+    result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
     data = [AdminFraudAlertResponse.from_row(row, merchant_name=names.get(row["merchant_id"])) for row in rows]

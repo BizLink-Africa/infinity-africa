@@ -49,6 +49,10 @@ from app.services.checkout_orders import (
     create_checkout_order_minimal,
     get_or_create_checkout_order_for_payment_link,
 )
+from app.services.collection_source import (
+    resolve_invoice_id_for_payment_link,
+    resolve_payment_link_collection_source,
+)
 from app.services.collections import create_processing_transaction
 from app.services.crud import execute_maybe_single, insert_row
 from app.services.selcom_checkout.client import (
@@ -110,6 +114,9 @@ async def execute_wallet_push_for_payment_link(client: Client, *, payment_link: 
         "customer_phone": buyer_phone,
         "provider": "selcom",
         "initiated_at": utc_now_iso(),
+        "source": resolve_payment_link_collection_source(client, payment_link=payment_link).value,
+        "api_key_id": payment_link.get("api_key_id"),
+        "invoice_id": resolve_invoice_id_for_payment_link(client, payment_link_id=payment_link_id),
     }
 
     if order["status"] != "created":
@@ -197,6 +204,8 @@ async def execute_wallet_push_collection(
     merchant_reference: str | None = None,
     description: str | None = None,
     invoice_id: uuid.UUID | None = None,
+    source: str = "DASHBOARD_REQUEST",
+    api_key_id: uuid.UUID | None = None,
 ) -> dict:
     """TEMPORARY (2026-08-23): Merchant Portal "Request Collection" —
     standalone wallet-push, not tied to any payment link. Added back
@@ -210,7 +219,14 @@ async def execute_wallet_push_collection(
     against here, only the router's own Idempotency-Key replay).
 
     customer_phone is required (unlike hosted_checkout_collection's
-    optional one) — a push has nowhere to go without one."""
+    optional one) — a push has nowhere to go without one.
+
+    Shared by two call sites with different provenance —
+    app/routers/collections_api.py::create_wallet_push_collection
+    (source=API_WALLET_PUSH, api_key_id set when the caller
+    authenticated with one) and the legacy Merchant Portal dashboard
+    push endpoint (source defaults to DASHBOARD_REQUEST) — `source`
+    always reflects which one actually called this, never guessed here."""
     buyer_name = customer_name or "Infinity Africa Customer"
     buyer_email = customer_email or f"collection-{uuid.uuid4()}@{_PLACEHOLDER_BUYER_EMAIL_DOMAIN}"
 
@@ -238,6 +254,8 @@ async def execute_wallet_push_collection(
         "customer_phone": customer_phone,
         "provider": "selcom",
         "initiated_at": utc_now_iso(),
+        "source": source,
+        "api_key_id": str(api_key_id) if api_key_id else None,
     }
 
     if order["status"] != "created":

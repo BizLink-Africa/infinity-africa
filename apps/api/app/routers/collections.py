@@ -49,6 +49,21 @@ _METHOD_PATHS: dict[CollectionMethod, str] = {
     CollectionMethod.DYNAMIC_QR: "dynamic-qr",
 }
 
+# This legacy/placeholder-backed router is still API-key-callable, so a
+# collection created here with no payment_link_id/invoice_id still needs
+# a correct CollectionSource — create_processing_collection()'s own
+# fallback would otherwise default it to DASHBOARD_REQUEST even for an
+# API-key caller. Only used when the caller is actually an API key; a
+# dashboard caller in that same situation genuinely is DASHBOARD_REQUEST
+# (create_processing_collection's default), so this map is intentionally
+# not consulted for actor_type == "user".
+_API_KEY_METHOD_SOURCE: dict[CollectionMethod, str] = {
+    CollectionMethod.USSD_PUSH: "API_WALLET_PUSH",
+    CollectionMethod.STK_PUSH: "API_WALLET_PUSH",
+    CollectionMethod.SELCOM_PESA_PUSH: "API_SELCOM_PESA",
+    CollectionMethod.DYNAMIC_QR: "API_TANQR",
+}
+
 
 async def _create_push_collection(
     method: CollectionMethod,
@@ -63,6 +78,10 @@ async def _create_push_collection(
     await validate_payment_link_for_collection(
         client, merchant_id=payload.merchant_id, payment_link_id=payload.payment_link_id, method=method
     )
+
+    source = None
+    if caller.actor_type == "api_key" and not (payload.payment_link_id or payload.invoice_id):
+        source = _API_KEY_METHOD_SOURCE[method]
 
     async def _handler() -> tuple[int, dict]:
         collection = await initiate_collection(
@@ -80,6 +99,8 @@ async def _create_push_collection(
             merchant_reference=payload.merchant_reference,
             description=payload.description,
             callback_url=payload.callback_url,
+            source=source,
+            api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
         )
         write_audit_log(
             client,
@@ -157,6 +178,10 @@ async def create_dynamic_qr_collection(
         method=CollectionMethod.DYNAMIC_QR,
     )
 
+    source = None
+    if caller.actor_type == "api_key" and not (payload.payment_link_id or payload.invoice_id):
+        source = "API_TANQR"
+
     async def _handler() -> tuple[int, dict]:
         collection, qr_result = await initiate_dynamic_qr_collection(
             client,
@@ -172,6 +197,8 @@ async def create_dynamic_qr_collection(
             merchant_reference=payload.merchant_reference,
             description=payload.description,
             callback_url=payload.callback_url,
+            source=source,
+            api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
         )
         write_audit_log(
             client,

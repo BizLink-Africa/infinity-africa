@@ -24,8 +24,17 @@ from app.core.time import utc_now_iso
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.enums import AccountStatus, DocumentType
 from app.schemas.onboarding import OnboardingMerchantAccountCreate
+from app.schemas.withdrawals import PricingRuleCreate
 from app.services.audit import write_audit_log
 from app.services.crud import get_by_id, insert_row, update_row
+from app.services.ledger import get_wallet_balance
+
+# Required for a merchant to go live — checked at approval time, not at
+# submission, since documents upload separately via
+# POST /v1/onboarding/documents. BUSINESS_LICENCE is deliberately excluded:
+# the business made it optional everywhere (see DocumentType/the onboarding
+# form) so a sole proprietor without one can still get approved.
+_REQUIRED_APPROVAL_DOCUMENTS = (DocumentType.NIDA, DocumentType.TIN_CERTIFICATE)
 
 _ALLOWED_DOCUMENT_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png"}
 _BUCKET = "merchant-documents"
@@ -327,10 +336,38 @@ def get_onboarding_submission(client: Client, submission_id: uuid.UUID) -> dict:
     return _to_submission_row(submission, merchant, documents)
 
 
-def approve_onboarding_submission(client: Client, *, submission_id: uuid.UUID, reviewer_id: uuid.UUID) -> dict:
+def _missing_required_documents(client: Client, merchant_id: uuid.UUID) -> list[str]:
+    documents = (
+        client.table("onboarding_documents")
+        .select("document_type, upload_status")
+        .eq("merchant_id", str(merchant_id))
+        .execute()
+    ).data or []
+    present = {d["document_type"] for d in documents if d["upload_status"] != "REJECTED"}
+    return [doc_type.value for doc_type in _REQUIRED_APPROVAL_DOCUMENTS if doc_type.value not in present]
+
+
+def approve_onboarding_submission(
+    client: Client,
+    *,
+    submission_id: uuid.UUID,
+    reviewer_id: uuid.UUID,
+    pricing: PricingRuleCreate | None = None,
+) -> dict:
     submission = get_by_id(client, "onboarding_submissions", submission_id)
     if not submission:
         raise NotFoundError("Onboarding submission not found")
+
+    merchant_id = uuid.UUID(submission["merchant_id"])
+    merchant = get_by_id(client, "merchants", merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
+    missing = _missing_required_documents(client, merchant_id)
+    if missing:
+        raise ValidationAPIError(
+            f"Cannot approve: missing required document(s): {', '.join(missing)}"
+        )
 
     updated = update_row(
         client,
@@ -343,8 +380,28 @@ def approve_onboarding_submission(client: Client, *, submission_id: uuid.UUID, r
             "reviewed_at": utc_now_iso(),
         },
     )
-    merchant_id = uuid.UUID(submission["merchant_id"])
     update_row(client, "merchants", merchant_id, {"status": "active", "kyc_status": "verified"})
+
+    # Lazily creates the merchant's wallet ledger account if it doesn't
+    # already exist — same get-or-create path every collection/withdrawal
+    # uses, just triggered explicitly here so a freshly-approved merchant
+    # always has one rather than waiting for their first transaction.
+    get_wallet_balance(client, merchant_id=merchant_id, currency=merchant.get("currency", "TZS"))
+
+    # Merchant-specific pricing is optional — when the Super Admin doesn't
+    # provide any, no row is created here and merchant_pricing_rules'
+    # existing precedence resolver (app/services/withdrawals/fee_calculator.py)
+    # falls back to whatever platform-wide rule (merchant_id IS NULL) is
+    # configured, exactly as it already does for every other merchant.
+    if pricing is not None:
+        fields = pricing.model_dump(mode="json")
+        if fields.get("effective_from") is None:
+            fields["effective_from"] = utc_now_iso()
+        insert_row(
+            client,
+            "merchant_pricing_rules",
+            {"merchant_id": str(merchant_id), "created_by": str(reviewer_id), **fields},
+        )
 
     write_audit_log(
         client,
@@ -354,6 +411,7 @@ def approve_onboarding_submission(client: Client, *, submission_id: uuid.UUID, r
         action="onboarding.approved",
         resource_type="onboarding_submission",
         resource_id=submission_id,
+        metadata={"custom_pricing_assigned": pricing is not None},
     )
     return get_onboarding_submission(client, submission_id) if updated else submission
 

@@ -73,6 +73,13 @@ class MerchantPaymentLinkCreate(BaseModel):
     merchant_reference: str | None = Field(default=None, max_length=100)
     success_redirect_url: str | None = None
     failure_redirect_url: str | None = None
+    # "payment_link" (default) for the Payment Links page; "request_collection"
+    # for the Request Collection page — same underlying resource and
+    # endpoint, this is purely a label for Super Admin's source filter
+    # (collections.source, resolved via
+    # app/services/collection_source.py) — never trusted for anything
+    # security-relevant, only which merchant-portal form the merchant used.
+    origin: Literal["payment_link", "request_collection"] = "payment_link"
 
 
 class MerchantPaymentLinkUpdate(BaseModel):

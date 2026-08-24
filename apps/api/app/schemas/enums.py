@@ -43,6 +43,26 @@ LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT = (
 )
 
 
+class CollectionSource(StrEnum):
+    """How a collection was initiated — distinct from `method` (how the
+    customer paid). Super Admin uses this to answer "which product
+    surface brought in this payment" independently of the payment
+    method chosen. See collections_source_check
+    (supabase/migrations, 2026-08-24) and
+    app/services/collection_source.py for how this is resolved at each
+    collection-creation call site — never trusted from client input,
+    always derived server-side from the authenticated caller and the
+    payment_links row (if any) a collection is linked through."""
+
+    DASHBOARD_REQUEST = "DASHBOARD_REQUEST"
+    PAYMENT_LINK = "PAYMENT_LINK"
+    INVOICE = "INVOICE"
+    API_PAYMENT_PAGE = "API_PAYMENT_PAGE"
+    API_WALLET_PUSH = "API_WALLET_PUSH"
+    API_SELCOM_PESA = "API_SELCOM_PESA"
+    API_TANQR = "API_TANQR"
+
+
 class DisbursementMethod(StrEnum):
     """How a merchant receives payouts from their Infinity Africa balance."""
 

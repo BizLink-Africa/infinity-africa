@@ -40,6 +40,10 @@ from app.schemas.payment_links import (
 )
 from app.services.audit import write_audit_log
 from app.services.collection_payment import initiate_collection_payment
+from app.services.collection_source import (
+    resolve_invoice_id_for_payment_link,
+    resolve_payment_link_collection_source,
+)
 from app.services.collections import execute_collection
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
 from app.services.dynamic_qr import execute_dynamic_qr_for_payment_link
@@ -338,6 +342,7 @@ async def collect_payment_link(
             )
             return status.HTTP_202_ACCEPTED, collection
 
+        invoice_id = resolve_invoice_id_for_payment_link(client, payment_link_id=current["id"])
         collection = await execute_collection(
             client,
             merchant_id=merchant_id,
@@ -347,6 +352,9 @@ async def collect_payment_link(
             customer_id=uuid.UUID(current["customer_id"]) if current.get("customer_id") else None,
             customer_phone=payload.customer_phone or current.get("customer_phone"),
             payment_link_id=uuid.UUID(current["id"]),
+            invoice_id=uuid.UUID(invoice_id) if invoice_id else None,
+            source=resolve_payment_link_collection_source(client, payment_link=current).value,
+            api_key_id=uuid.UUID(current["api_key_id"]) if current.get("api_key_id") else None,
         )
         return status.HTTP_202_ACCEPTED, collection
 

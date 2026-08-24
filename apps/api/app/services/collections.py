@@ -78,11 +78,28 @@ async def create_processing_collection(
     merchant_reference: str | None = None,
     description: str | None = None,
     callback_url: str | None = None,
+    source: str | None = None,
+    api_key_id: uuid.UUID | None = None,
 ) -> dict:
     """Inserts just the collection row (status='processing', no provider
     info yet). Split out from initiate_collection() so
     initiate_dynamic_qr_collection() can share it without going through
-    the push-specific provider call."""
+    the push-specific provider call.
+
+    `source` defaults sensibly from what's already known (payment_link_id
+    -> PAYMENT_LINK, invoice_id -> INVOICE, neither -> DASHBOARD_REQUEST)
+    when the caller doesn't pass one explicitly — callers that know
+    better (e.g. an API-key-authenticated request) should always pass
+    the correct app/schemas/enums.py::CollectionSource value instead of
+    relying on this fallback."""
+    if source is None:
+        if invoice_id:
+            source = "INVOICE"
+        elif payment_link_id:
+            source = "PAYMENT_LINK"
+        else:
+            source = "DASHBOARD_REQUEST"
+
     return insert_row(
         client,
         "collections",
@@ -104,6 +121,8 @@ async def create_processing_collection(
                 callback_url=callback_url,
             ),
             "initiated_at": utc_now_iso(),
+            "source": source,
+            "api_key_id": str(api_key_id) if api_key_id else None,
         },
     )
 
@@ -205,6 +224,8 @@ async def initiate_collection(
     merchant_reference: str | None = None,
     description: str | None = None,
     callback_url: str | None = None,
+    source: str | None = None,
+    api_key_id: uuid.UUID | None = None,
 ) -> dict:
     """Creates the collection + its transaction and pushes it to the
     provider. Returns with status still PROCESSING — this is what
@@ -227,6 +248,8 @@ async def initiate_collection(
         merchant_reference=merchant_reference,
         description=description,
         callback_url=callback_url,
+        source=source,
+        api_key_id=api_key_id,
     )
 
     provider = get_selcom_client()
@@ -374,24 +397,26 @@ def _apply_collection_success(client: Client, collection: dict) -> None:
             payload={"payment_link_id": str(payment_link_id), "collection_id": collection["id"]},
         )
 
-        # An invoice's "Pay Now" link is a payment_links row the invoice
-        # references (invoices.payment_link_id) — the collection itself only
-        # ever knows about the payment_link, not the invoice, so the link
-        # back to the invoice (if any) has to be looked up here.
-        linked_invoice = execute_maybe_single(
-            client.table("invoices").select("id").eq("payment_link_id", str(payment_link_id)).maybe_single()
-        )
-        if linked_invoice:
-            _apply_payment_to_invoice(
-                client,
-                invoice_id=uuid.UUID(linked_invoice["id"]),
-                amount=Decimal(str(collection["amount"])),
-            )
+    invoice_id = collection.get("invoice_id") or _find_invoice_id_via_payment_link(client, collection)
+    if invoice_id:
+        _apply_payment_to_invoice(client, invoice_id=uuid.UUID(invoice_id), amount=Decimal(str(collection["amount"])))
 
-    if collection.get("invoice_id"):
-        _apply_payment_to_invoice(
-            client, invoice_id=uuid.UUID(collection["invoice_id"]), amount=Decimal(str(collection["amount"]))
-        )
+
+def _find_invoice_id_via_payment_link(client: Client, collection: dict) -> str | None:
+    """Fallback for a collection that predates collections.invoice_id being
+    reliably set at creation, or was created through some future call site
+    that forgets to resolve it — looks up the invoice the same way
+    collections.invoice_id itself is resolved
+    (app/services/collection_source.py), so invoice status still updates
+    correctly either way. Only consulted when collection.invoice_id is
+    empty, so a collection that already has it set never gets
+    double-applied here."""
+    if not collection.get("payment_link_id"):
+        return None
+    linked_invoice = execute_maybe_single(
+        client.table("invoices").select("id").eq("payment_link_id", collection["payment_link_id"]).maybe_single()
+    )
+    return linked_invoice["id"] if linked_invoice else None
 
 
 def _apply_payment_to_invoice(client: Client, *, invoice_id: uuid.UUID, amount: Decimal) -> None:
@@ -450,18 +475,9 @@ def _apply_collection_reversal(client: Client, collection: dict) -> None:
                 payload={"payment_link_id": str(payment_link_id), "collection_id": collection["id"]},
             )
 
-        linked_invoice = execute_maybe_single(
-            client.table("invoices").select("id").eq("payment_link_id", str(payment_link_id)).maybe_single()
-        )
-        if linked_invoice:
-            _reverse_payment_to_invoice(
-                client, invoice_id=uuid.UUID(linked_invoice["id"]), amount=Decimal(str(collection["amount"]))
-            )
-
-    if collection.get("invoice_id"):
-        _reverse_payment_to_invoice(
-            client, invoice_id=uuid.UUID(collection["invoice_id"]), amount=Decimal(str(collection["amount"]))
-        )
+    invoice_id = collection.get("invoice_id") or _find_invoice_id_via_payment_link(client, collection)
+    if invoice_id:
+        _reverse_payment_to_invoice(client, invoice_id=uuid.UUID(invoice_id), amount=Decimal(str(collection["amount"])))
 
 
 def finalize_pending_review_collection(client: Client, *, collection_id: uuid.UUID) -> dict | None:
@@ -618,6 +634,8 @@ async def execute_collection(
     payment_link_id: uuid.UUID | None = None,
     invoice_id: uuid.UUID | None = None,
     description: str | None = None,
+    source: str | None = None,
+    api_key_id: uuid.UUID | None = None,
 ) -> dict:
     """Synchronous collection: initiate, then immediately check status and
     resolve. Used by the public payment-link/invoice "collect" endpoints,
@@ -633,6 +651,8 @@ async def execute_collection(
         payment_link_id=payment_link_id,
         invoice_id=invoice_id,
         description=description,
+        source=source,
+        api_key_id=api_key_id,
     )
 
     provider = get_selcom_client()
@@ -656,6 +676,8 @@ async def initiate_dynamic_qr_collection(
     merchant_reference: str | None = None,
     description: str | None = None,
     callback_url: str | None = None,
+    source: str | None = None,
+    api_key_id: uuid.UUID | None = None,
 ):
     """Same shape as initiate_collection(), but generates a QR payload
     instead of pushing to a phone. Returns (collection, DynamicQrResult) —
@@ -676,6 +698,8 @@ async def initiate_dynamic_qr_collection(
         merchant_reference=merchant_reference,
         description=description,
         callback_url=callback_url,
+        source=source,
+        api_key_id=api_key_id,
     )
 
     provider = get_selcom_client()

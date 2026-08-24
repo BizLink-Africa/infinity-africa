@@ -63,6 +63,7 @@ export function WithdrawalsView() {
   const [quotedFor, setQuotedFor] = useState<{ method: string; destinationCode: string; amount: string } | null>(null);
   const quoteIsStale =
     !quotedFor || quotedFor.method !== method || quotedFor.destinationCode !== destinationCode || quotedFor.amount !== amount;
+  const exceedsBalance = Boolean(quote && !quoteIsStale && Number(quote.total_reserved_amount) > Number(balance));
 
   useEffect(() => {
     listDisbursements().then(setDisbursements);
@@ -113,6 +114,10 @@ export function WithdrawalsView() {
     }
     if (!quote || quoteIsStale) {
       setError("Calculate charges before confirming this withdrawal.");
+      return;
+    }
+    if (exceedsBalance) {
+      setError("Total to be deducted exceeds your available balance.");
       return;
     }
 
@@ -364,6 +369,12 @@ export function WithdrawalsView() {
                     Platform fallback rule applied
                   </p>
                 )}
+                {exceedsBalance && (
+                  <p className="text-xs text-error flex items-center gap-1 border-t border-surface-container-highest pt-2">
+                    <Icon name="error" className="text-[14px]" />
+                    Total to be deducted exceeds your available balance.
+                  </p>
+                )}
               </>
             ) : (
               <p className="text-xs text-on-surface-variant">
@@ -381,7 +392,7 @@ export function WithdrawalsView() {
           <button
             className="w-full sm:w-auto bg-primary-container text-on-primary text-sm font-medium py-3 px-8 rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-60"
             type="submit"
-            disabled={submitting || !quote || quoteIsStale}
+            disabled={submitting || !quote || quoteIsStale || exceedsBalance}
           >
             <Icon name="send" className="text-[20px]" />
             {submitting ? "Confirming…" : "Confirm Withdrawal"}

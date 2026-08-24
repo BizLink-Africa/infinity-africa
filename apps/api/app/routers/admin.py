@@ -34,6 +34,7 @@ from app.schemas.admin import (
     AdminWebhookEventResponse,
     AdminWithdrawalResponse,
 )
+from app.schemas.api_keys import ApiKeyResponse
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.common import APIResponse
 from app.services.admin_directory import batch_merchant_names, batch_user_profiles
@@ -115,6 +116,70 @@ def list_admin_merchants(
     return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
 
 
+@router.get("/merchants/{merchant_id}", response_model=APIResponse[AdminMerchantResponse])
+def get_admin_merchant(
+    merchant_id: uuid.UUID,
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    client = get_supabase_admin()
+    merchant = get_by_id(client, "merchants", merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
+    submission = (
+        client.table("onboarding_submissions")
+        .select("nature_of_business, physical_address")
+        .eq("merchant_id", str(merchant_id))
+        .execute()
+    ).data or []
+    membership = (
+        client.table("merchant_users")
+        .select("user_id")
+        .eq("merchant_id", str(merchant_id))
+        .eq("role", "MERCHANT_ADMIN")
+        .eq("status", "active")
+        .execute()
+    ).data or []
+    profile = batch_user_profiles(client, {m["user_id"] for m in membership}).get(
+        membership[0]["user_id"] if membership else None, {}
+    )
+
+    return APIResponse(
+        data=AdminMerchantResponse(
+            merchant_id=merchant["id"],
+            business_name=merchant["business_name"],
+            owner_name=profile.get("full_name"),
+            email=merchant["contact_email"],
+            contact_phone=merchant.get("contact_phone"),
+            nature_of_business=submission[0]["nature_of_business"] if submission else None,
+            physical_address=submission[0]["physical_address"] if submission else None,
+            account_status=merchant["status"],
+            available_balance=get_wallet_balance(
+                client, merchant_id=merchant_id, currency=merchant["currency"]
+            ),
+            created_at=merchant["created_at"],
+        )
+    )
+
+
+@router.get("/merchants/{merchant_id}/api-keys", response_model=APIResponse[list[ApiKeyResponse]])
+def list_admin_merchant_api_keys(
+    merchant_id: uuid.UUID,
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    client = get_supabase_admin()
+    if not get_by_id(client, "merchants", merchant_id):
+        raise NotFoundError("Merchant not found")
+    rows = (
+        client.table("api_keys")
+        .select("*")
+        .eq("merchant_id", str(merchant_id))
+        .order("created_at", desc=True)
+        .execute()
+    ).data or []
+    return APIResponse(data=[ApiKeyResponse(**row) for row in rows])
+
+
 @router.get("/merchant-users", response_model=APIResponse[list[AdminMerchantUserResponse]])
 def list_admin_merchant_users(
     _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
@@ -152,15 +217,13 @@ def list_admin_merchant_users(
 def list_admin_payment_links(
     _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
 ):
     client = get_supabase_admin()
-    result = (
-        client.table("payment_links")
-        .select("*", count="exact")
-        .order("created_at", desc=True)
-        .range(pagination.start, pagination.end)
-        .execute()
-    )
+    query = client.table("payment_links").select("*", count="exact")
+    if merchant_id is not None:
+        query = query.eq("merchant_id", str(merchant_id))
+    result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
 
@@ -186,15 +249,13 @@ def list_admin_payment_links(
 def list_admin_invoices(
     _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
 ):
     client = get_supabase_admin()
-    result = (
-        client.table("invoices")
-        .select("*", count="exact")
-        .order("created_at", desc=True)
-        .range(pagination.start, pagination.end)
-        .execute()
-    )
+    query = client.table("invoices").select("*", count="exact")
+    if merchant_id is not None:
+        query = query.eq("merchant_id", str(merchant_id))
+    result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
 
@@ -220,15 +281,44 @@ def list_admin_invoices(
 def list_admin_collections(
     _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
+    source: Annotated[str | None, Query()] = None,
+    method: Annotated[str | None, Query()] = None,
+    status: Annotated[str | None, Query()] = None,
+    date_from: Annotated[str | None, Query(description="ISO timestamp, inclusive")] = None,
+    date_to: Annotated[str | None, Query(description="ISO timestamp, inclusive")] = None,
+    customer_phone: Annotated[str | None, Query()] = None,
+    merchant_reference: Annotated[str | None, Query()] = None,
+    api_key_id: Annotated[uuid.UUID | None, Query()] = None,
+    payment_link_id: Annotated[uuid.UUID | None, Query()] = None,
+    invoice_id: Annotated[uuid.UUID | None, Query()] = None,
 ):
     client = get_supabase_admin()
-    result = (
-        client.table("collections")
-        .select("*", count="exact")
-        .order("created_at", desc=True)
-        .range(pagination.start, pagination.end)
-        .execute()
-    )
+    query = client.table("collections").select("*", count="exact")
+    if merchant_id is not None:
+        query = query.eq("merchant_id", str(merchant_id))
+    if source is not None:
+        query = query.eq("source", source)
+    if method is not None:
+        query = query.eq("method", method)
+    if status is not None:
+        query = query.eq("status", status)
+    if date_from is not None:
+        query = query.gte("created_at", date_from)
+    if date_to is not None:
+        query = query.lte("created_at", date_to)
+    if customer_phone is not None:
+        query = query.eq("customer_phone", customer_phone)
+    if merchant_reference is not None:
+        query = query.eq("merchant_reference", merchant_reference)
+    if api_key_id is not None:
+        query = query.eq("api_key_id", str(api_key_id))
+    if payment_link_id is not None:
+        query = query.eq("payment_link_id", str(payment_link_id))
+    if invoice_id is not None:
+        query = query.eq("invoice_id", str(invoice_id))
+
+    result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
 
@@ -243,16 +333,39 @@ def list_admin_collections(
         )
         order_ids_by_checkout_order_id = {o["id"]: o["order_id"] for o in orders_result.data or []}
 
+    # Fee/net amounts live on the linked transactions row (written only
+    # once a collection actually clears — see create_processing_transaction
+    # in app/services/collections.py), not on collections itself.
+    collection_ids = [r["id"] for r in rows]
+    fee_net_by_collection_id: dict[str, tuple[Decimal, Decimal]] = {}
+    if collection_ids:
+        txn_result = (
+            client.table("transactions")
+            .select("collection_id,fee_amount,net_amount")
+            .in_("collection_id", collection_ids)
+            .execute()
+        )
+        for txn in txn_result.data or []:
+            if txn.get("collection_id"):
+                fee_net_by_collection_id[txn["collection_id"]] = (txn["fee_amount"], txn["net_amount"])
+
     data = [
         AdminCollectionResponse(
             collection_id=row["id"],
             merchant_id=row["merchant_id"],
             merchant_name=merchant_names.get(row["merchant_id"], ""),
+            source=row.get("source"),
             method=row["method"],
             amount=row["amount"],
             currency=row["currency"],
+            fee_amount=fee_net_by_collection_id.get(row["id"], (None, None))[0],
+            net_amount=fee_net_by_collection_id.get(row["id"], (None, None))[1],
             phone=row.get("customer_phone"),
+            merchant_reference=row.get("merchant_reference"),
             provider_reference=row.get("provider_reference"),
+            api_key_id=row.get("api_key_id"),
+            payment_link_id=row.get("payment_link_id"),
+            invoice_id=row.get("invoice_id"),
             status=row["status"],
             created_at=row["created_at"],
             order_id=order_ids_by_checkout_order_id.get(row.get("checkout_order_id")),
@@ -325,6 +438,7 @@ def list_admin_withdrawals(
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
     status: Annotated[str | None, Query(description="Filter by disbursement status, e.g. PENDING_ADMIN_APPROVAL")] = None,
     requires_approval: Annotated[bool | None, Query()] = None,
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
 ):
     client = get_supabase_admin()
     query = client.table("disbursements").select("*", count="exact")
@@ -332,6 +446,8 @@ def list_admin_withdrawals(
         query = query.eq("status", status)
     if requires_approval is not None:
         query = query.eq("requires_approval", requires_approval)
+    if merchant_id is not None:
+        query = query.eq("merchant_id", str(merchant_id))
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})

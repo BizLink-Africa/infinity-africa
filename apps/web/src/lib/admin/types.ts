@@ -56,11 +56,18 @@ export interface AdminCollectionRow {
   collection_id: string;
   merchant_id: string;
   merchant_name: string;
+  source: string | null;
   method: string;
   amount: string;
   currency: string;
+  fee_amount: string | null;
+  net_amount: string | null;
   phone: string | null;
+  merchant_reference: string | null;
   provider_reference: string | null;
+  api_key_id: string | null;
+  payment_link_id: string | null;
+  invoice_id: string | null;
   status: "successful" | "pending" | "processing" | "failed" | "reversed" | "pending_review";
   created_at: string;
   // Selcom Checkout reconciliation detail — see
@@ -159,6 +166,19 @@ export interface PricingRuleRow {
   is_active: boolean;
   label: string | null;
   created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminApiKeyRow {
+  id: string;
+  name: string;
+  environment: string;
+  key_prefix: string;
+  scopes: string[];
+  status: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
   created_at: string;
   updated_at: string;
 }

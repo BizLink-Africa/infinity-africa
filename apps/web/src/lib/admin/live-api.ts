@@ -3,6 +3,7 @@ import "server-only";
 import { getAccessToken } from "@/lib/supabase/session";
 
 import type {
+  AdminApiKeyRow,
   AdminCollectionRow,
   AdminDisputeRow,
   AdminDocumentRequestRow,
@@ -110,6 +111,14 @@ export async function listAdminMerchants(): Promise<Merchant[]> {
   return apiList<Merchant>(`/v1/admin/merchants?${LIST_ALL_PARAMS}`);
 }
 
+export async function getAdminMerchant(merchantId: string): Promise<Merchant | null> {
+  return apiGet<Merchant>(`/v1/admin/merchants/${merchantId}`);
+}
+
+export async function listAdminMerchantApiKeys(merchantId: string): Promise<AdminApiKeyRow[]> {
+  return apiList<AdminApiKeyRow>(`/v1/admin/merchants/${merchantId}/api-keys`);
+}
+
 export async function updateMerchantStatus(merchantId: string, status: MerchantAccountStatus): Promise<void> {
   await apiWrite(`/v1/merchants/${merchantId}/status`, "PATCH", { status });
 }
@@ -126,16 +135,44 @@ export async function listAdminMerchantUsers(): Promise<MerchantUserRow[]> {
 
 // --- Payment Links / Invoices / Collections --------------------------------
 
-export async function listAdminPaymentLinks(): Promise<AdminPaymentLinkRow[]> {
-  return apiList<AdminPaymentLinkRow>(`/v1/admin/payment-links?${LIST_ALL_PARAMS}`);
+export async function listAdminPaymentLinks(filters?: { merchantId?: string }): Promise<AdminPaymentLinkRow[]> {
+  const params = new URLSearchParams(LIST_ALL_PARAMS);
+  if (filters?.merchantId) params.set("merchant_id", filters.merchantId);
+  return apiList<AdminPaymentLinkRow>(`/v1/admin/payment-links?${params.toString()}`);
 }
 
-export async function listAdminInvoices(): Promise<AdminInvoiceRow[]> {
-  return apiList<AdminInvoiceRow>(`/v1/admin/invoices?${LIST_ALL_PARAMS}`);
+export async function listAdminInvoices(filters?: { merchantId?: string }): Promise<AdminInvoiceRow[]> {
+  const params = new URLSearchParams(LIST_ALL_PARAMS);
+  if (filters?.merchantId) params.set("merchant_id", filters.merchantId);
+  return apiList<AdminInvoiceRow>(`/v1/admin/invoices?${params.toString()}`);
 }
 
-export async function listAdminCollections(): Promise<AdminCollectionRow[]> {
-  return apiList<AdminCollectionRow>(`/v1/admin/collections?${LIST_ALL_PARAMS}`);
+export async function listAdminCollections(filters?: {
+  merchantId?: string;
+  source?: string;
+  method?: string;
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  customerPhone?: string;
+  merchantReference?: string;
+  apiKeyId?: string;
+  paymentLinkId?: string;
+  invoiceId?: string;
+}): Promise<AdminCollectionRow[]> {
+  const params = new URLSearchParams(LIST_ALL_PARAMS);
+  if (filters?.merchantId) params.set("merchant_id", filters.merchantId);
+  if (filters?.source) params.set("source", filters.source);
+  if (filters?.method) params.set("method", filters.method);
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.dateFrom) params.set("date_from", filters.dateFrom);
+  if (filters?.dateTo) params.set("date_to", filters.dateTo);
+  if (filters?.customerPhone) params.set("customer_phone", filters.customerPhone);
+  if (filters?.merchantReference) params.set("merchant_reference", filters.merchantReference);
+  if (filters?.apiKeyId) params.set("api_key_id", filters.apiKeyId);
+  if (filters?.paymentLinkId) params.set("payment_link_id", filters.paymentLinkId);
+  if (filters?.invoiceId) params.set("invoice_id", filters.invoiceId);
+  return apiList<AdminCollectionRow>(`/v1/admin/collections?${params.toString()}`);
 }
 
 // Manual Selcom Checkout order-status refresh is a client-side
@@ -148,10 +185,12 @@ export async function listAdminCollections(): Promise<AdminCollectionRow[]> {
 export async function listAdminWithdrawals(filters?: {
   status?: string;
   requiresApproval?: boolean;
+  merchantId?: string;
 }): Promise<AdminWithdrawalRow[]> {
   const params = new URLSearchParams(LIST_ALL_PARAMS);
   if (filters?.status) params.set("status", filters.status);
   if (filters?.requiresApproval !== undefined) params.set("requires_approval", String(filters.requiresApproval));
+  if (filters?.merchantId) params.set("merchant_id", filters.merchantId);
   return apiList<AdminWithdrawalRow>(`/v1/admin/withdrawals?${params.toString()}`);
 }
 
@@ -237,8 +276,10 @@ export async function listAdminAuditLogs(): Promise<AuditLogRow[]> {
 
 // --- Risk monitoring -------------------------------------------------------
 
-export async function listAdminRiskAlerts(): Promise<AdminFraudAlertRow[]> {
-  return apiList<AdminFraudAlertRow>(`/v1/admin/risk-alerts?${LIST_ALL_PARAMS}`);
+export async function listAdminRiskAlerts(filters?: { merchantId?: string }): Promise<AdminFraudAlertRow[]> {
+  const params = new URLSearchParams(LIST_ALL_PARAMS);
+  if (filters?.merchantId) params.set("merchant_id", filters.merchantId);
+  return apiList<AdminFraudAlertRow>(`/v1/admin/risk-alerts?${params.toString()}`);
 }
 
 export async function updateRiskAlertStatus(alertId: string, status: string, note?: string): Promise<void> {

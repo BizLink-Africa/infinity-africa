@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { Card, tdClass, thClass } from "@/components/portal/card";
@@ -27,14 +28,18 @@ export function CollectionsTable({ collections: initialCollections }: { collecti
         <p className="p-6 text-sm text-on-surface-variant">No collections have been recorded yet.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[1100px]">
+          <table className="w-full text-left min-w-[1500px]">
             <thead>
               <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
                 <th className={thClass}>Merchant</th>
+                <th className={thClass}>Source</th>
                 <th className={thClass}>Phone</th>
                 <th className={thClass}>Method / Channel</th>
                 <th className={thClass}>Amount</th>
-                <th className={thClass}>Order / Reference</th>
+                <th className={thClass}>Fee</th>
+                <th className={thClass}>Net</th>
+                <th className={thClass}>Reference</th>
+                <th className={thClass}>Order / Provider Ref</th>
                 <th className={thClass}>Status</th>
                 <th className={thClass}>Date</th>
                 <th className={`${thClass} text-right`}>Actions</th>
@@ -46,17 +51,30 @@ export function CollectionsTable({ collections: initialCollections }: { collecti
                   row.status === "pending" || row.status === "processing" || refreshedIds.has(row.collection_id);
                 return (
                   <tr key={row.collection_id} className="border-t border-surface-container-highest">
-                    <td className={`${tdClass} text-on-background font-medium`}>{row.merchant_name}</td>
+                    <td className={`${tdClass} text-on-background font-medium`}>
+                      <Link href={`/super-admin/merchants/${row.merchant_id}`} className="hover:underline">
+                        {row.merchant_name}
+                      </Link>
+                    </td>
+                    <td className={`${tdClass} text-on-surface-variant text-xs`}>{row.source ?? "—"}</td>
                     <td className={tdClass}>{row.phone ?? "—"}</td>
                     <td className={`${tdClass} text-on-surface-variant`}>
                       <div>{row.method}</div>
                       {row.channel && <div className="text-xs">{row.channel}</div>}
                     </td>
                     <td className={`${tdClass} font-semibold text-on-background`}>{formatCurrency(row.amount, row.currency)}</td>
+                    <td className={`${tdClass} text-on-surface-variant`}>
+                      {row.fee_amount ? formatCurrency(row.fee_amount, row.currency) : "—"}
+                    </td>
+                    <td className={`${tdClass} text-on-surface-variant`}>
+                      {row.net_amount ? formatCurrency(row.net_amount, row.currency) : "—"}
+                    </td>
+                    <td className={`${tdClass} text-on-surface-variant text-xs font-mono`}>{row.merchant_reference ?? "—"}</td>
                     <td className={`${tdClass} text-on-surface-variant text-xs font-mono`}>
                       {row.order_id && <div>{row.order_id}</div>}
                       {row.provider_transid && <div>{row.provider_transid}</div>}
-                      {!row.order_id && !row.provider_transid && "—"}
+                      {row.provider_reference && <div>{row.provider_reference}</div>}
+                      {!row.order_id && !row.provider_transid && !row.provider_reference && "—"}
                     </td>
                     <td className={tdClass}>
                       <StatusBadge {...adminCollectionBadge(row.status)} />

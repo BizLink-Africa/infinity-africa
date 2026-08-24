@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { Card, tdClass, thClass } from "@/components/portal/card";
@@ -95,7 +96,10 @@ export function MerchantsTable({ rows }: { rows: Merchant[] }) {
                       className={`border-t border-surface-container-highest ${merchant.account_status === "suspended" ? "opacity-60" : ""}`}
                     >
                       <td className={tdClass}>
-                        <div className="flex items-center gap-3">
+                        <Link
+                          href={`/super-admin/merchants/${merchant.merchant_id}`}
+                          className="flex items-center gap-3 hover:opacity-80"
+                        >
                           <div className="w-9 h-9 rounded-full bg-primary-container/15 text-primary flex items-center justify-center font-bold text-xs shrink-0">
                             {initials(merchant.business_name)}
                           </div>
@@ -103,7 +107,7 @@ export function MerchantsTable({ rows }: { rows: Merchant[] }) {
                             <div className="font-medium text-on-background">{merchant.business_name}</div>
                             <div className="text-xs text-on-surface-variant">{merchant.email}</div>
                           </div>
-                        </div>
+                        </Link>
                       </td>
                       <td className={`${tdClass} text-on-surface-variant`}>{merchant.owner_name ?? "—"}</td>
                       <td className={`${tdClass} font-semibold text-on-background`}>

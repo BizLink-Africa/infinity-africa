@@ -8,7 +8,7 @@ Info) to act on real data instead of the retired mock store.
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from supabase import Client
 
 from app.auth import require_super_admin
@@ -17,6 +17,7 @@ from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.common import APIResponse
 from app.schemas.onboarding import OnboardingReviewAction, OnboardingSubmissionResponse
+from app.schemas.withdrawals import PricingRuleCreate
 from app.services.crud import execute_maybe_single, get_by_id
 from app.services.onboarding import (
     approve_onboarding_submission,
@@ -27,6 +28,12 @@ from app.services.onboarding import (
 )
 
 router = APIRouter(prefix="/admin/onboarding", tags=["admin-onboarding"])
+
+# Optional and defaulted to None so existing bodyless approve calls (the
+# Merchants dashboard's PATCH .../approve sends no body at all) keep working
+# unchanged — only a Super Admin UI that wants to assign custom pricing
+# during approval needs to send this.
+_PricingBody = Annotated[PricingRuleCreate | None, Body()]
 
 
 def _resolve_submission_id(client: Client, id: uuid.UUID) -> uuid.UUID:
@@ -52,19 +59,26 @@ def list_submissions(_admin: Annotated[AuthenticatedUser, Depends(require_super_
     return APIResponse(data=[OnboardingSubmissionResponse(**row) for row in rows])
 
 
-@router.get("/{submission_id}", response_model=APIResponse[OnboardingSubmissionResponse])
-def get_submission(
-    submission_id: uuid.UUID, _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)]
-):
+@router.get("/{id}", response_model=APIResponse[OnboardingSubmissionResponse])
+def get_submission(id: uuid.UUID, _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)]):
+    """`id` may be either a submission_id or a merchant_id — same
+    resolution as the PATCH .../approve|reject|request-more-info routes
+    below, so the merchant detail page can look up KYC documents knowing
+    only the merchant_id."""
     client = get_supabase_admin()
+    submission_id = _resolve_submission_id(client, id)
     row = get_onboarding_submission(client, submission_id)
     return APIResponse(data=OnboardingSubmissionResponse(**row))
 
 
 @router.post("/{submission_id}/approve", response_model=APIResponse[OnboardingSubmissionResponse])
-def approve(submission_id: uuid.UUID, admin: Annotated[AuthenticatedUser, Depends(require_super_admin)]):
+def approve(
+    submission_id: uuid.UUID,
+    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+    pricing: _PricingBody = None,
+):
     client = get_supabase_admin()
-    row = approve_onboarding_submission(client, submission_id=submission_id, reviewer_id=admin.id)
+    row = approve_onboarding_submission(client, submission_id=submission_id, reviewer_id=admin.id, pricing=pricing)
     return APIResponse(data=OnboardingSubmissionResponse(**row))
 
 
@@ -100,10 +114,14 @@ def request_more_info(
 
 
 @router.patch("/{id}/approve", response_model=APIResponse[OnboardingSubmissionResponse])
-def approve_by_id(id: uuid.UUID, admin: Annotated[AuthenticatedUser, Depends(require_super_admin)]):
+def approve_by_id(
+    id: uuid.UUID,
+    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+    pricing: _PricingBody = None,
+):
     client = get_supabase_admin()
     submission_id = _resolve_submission_id(client, id)
-    row = approve_onboarding_submission(client, submission_id=submission_id, reviewer_id=admin.id)
+    row = approve_onboarding_submission(client, submission_id=submission_id, reviewer_id=admin.id, pricing=pricing)
     return APIResponse(data=OnboardingSubmissionResponse(**row))
 
 

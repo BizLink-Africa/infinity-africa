@@ -111,6 +111,66 @@ def test_list_admin_collections_uses_customer_phone_not_name(fake_client):
     assert "customer_name" not in row
 
 
+def test_list_admin_collections_can_be_filtered_by_merchant_and_source(fake_client):
+    merchant_a = create_merchant(fake_client, business_name="Juma Traders")
+    merchant_b = create_merchant(fake_client, business_name="Amani Store")
+    fake_client.seed(
+        "collections",
+        {
+            "merchant_id": merchant_a["id"],
+            "method": "USSD_PUSH",
+            "amount": "20000",
+            "currency": "TZS",
+            "source": "PAYMENT_LINK",
+            "status": "successful",
+            "initiated_at": "2026-08-16T00:00:00+00:00",
+        },
+    )
+    fake_client.seed(
+        "collections",
+        {
+            "merchant_id": merchant_a["id"],
+            "method": "USSD_PUSH",
+            "amount": "5000",
+            "currency": "TZS",
+            "source": "API_WALLET_PUSH",
+            "status": "successful",
+            "initiated_at": "2026-08-16T00:00:00+00:00",
+        },
+    )
+    fake_client.seed(
+        "collections",
+        {
+            "merchant_id": merchant_b["id"],
+            "method": "USSD_PUSH",
+            "amount": "9000",
+            "currency": "TZS",
+            "source": "PAYMENT_LINK",
+            "status": "successful",
+            "initiated_at": "2026-08-16T00:00:00+00:00",
+        },
+    )
+    headers = _admin_headers(fake_client)
+
+    by_merchant = client.get(f"/v1/admin/collections?merchant_id={merchant_a['id']}", headers=headers)
+    assert by_merchant.status_code == 200
+    assert {row["amount"] for row in by_merchant.json()["data"]} == {"20000", "5000"}
+
+    by_source = client.get("/v1/admin/collections?source=API_WALLET_PUSH", headers=headers)
+    assert by_source.status_code == 200
+    rows = by_source.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["amount"] == "5000"
+
+    combined = client.get(
+        f"/v1/admin/collections?merchant_id={merchant_a['id']}&source=PAYMENT_LINK", headers=headers
+    )
+    assert combined.status_code == 200
+    rows = combined.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["amount"] == "20000"
+
+
 def test_list_admin_withdrawals_filters_pending_approval_queue(fake_client):
     merchant = create_merchant(fake_client, business_name="Baraka Textiles")
     fake_client.seed(

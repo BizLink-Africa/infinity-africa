@@ -29,6 +29,10 @@ from app.services.checkout_orders import (
     create_checkout_order_minimal,
     get_or_create_checkout_order_for_payment_link,
 )
+from app.services.collection_source import (
+    resolve_invoice_id_for_payment_link,
+    resolve_payment_link_collection_source,
+)
 from app.services.collections import create_processing_transaction
 from app.services.crud import execute_maybe_single, insert_row
 
@@ -86,6 +90,9 @@ async def execute_dynamic_qr_for_payment_link(client: Client, *, payment_link: d
         "customer_phone": real_phone,
         "provider": "selcom",
         "initiated_at": utc_now_iso(),
+        "source": resolve_payment_link_collection_source(client, payment_link=payment_link).value,
+        "api_key_id": payment_link.get("api_key_id"),
+        "invoice_id": resolve_invoice_id_for_payment_link(client, payment_link_id=payment_link_id),
     }
 
     if order["status"] != "created":
@@ -153,6 +160,8 @@ async def execute_qr_collection(
     merchant_reference: str | None = None,
     description: str | None = None,
     invoice_id: uuid.UUID | None = None,
+    source: str = "API_TANQR",
+    api_key_id: uuid.UUID | None = None,
 ) -> dict:
     """Standalone Scan QR / TanQR collection, not tied to any payment
     link — for a developer/merchant creating a QR collection directly
@@ -196,6 +205,8 @@ async def execute_qr_collection(
         "customer_phone": customer_phone,
         "provider": "selcom",
         "initiated_at": utc_now_iso(),
+        "source": source,
+        "api_key_id": str(api_key_id) if api_key_id else None,
     }
 
     if order["status"] != "created":

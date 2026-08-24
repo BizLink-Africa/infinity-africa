@@ -139,6 +139,10 @@ export interface CreatePaymentLinkInput {
   merchant_reference: string | null;
   success_redirect_url: string | null;
   failure_redirect_url: string | null;
+  // "request_collection" for the Request Collection form; omitted (backend
+  // defaults to "payment_link") for the Payment Links page — a label only,
+  // for Super Admin's source filter, never security-relevant.
+  origin?: "payment_link" | "request_collection";
 }
 
 export async function createPaymentLink(input: CreatePaymentLinkInput): Promise<PaymentLink> {
@@ -306,6 +310,7 @@ export async function createCollectionRequest(input: CreateCollectionRequestInpu
     merchant_reference: input.merchant_reference ?? null,
     success_redirect_url: null,
     failure_redirect_url: null,
+    origin: "request_collection",
   });
 }
 

@@ -178,11 +178,12 @@ async def create_my_payment_link(
     client = get_supabase_admin()
 
     async def _handler() -> tuple[int, dict]:
-        data = payload.model_dump(mode="json", exclude={"allowed_payment_methods"})
+        data = payload.model_dump(mode="json", exclude={"allowed_payment_methods", "origin"})
         data["merchant_id"] = str(membership.merchant_id)
         data["allowed_payment_methods"] = [m.value for m in payload.allowed_payment_methods]
         data["public_slug"] = generate_public_slug()
         data["status"] = "ACTIVE"
+        data["created_via"] = payload.origin
 
         row = insert_row(client, "payment_links", data)
 
@@ -194,6 +195,7 @@ async def create_my_payment_link(
             action="payment_link.created",
             resource_type="payment_link",
             resource_id=uuid.UUID(row["id"]),
+            metadata={"origin": payload.origin},
         )
         return status.HTTP_201_CREATED, row
 

@@ -47,6 +47,26 @@ def _submit_onboarding(user_id: uuid.UUID, **overrides) -> dict:
     return response.json()["data"]
 
 
+def _seed_required_documents(fake_client, merchant_id: str, *, document_types=("NIDA", "TIN_CERTIFICATE")) -> None:
+    """NIDA + TIN are required before a submission can be approved
+    (BUSINESS_LICENCE deliberately excluded — it's optional)."""
+    for document_type in document_types:
+        fake_client.seed(
+            "onboarding_documents",
+            {
+                "merchant_id": merchant_id,
+                "document_type": document_type,
+                "file_path": f"{merchant_id}/{document_type}.pdf",
+                "original_filename": f"{document_type.lower()}.pdf",
+                "mime_type": "application/pdf",
+                "size_bytes": 100,
+                "upload_status": "UPLOADED",
+                "uploaded_by": str(uuid.uuid4()),
+                "uploaded_at": "2026-08-15T00:00:00+00:00",
+            },
+        )
+
+
 def test_list_requires_super_admin(fake_client):
     _submit_onboarding(uuid.uuid4())
     response = client.get("/v1/admin/onboarding", headers=auth_headers(uuid.uuid4()))
@@ -107,6 +127,7 @@ def test_get_detail_includes_signed_urls_for_documents(fake_client):
 def test_approve_promotes_merchant_status(fake_client):
     submitted = _submit_onboarding(uuid.uuid4())
     merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)
     submission_id = next(
         r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
     )
@@ -120,6 +141,103 @@ def test_approve_promotes_merchant_status(fake_client):
     merchant = next(r for r in fake_client.table("merchants")._table.rows if r["id"] == merchant_id)
     assert merchant["status"] == "active"
     assert merchant["kyc_status"] == "verified"
+
+
+def test_cannot_approve_without_required_documents(fake_client):
+    """NIDA and TIN are hard requirements before a merchant can go live —
+    approving with neither (or just one) uploaded must be rejected."""
+    submitted = _submit_onboarding(uuid.uuid4())
+    merchant_id = submitted["merchant"]["id"]
+    submission_id = next(
+        r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
+    )
+
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+
+    no_docs_response = client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
+    assert no_docs_response.status_code == 422
+    assert "NIDA" in no_docs_response.json()["error"]["message"]
+    assert "TIN_CERTIFICATE" in no_docs_response.json()["error"]["message"]
+
+    merchant = next(r for r in fake_client.table("merchants")._table.rows if r["id"] == merchant_id)
+    assert merchant["status"] == "pending"  # never promoted
+
+    _seed_required_documents(fake_client, merchant_id, document_types=("NIDA",))
+    still_missing_response = client.post(
+        f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id)
+    )
+    assert still_missing_response.status_code == 422
+    assert "TIN_CERTIFICATE" in still_missing_response.json()["error"]["message"]
+
+
+def test_business_licence_is_optional_for_approval(fake_client):
+    """Approval must succeed with only NIDA + TIN uploaded — no
+    BUSINESS_LICENCE document required or seeded here at all."""
+    submitted = _submit_onboarding(uuid.uuid4())
+    merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)  # NIDA + TIN only
+    submission_id = next(
+        r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
+    )
+
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+    response = client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
+    assert response.status_code == 200
+    assert response.json()["data"]["review_status"] == "VERIFIED"
+
+
+def test_approval_creates_wallet_and_assigns_custom_pricing_rule(fake_client):
+    submitted = _submit_onboarding(uuid.uuid4())
+    merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)
+    submission_id = next(
+        r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
+    )
+
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+    response = client.post(
+        f"/v1/admin/onboarding/{submission_id}/approve",
+        headers=auth_headers(admin_id),
+        json={"percentage_fee": "1.5", "flat_fee": "200", "label": "Negotiated rate"},
+    )
+    assert response.status_code == 200
+
+    wallet = next(
+        r
+        for r in fake_client.table("ledger_accounts")._table.rows
+        if r["merchant_id"] == merchant_id and r["purpose"] == "merchant_wallet"
+    )
+    assert wallet["balance"] == "0"
+
+    rules = [r for r in fake_client.table("merchant_pricing_rules")._table.rows if r["merchant_id"] == merchant_id]
+    assert len(rules) == 1
+    assert rules[0]["percentage_fee"] == "1.5"
+    assert rules[0]["flat_fee"] == "200"
+    assert rules[0]["label"] == "Negotiated rate"
+    assert rules[0]["created_by"] == str(admin_id)
+
+
+def test_approval_without_custom_pricing_creates_no_merchant_specific_rule(fake_client):
+    """No custom pricing entered -> no merchant-specific row is created;
+    the merchant relies on whatever platform fallback rule (merchant_id
+    IS NULL) is configured, same as every other merchant."""
+    submitted = _submit_onboarding(uuid.uuid4())
+    merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)
+    submission_id = next(
+        r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
+    )
+
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+    response = client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
+    assert response.status_code == 200
+
+    rules = [r for r in fake_client.table("merchant_pricing_rules")._table.rows if r["merchant_id"] == merchant_id]
+    assert rules == []
 
 
 def test_reject_sets_status_and_note_without_touching_merchant(fake_client):
@@ -194,6 +312,7 @@ def test_rejected_merchant_can_resubmit_and_reappears_pending(fake_client):
 def test_approve_by_merchant_id(fake_client):
     submitted = _submit_onboarding(uuid.uuid4())
     merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)
 
     admin_id = uuid.uuid4()
     make_super_admin(fake_client, admin_id)

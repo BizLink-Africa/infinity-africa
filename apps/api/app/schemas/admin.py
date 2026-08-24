@@ -81,11 +81,18 @@ class AdminCollectionResponse(BaseModel):
     collection_id: uuid.UUID
     merchant_id: uuid.UUID
     merchant_name: str
+    source: str | None = None
     method: str
     amount: Decimal
     currency: str
+    fee_amount: Decimal | None = None
+    net_amount: Decimal | None = None
     phone: str | None = None
+    merchant_reference: str | None = None
     provider_reference: str | None = None
+    api_key_id: uuid.UUID | None = None
+    payment_link_id: uuid.UUID | None = None
+    invoice_id: uuid.UUID | None = None
     status: str
     created_at: datetime
     # Selcom Checkout wallet-push fields — null for collections made via
