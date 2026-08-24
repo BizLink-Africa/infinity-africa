@@ -239,13 +239,6 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
         title={method === "TANQR" ? "Scan to pay" : "Payment pending confirmation"}
         message={pendingMessage ?? "This page will update automatically."}
       >
-        {method === "SELCOM_PESA" && (
-          <div className="mt-1 flex items-center justify-center">
-            {/* eslint-disable-next-line @next/next/no-img-element -- local static SVG; next/image can't optimize SVG without a project-wide security config change */}
-            <img src="/assets/payment-logos/selcom-pesa.svg" alt="Selcom Pesa" className="h-6 w-auto rounded" />
-          </div>
-        )}
-
         {method === "TANQR" && qr && (
           <div className="w-full">
             <SelcomQrDisplay qr={qr} />
@@ -394,14 +387,12 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
                 icon="account_balance_wallet"
                 label={METHOD_LABEL.SELCOM_PESA}
                 description="Approve in your Selcom Pesa app"
-                logo={{ src: "/assets/payment-logos/selcom-pesa.svg", alt: "Selcom Pesa" }}
                 onClick={() => handleChooseMethod("SELCOM_PESA")}
               />
               <PaymentMethodButton
                 icon="qr_code_scanner"
                 label={METHOD_LABEL.TANQR}
                 description="Scan with any supported payment app"
-                logo={{ src: "/assets/payment-logos/tanqr.svg", alt: "TanQR / TIPS" }}
                 onClick={() => handleChooseMethod("TANQR")}
               />
             </div>
@@ -416,13 +407,11 @@ function PaymentMethodButton({
   icon,
   label,
   description,
-  logo,
   onClick,
 }: {
   icon: string;
   label: string;
   description: string;
-  logo?: { src: string; alt: string };
   onClick: () => void;
 }) {
   return (
@@ -438,10 +427,6 @@ function PaymentMethodButton({
         <span className="block text-sm font-semibold text-on-surface">{label}</span>
         <span className="block text-xs text-on-surface-variant">{description}</span>
       </span>
-      {logo && (
-        // eslint-disable-next-line @next/next/no-img-element -- local static SVG; next/image can't optimize SVG without a project-wide security config change
-        <img src={logo.src} alt={logo.alt} className="h-5 w-auto shrink-0 rounded" />
-      )}
       <ChevronIcon />
     </button>
   );

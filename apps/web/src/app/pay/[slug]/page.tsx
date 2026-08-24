@@ -1,5 +1,4 @@
 import { PaymentForm } from "@/components/payment-link/payment-form";
-import { PaymentMethodLogos } from "@/components/payment-link/payment-method-logos";
 import { StatusCard } from "@/components/payment-link/status-card";
 import { fetchPublicPaymentLink, type PaymentLinkStatus, type PublicPaymentLink } from "@/lib/payment-links";
 
@@ -50,13 +49,10 @@ export default async function CustomerPaymentPage({
           )}
         </div>
 
-        <div className="mt-6 space-y-4">
-          <PaymentMethodLogos />
-          <p className="flex items-center justify-center gap-1.5 text-center text-xs text-on-surface-variant">
-            <LockIcon />
-            Powered by Infinity Africa
-          </p>
-        </div>
+        <p className="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-on-surface-variant">
+          <LockIcon />
+          Powered by Infinity Africa
+        </p>
       </div>
     </div>
   );

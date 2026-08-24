@@ -47,13 +47,6 @@ describe("PaymentForm", () => {
     expect(screen.getByText("Invoice for services")).toBeInTheDocument();
   });
 
-  it("shows a Selcom Pesa logo and a TanQR/TIPS logo next to their respective method cards", () => {
-    render(<PaymentForm slug="test-slug" link={link} />);
-
-    expect(screen.getByAltText("Selcom Pesa")).toBeInTheDocument();
-    expect(screen.getByAltText("TanQR / TIPS")).toBeInTheDocument();
-  });
-
   it("shows exactly the three active payment methods, nothing else", () => {
     render(<PaymentForm slug="test-slug" link={link} />);
 
@@ -135,7 +128,6 @@ describe("PaymentForm", () => {
     await waitFor(() =>
       expect(screen.getByText("Selcom Pesa prompt sent. Please approve in your Selcom Pesa app.")).toBeInTheDocument(),
     );
-    expect(screen.getByAltText("Selcom Pesa")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh status" })).toBeInTheDocument();
   });
 
