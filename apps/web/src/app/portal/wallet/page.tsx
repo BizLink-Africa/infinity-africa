@@ -25,6 +25,7 @@ export default function WalletPage() {
 
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard
+          variant="brand"
           icon="account_balance_wallet"
           label="Available Balance"
           value={availableBalance !== null ? formatCurrency(availableBalance, "TZS") : "—"}
@@ -33,8 +34,8 @@ export default function WalletPage() {
         {/* Infinity Africa doesn't track a separate "pending clearance" or
             "chargeback reserve" balance yet — shown honestly as unavailable
             rather than a fabricated number. */}
-        <KpiCard icon="hourglass_empty" label="Pending Clearance" value="—" caption="Not tracked yet" />
-        <KpiCard icon="lock" label="Reserved Funds" value="—" caption="Not tracked yet" />
+        <KpiCard variant="brand" icon="hourglass_empty" label="Pending Clearance" value="—" caption="Not tracked yet" />
+        <KpiCard variant="brand" icon="lock" label="Reserved Funds" value="—" caption="Not tracked yet" />
       </section>
 
       <Card padded={false}>
