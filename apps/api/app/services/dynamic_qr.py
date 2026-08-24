@@ -93,6 +93,7 @@ async def execute_dynamic_qr_for_payment_link(client: Client, *, payment_link: d
         "source": resolve_payment_link_collection_source(client, payment_link=payment_link).value,
         "api_key_id": payment_link.get("api_key_id"),
         "invoice_id": resolve_invoice_id_for_payment_link(client, payment_link_id=payment_link_id),
+        "merchant_reference": payment_link.get("merchant_reference"),
     }
 
     if order["status"] != "created":

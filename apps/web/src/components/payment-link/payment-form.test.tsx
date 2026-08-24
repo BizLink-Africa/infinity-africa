@@ -37,12 +37,21 @@ describe("PaymentForm", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the merchant, amount, and description", () => {
+  it("shows PAYMENT REQUEST, amount, and description — no merchant-name eyebrow", () => {
     render(<PaymentForm slug="test-slug" link={link} />);
 
-    expect(screen.getByText("Paying Test Merchant")).toBeInTheDocument();
+    expect(screen.getByText("Payment Request")).toBeInTheDocument();
+    expect(screen.queryByText("Paying Test Merchant")).not.toBeInTheDocument();
+    expect(screen.queryByText(/PAYING MERCHANT/i)).not.toBeInTheDocument();
     expect(screen.getByText("TZS 25,000.00")).toBeInTheDocument();
     expect(screen.getByText("Invoice for services")).toBeInTheDocument();
+  });
+
+  it("shows a Selcom Pesa logo and a TanQR/TIPS logo next to their respective method cards", () => {
+    render(<PaymentForm slug="test-slug" link={link} />);
+
+    expect(screen.getByAltText("Selcom Pesa")).toBeInTheDocument();
+    expect(screen.getByAltText("TanQR / TIPS")).toBeInTheDocument();
   });
 
   it("shows exactly the three active payment methods, nothing else", () => {
@@ -116,7 +125,7 @@ describe("PaymentForm", () => {
     render(<PaymentForm slug="test-slug" link={link} />);
     fireEvent.click(screen.getByRole("button", { name: /Pay with Selcom Pesa/ }));
     fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "0747730270" } });
-    fireEvent.click(screen.getByRole("button", { name: "Pay with Selcom Pesa" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send Selcom Pesa prompt" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
@@ -126,6 +135,8 @@ describe("PaymentForm", () => {
     await waitFor(() =>
       expect(screen.getByText("Selcom Pesa prompt sent. Please approve in your Selcom Pesa app.")).toBeInTheDocument(),
     );
+    expect(screen.getByAltText("Selcom Pesa")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh status" })).toBeInTheDocument();
   });
 
   it("submits Scan QR / TanQR immediately with no phone step, and renders Selcom's exact qr payload unaltered", async () => {
@@ -161,6 +172,12 @@ describe("PaymentForm", () => {
       selcomQrPayload, // the exact string Selcom returned — never re-derived from order_id/amount/url
       expect.anything(),
     );
+
+    expect(screen.getByText("Open your supported payment app.")).toBeInTheDocument();
+    expect(screen.getByText("Choose Scan QR / TanQR.")).toBeInTheDocument();
+    expect(screen.getByText("Scan the QR shown here.")).toBeInTheDocument();
+    expect(screen.getByText("Confirm payment in your app.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh status" })).toBeInTheDocument();
   });
 
   it("renders a Selcom-returned URL/image qr as an image, not a re-encoded QR", async () => {
@@ -253,6 +270,43 @@ describe("PaymentForm", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("the Refresh status button checks status immediately, independent of the automatic poll", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: {
+            collection_id: "col-refresh",
+            method: "WALLET_PUSH",
+            status: "pending",
+            message: "Payment prompt sent. Please approve on your phone.",
+            qr: null,
+            payment_token: null,
+            payment_gateway_url: null,
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true, data: { status: "completed", message: "Payment completed successfully." } }),
+      });
+
+    render(<PaymentForm slug="test-slug" link={{ ...link, customer_phone: "255747730270" }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Pay by Mobile Money Push/ }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Payment prompt sent. Please approve on your phone.")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const [pollUrl] = fetchMock.mock.calls[1];
+    expect(String(pollUrl)).toContain("/public/payment-links/test-slug/collections/col-refresh/status");
+    await waitFor(() => expect(screen.getByText("Payment completed")).toBeInTheDocument());
   });
 
   it("shows a completed state once the poll reports completed", async () => {

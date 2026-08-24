@@ -291,6 +291,7 @@ def get_public_collection_receipt(public_slug: str, collection_id: uuid.UUID):
             customer_name=link.get("customer_name"),
             customer_phone=collection.get("customer_phone") or link.get("customer_phone"),
             method=_RECEIPT_METHOD_LABELS.get(collection["method"], collection["method"]),
+            merchant_reference=collection.get("merchant_reference"),
             provider_reference=collection.get("provider_reference"),
             provider_transid=collection.get("provider_transid"),
             channel=collection.get("channel"),

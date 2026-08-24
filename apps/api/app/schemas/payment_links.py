@@ -230,6 +230,7 @@ class PublicCollectionReceiptResponse(BaseModel):
     customer_name: str | None = None
     customer_phone: str | None = None
     method: str
+    merchant_reference: str | None = None
     provider_reference: str | None = None
     provider_transid: str | None = None
     channel: str | None = None

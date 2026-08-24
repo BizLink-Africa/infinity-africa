@@ -70,6 +70,36 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
   const [qr, setQr] = useState<string | null>(null);
   const [paymentToken, setPaymentToken] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+
+  // Shared by the automatic poll below and the customer-facing "Refresh
+  // status" button — both just want one status check against the same
+  // endpoint, applying the same completed/terminal/still-pending logic.
+  async function checkStatusOnce(currentCollectionId: string): Promise<"completed" | "terminal" | "pending"> {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/public/payment-links/${slug}/collections/${currentCollectionId}/status`,
+        { cache: "no-store" },
+      );
+      const body: CollectionStatusBody = await response.json();
+      const status = body.data?.status;
+
+      if (status === "completed") {
+        setState("success");
+        return "completed";
+      }
+      if (status && status !== "pending") {
+        // cancelled / user_cancelled / rejected / failed
+        setOutcome(status);
+        setErrorMessage(body.data?.message ?? null);
+        setState("failed");
+        return "terminal";
+      }
+    } catch {
+      // Transient network blip — caller decides what "no signal" means.
+    }
+    return "pending";
+  }
 
   useEffect(() => {
     if (state !== "awaiting_confirmation" || !collectionId) return;
@@ -80,28 +110,8 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
     async function poll() {
       if (cancelled) return;
 
-      try {
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/public/payment-links/${slug}/collections/${collectionId}/status`,
-          { cache: "no-store" },
-        );
-        const body: CollectionStatusBody = await response.json();
-        const status = body.data?.status;
-
-        if (status === "completed") {
-          setState("success");
-          return;
-        }
-        if (status && status !== "pending") {
-          // cancelled / user_cancelled / rejected / failed
-          setOutcome(status);
-          setErrorMessage(body.data?.message ?? null);
-          setState("failed");
-          return;
-        }
-      } catch {
-        // Transient network blip — keep polling until the timeout.
-      }
+      const result = await checkStatusOnce(collectionId as string);
+      if (result !== "pending" || cancelled) return;
 
       if (Date.now() >= deadline) {
         setState("failed");
@@ -117,7 +127,15 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
       cancelled = true;
       clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- checkStatusOnce is stable in behavior across renders; re-running the effect only on state/collectionId/slug matches the original poll effect's own deps
   }, [state, collectionId, slug]);
+
+  async function handleManualRefresh() {
+    if (!collectionId) return;
+    setManualRefreshing(true);
+    await checkStatusOnce(collectionId);
+    setManualRefreshing(false);
+  }
 
   useEffect(() => {
     const redirectUrl =
@@ -221,12 +239,41 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
         title={method === "TANQR" ? "Scan to pay" : "Payment pending confirmation"}
         message={pendingMessage ?? "This page will update automatically."}
       >
+        {method === "SELCOM_PESA" && (
+          <div className="mt-1 flex items-center justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element -- local static SVG; next/image can't optimize SVG without a project-wide security config change */}
+            <img src="/assets/payment-logos/selcom-pesa.svg" alt="Selcom Pesa" className="h-6 w-auto rounded" />
+          </div>
+        )}
+
         {method === "TANQR" && qr && (
           <div className="w-full">
             <SelcomQrDisplay qr={qr} />
             {paymentToken && <p className="mt-2 text-center text-xs text-on-surface-variant">Token: {paymentToken}</p>}
+            <ul className="mt-4 space-y-1.5 text-left text-xs text-on-surface-variant">
+              {[
+                "Open your supported payment app.",
+                "Choose Scan QR / TanQR.",
+                "Scan the QR shown here.",
+                "Confirm payment in your app.",
+              ].map((tip) => (
+                <li key={tip} className="flex items-start gap-2">
+                  <span aria-hidden className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-on-surface-variant" />
+                  {tip}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
+
+        <button
+          type="button"
+          onClick={handleManualRefresh}
+          disabled={manualRefreshing}
+          className="mt-5 rounded border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant hover:bg-surface-container-low disabled:opacity-60"
+        >
+          {manualRefreshing ? "Checking…" : "Refresh status"}
+        </button>
       </StatusCard>
     );
   }
@@ -285,7 +332,7 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
   return (
     <div>
       <div className="bg-primary p-6 text-on-primary sm:p-8">
-        <p className="text-xs font-semibold uppercase tracking-wide text-on-primary/70">Paying {link.merchant_name}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-on-primary/70">Payment Request</p>
         <p className="mt-2 text-3xl font-bold">{formatCurrency(link.amount, link.currency)}</p>
 
         {link.description && <p className="mt-2 text-sm text-on-primary/80">{link.description}</p>}
@@ -320,7 +367,7 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
               disabled={!phone.trim()}
               className="mt-4 w-full rounded bg-primary-container px-4 py-3 text-sm font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {method ? METHOD_LABEL[method] : "Continue"}
+              {method === "SELCOM_PESA" ? "Send Selcom Pesa prompt" : method ? METHOD_LABEL[method] : "Continue"}
             </button>
             <button
               type="button"
@@ -347,12 +394,14 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
                 icon="account_balance_wallet"
                 label={METHOD_LABEL.SELCOM_PESA}
                 description="Approve in your Selcom Pesa app"
+                logo={{ src: "/assets/payment-logos/selcom-pesa.svg", alt: "Selcom Pesa" }}
                 onClick={() => handleChooseMethod("SELCOM_PESA")}
               />
               <PaymentMethodButton
                 icon="qr_code_scanner"
                 label={METHOD_LABEL.TANQR}
                 description="Scan with any supported payment app"
+                logo={{ src: "/assets/payment-logos/tanqr.svg", alt: "TanQR / TIPS" }}
                 onClick={() => handleChooseMethod("TANQR")}
               />
             </div>
@@ -367,11 +416,13 @@ function PaymentMethodButton({
   icon,
   label,
   description,
+  logo,
   onClick,
 }: {
   icon: string;
   label: string;
   description: string;
+  logo?: { src: string; alt: string };
   onClick: () => void;
 }) {
   return (
@@ -383,10 +434,14 @@ function PaymentMethodButton({
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
         <Icon name={icon} className="text-[22px]" />
       </span>
-      <span className="flex-1">
+      <span className="flex-1 min-w-0">
         <span className="block text-sm font-semibold text-on-surface">{label}</span>
         <span className="block text-xs text-on-surface-variant">{description}</span>
       </span>
+      {logo && (
+        // eslint-disable-next-line @next/next/no-img-element -- local static SVG; next/image can't optimize SVG without a project-wide security config change
+        <img src={logo.src} alt={logo.alt} className="h-5 w-auto shrink-0 rounded" />
+      )}
       <ChevronIcon />
     </button>
   );

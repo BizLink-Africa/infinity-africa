@@ -1,4 +1,5 @@
 import { PaymentForm } from "@/components/payment-link/payment-form";
+import { PaymentMethodLogos } from "@/components/payment-link/payment-method-logos";
 import { StatusCard } from "@/components/payment-link/status-card";
 import { fetchPublicPaymentLink, type PaymentLinkStatus, type PublicPaymentLink } from "@/lib/payment-links";
 
@@ -32,10 +33,6 @@ export default async function CustomerPaymentPage({
   return (
     <div className="flex flex-1 flex-col items-center bg-surface-container px-4 py-6 sm:py-16">
       <div className="w-full max-w-xl">
-        <div className="mb-6 flex items-center justify-center">
-          <span className="text-lg font-bold tracking-tight text-primary">Infinity Africa</span>
-        </div>
-
         <div
           aria-live="polite"
           className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm"
@@ -53,10 +50,13 @@ export default async function CustomerPaymentPage({
           )}
         </div>
 
-        <p className="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-on-surface-variant">
-          <LockIcon />
-          Secured by Infinity Africa
-        </p>
+        <div className="mt-6 space-y-4">
+          <PaymentMethodLogos />
+          <p className="flex items-center justify-center gap-1.5 text-center text-xs text-on-surface-variant">
+            <LockIcon />
+            Powered by Infinity Africa
+          </p>
+        </div>
       </div>
     </div>
   );

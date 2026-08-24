@@ -118,14 +118,20 @@ def _complete_a_wallet_push_collection(fake_client, monkeypatch, link: dict) -> 
             reference="S20690471578",
             transid=collection["provider_transid"],
             channel="TIGOPESA",
-            raw_response={"payment_status": "COMPLETED"},
+            raw_response={
+                "payment_status": "COMPLETED",
+                "api_key": "should-never-reach-the-receipt",
+                "private_key": "should-never-reach-the-receipt",
+            },
         )
     )
     return collection
 
 
 def test_receipt_available_for_successful_collection(fake_client, monkeypatch):
-    _merchant, link = _create_merchant_and_link(fake_client, monkeypatch, description="Test invoice")
+    _merchant, link = _create_merchant_and_link(
+        fake_client, monkeypatch, description="Test invoice", merchant_reference="INV-2026-0042"
+    )
     collection = _complete_a_wallet_push_collection(fake_client, monkeypatch, link)
 
     response = client.get(f"/public/payment-links/{link['public_slug']}/collections/{collection['id']}/receipt")
@@ -140,6 +146,26 @@ def test_receipt_available_for_successful_collection(fake_client, monkeypatch):
     assert data["channel"] == "TIGOPESA"
     assert data["provider_reference"] == "S20690471578"
     assert data["completed_at"] is not None
+    assert data["merchant_reference"] == "INV-2026-0042"
+
+
+def test_receipt_does_not_expose_secrets_or_raw_provider_payload(fake_client, monkeypatch):
+    """The completed collection's raw_response (captured above with
+    fake secret-shaped values baked in, mirroring what a real Selcom
+    payload capture could contain) must never leak through the public
+    receipt response — only the specific fields
+    PublicCollectionReceiptResponse declares are ever serialized."""
+    _merchant, link = _create_merchant_and_link(fake_client, monkeypatch)
+    collection = _complete_a_wallet_push_collection(fake_client, monkeypatch, link)
+
+    response = client.get(f"/public/payment-links/{link['public_slug']}/collections/{collection['id']}/receipt")
+
+    assert response.status_code == 200, response.text
+    body_text = response.text
+    assert "api_key" not in body_text
+    assert "private_key" not in body_text
+    assert "should-never-reach-the-receipt" not in body_text
+    assert "raw_response" not in response.json()["data"]
 
 
 def test_receipt_not_available_while_still_processing(fake_client, monkeypatch):
@@ -173,6 +199,20 @@ def test_receipt_not_available_for_failed_collection(fake_client, monkeypatch):
             raw_response={},
         )
     )
+
+    response = client.get(f"/public/payment-links/{link['public_slug']}/collections/{collection['id']}/receipt")
+    assert response.status_code == 409, response.text
+
+
+def test_receipt_not_available_for_reversed_collection(fake_client, monkeypatch):
+    """A collection that was successful and later reversed must never
+    keep serving a receipt — same 409 as processing/failed, not the
+    "successful" branch."""
+    _merchant, link = _create_merchant_and_link(fake_client, monkeypatch)
+    collection = _complete_a_wallet_push_collection(fake_client, monkeypatch, link)
+    from app.services.collections import reverse_successful_collection
+
+    reverse_successful_collection(fake_client, collection_id=uuid.UUID(collection["id"]), reason="Reversed by provider")
 
     response = client.get(f"/public/payment-links/{link['public_slug']}/collections/{collection['id']}/receipt")
     assert response.status_code == 409, response.text

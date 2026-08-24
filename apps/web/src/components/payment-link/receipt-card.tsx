@@ -1,6 +1,6 @@
 "use client";
 
-import { formatCurrency, formatDateTime } from "@/lib/format";
+import { formatCurrency, formatDateTime, maskAccountIdentifier } from "@/lib/format";
 import type { PublicCollectionReceipt } from "@/lib/payment-links";
 
 /**
@@ -16,7 +16,15 @@ import type { PublicCollectionReceipt } from "@/lib/payment-links";
  * chrome (button, "Secured by" footer via the parent page) so only the
  * receipt itself ends up in the saved PDF.
  */
-export function ReceiptCard({ receipt }: { receipt: PublicCollectionReceipt }) {
+/** A short, friendly receipt number derived from the collection id — the
+ * backend has no separate receipt-number field, so this is presentation
+ * only; the full id is still shown on its own row below for anyone who
+ * needs the exact record. */
+function receiptNumber(collectionId: string): string {
+  return `RCPT-${collectionId.replace(/-/g, "").slice(-8).toUpperCase()}`;
+}
+
+export function ReceiptCard({ receipt, slug }: { receipt: PublicCollectionReceipt; slug: string }) {
   return (
     <div>
       <div
@@ -37,34 +45,54 @@ export function ReceiptCard({ receipt }: { receipt: PublicCollectionReceipt }) {
         </div>
 
         <dl className="mt-6 space-y-3 text-sm">
+          <Row label="Status" value="Successful" />
+          <Row label="Receipt no." value={receiptNumber(receipt.collection_id)} mono />
           <Row label="Paid to" value={receipt.merchant_name} />
           {receipt.description && <Row label="Description" value={receipt.description} />}
           {(receipt.customer_name || receipt.customer_phone) && (
             <Row
               label="Paid by"
-              value={[receipt.customer_name, receipt.customer_phone].filter(Boolean).join(" · ")}
+              value={[receipt.customer_name, receipt.customer_phone ? maskAccountIdentifier(receipt.customer_phone) : null]
+                .filter(Boolean)
+                .join(" · ")}
             />
           )}
           <Row label="Payment method" value={receipt.method} />
           {receipt.channel && <Row label="Channel" value={receipt.channel} />}
+          {receipt.merchant_reference && <Row label="Merchant reference" value={receipt.merchant_reference} mono />}
           {receipt.provider_reference && <Row label="Selcom reference" value={receipt.provider_reference} mono />}
           {receipt.provider_transid && <Row label="Transaction ID" value={receipt.provider_transid} mono />}
           {receipt.completed_at && <Row label="Date" value={formatDateTime(receipt.completed_at)} />}
-          <Row label="Receipt no." value={receipt.collection_id} mono />
+          <Row label="Collection ID" value={receipt.collection_id} mono />
         </dl>
 
         <p className="mt-6 border-t border-dashed border-outline-variant pt-4 text-center text-xs text-on-surface-variant">
-          This receipt reflects a payment confirmed by Selcom. Secured by Infinity Africa.
+          This receipt reflects a payment confirmed by Selcom. Powered by Infinity Africa.
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={() => window.print()}
-        className="mt-5 w-full rounded bg-primary-container px-4 py-3 text-sm font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary print:hidden"
+      <div className="mt-5 grid grid-cols-1 gap-2.5 print:hidden sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="rounded bg-primary-container px-4 py-3 text-sm font-semibold text-on-primary shadow-sm transition-colors hover:bg-primary"
+        >
+          Download Receipt PDF
+        </button>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="rounded border border-outline-variant px-4 py-3 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container-low"
+        >
+          Print Receipt
+        </button>
+      </div>
+      <a
+        href={`/pay/${slug}`}
+        className="mt-2.5 block w-full rounded px-4 py-2 text-center text-xs font-medium text-on-surface-variant hover:underline print:hidden"
       >
-        Download Receipt
-      </button>
+        Back to payment status
+      </a>
     </div>
   );
 }

@@ -14,6 +14,7 @@ const receipt: PublicCollectionReceipt = {
   customer_name: "Grace",
   customer_phone: "255747730270",
   method: "Mobile Money Push",
+  merchant_reference: "INV-2026-0042",
   provider_reference: "S20690471578",
   provider_transid: "TXN-ABC123",
   channel: "TIGOPESA",
@@ -22,7 +23,7 @@ const receipt: PublicCollectionReceipt = {
 
 describe("ReceiptCard", () => {
   it("shows only Selcom-confirmed values, never generated ones", () => {
-    render(<ReceiptCard receipt={receipt} />);
+    render(<ReceiptCard receipt={receipt} slug="test-slug" />);
 
     expect(screen.getByText("TZS 2,500.00")).toBeInTheDocument();
     expect(screen.getByText("Salome Mponeja Shop")).toBeInTheDocument();
@@ -31,24 +32,60 @@ describe("ReceiptCard", () => {
     expect(screen.getByText("TIGOPESA")).toBeInTheDocument();
     expect(screen.getByText("S20690471578")).toBeInTheDocument();
     expect(screen.getByText("TXN-ABC123")).toBeInTheDocument();
+    expect(screen.getByText("INV-2026-0042")).toBeInTheDocument();
     expect(screen.getByText(receipt.collection_id)).toBeInTheDocument();
   });
 
+  it("shows a Successful status row and a friendly receipt number", () => {
+    render(<ReceiptCard receipt={receipt} slug="test-slug" />);
+
+    expect(screen.getByText("Successful")).toBeInTheDocument();
+    expect(screen.getByText("RCPT-11111111")).toBeInTheDocument();
+  });
+
+  it("masks the customer phone number, never showing it in full", () => {
+    render(<ReceiptCard receipt={receipt} slug="test-slug" />);
+
+    expect(screen.queryByText(/255747730270/)).not.toBeInTheDocument();
+    expect(screen.getByText(/•••• 0270/)).toBeInTheDocument();
+  });
+
+  it("never renders raw provider payload or secret-shaped values", () => {
+    render(<ReceiptCard receipt={receipt} slug="test-slug" />);
+
+    expect(screen.queryByText(/raw_response/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/api_key/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/private_key/i)).not.toBeInTheDocument();
+  });
+
   it("omits optional rows entirely when the backend didn't return them", () => {
-    render(<ReceiptCard receipt={{ ...receipt, description: null, channel: null, provider_transid: null }} />);
+    render(
+      <ReceiptCard
+        receipt={{ ...receipt, description: null, channel: null, provider_transid: null, merchant_reference: null }}
+        slug="test-slug"
+      />,
+    );
 
     expect(screen.queryByText("Order #482")).not.toBeInTheDocument();
     expect(screen.queryByText("Channel")).not.toBeInTheDocument();
     expect(screen.queryByText("Transaction ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Merchant reference")).not.toBeInTheDocument();
   });
 
-  it("the Download Receipt button triggers the browser print dialog", () => {
+  it("the Download Receipt PDF and Print Receipt buttons both trigger the browser print dialog", () => {
     const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
-    render(<ReceiptCard receipt={receipt} />);
+    render(<ReceiptCard receipt={receipt} slug="test-slug" />);
 
-    screen.getByRole("button", { name: "Download Receipt" }).click();
+    screen.getByRole("button", { name: "Download Receipt PDF" }).click();
+    screen.getByRole("button", { name: "Print Receipt" }).click();
 
-    expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(printSpy).toHaveBeenCalledTimes(2);
     printSpy.mockRestore();
+  });
+
+  it("links back to the payment status page for this slug", () => {
+    render(<ReceiptCard receipt={receipt} slug="test-slug" />);
+
+    expect(screen.getByRole("link", { name: "Back to payment status" })).toHaveAttribute("href", "/pay/test-slug");
   });
 });

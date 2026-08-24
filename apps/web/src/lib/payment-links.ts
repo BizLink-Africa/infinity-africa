@@ -25,6 +25,7 @@ export interface PublicCollectionReceipt {
   customer_name: string | null;
   customer_phone: string | null;
   method: string;
+  merchant_reference: string | null;
   provider_reference: string | null;
   provider_transid: string | null;
   channel: string | null;
