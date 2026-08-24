@@ -27,6 +27,7 @@ from app.schemas.admin import (
     AdminApiKeyResponse,
     AdminAuditLogResponse,
     AdminCollectionResponse,
+    AdminCustomerResponse,
     AdminInvoiceResponse,
     AdminMerchantResponse,
     AdminMerchantUserResponse,
@@ -39,6 +40,7 @@ from app.schemas.admin import (
 from app.schemas.api_keys import ApiKeyResponse
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.common import APIResponse
+from app.services.admin_customers import list_admin_customers
 from app.services.admin_directory import batch_merchant_names, batch_user_profiles
 from app.services.admin_overview import get_admin_overview
 from app.services.audit import write_audit_log
@@ -267,6 +269,19 @@ def revoke_admin_api_key(
             revoked_at=result.get("revoked_at"),
             created_at=result["created_at"],
         )
+    )
+
+
+@router.get("/customers", response_model=APIResponse[list[AdminCustomerResponse]])
+def list_admin_customers_route(
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
+):
+    client = get_supabase_admin()
+    data, total = list_admin_customers(client, merchant_id=merchant_id, pagination=pagination)
+    return APIResponse(
+        data=[AdminCustomerResponse(**row) for row in data], meta=build_page_meta(pagination, total)
     )
 
 

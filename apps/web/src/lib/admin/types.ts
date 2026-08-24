@@ -170,6 +170,23 @@ export interface PricingRuleRow {
   updated_at: string;
 }
 
+/** GET /v1/admin/customers — derived from real collections (grouped by
+ * merchant + customer phone), not read from a table; see the backend's
+ * own admin_customers.py docstring for why. Distinct from the older,
+ * still-mock AdminCustomerRow below (lib/admin/api.ts / /admin/customers). */
+export interface AdminCustomerPlatformRow {
+  id: string;
+  merchant_id: string;
+  merchant_name: string;
+  full_name: string | null;
+  phone: string;
+  currency: string;
+  total_spent: string;
+  transaction_count: number;
+  first_seen_at: string | null;
+  last_transaction_at: string | null;
+}
+
 export interface AdminApiKeyRow {
   id: string;
   name: string;

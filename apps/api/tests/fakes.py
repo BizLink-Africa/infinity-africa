@@ -26,6 +26,7 @@ class _FakeQuery:
         self._order_desc = False
         self._range_start: int | None = None
         self._range_end: int | None = None
+        self._limit: int | None = None
         self._single: str | None = None
 
     def eq(self, column, value):
@@ -68,6 +69,10 @@ class _FakeQuery:
     def range(self, start, end):
         self._range_start = start
         self._range_end = end
+        return self
+
+    def limit(self, count):
+        self._limit = count
         return self
 
     def maybe_single(self):
@@ -125,6 +130,8 @@ class _FakeQuery:
             total = len(rows)
             if self._range_start is not None:
                 rows = rows[self._range_start : self._range_end + 1]
+            elif self._limit is not None:
+                rows = rows[: self._limit]
             if self._single:
                 return _Result(dict(rows[0]) if rows else None)
             return _Result([dict(r) for r in rows], count=total)

@@ -27,6 +27,22 @@ class AdminOverviewResponse(BaseModel):
     pending_withdrawals: int
 
 
+class AdminCustomerResponse(BaseModel):
+    """Derived, not read from a table — see
+    app/services/admin_customers.py's own docstring for why."""
+
+    id: str
+    merchant_id: uuid.UUID
+    merchant_name: str
+    full_name: str | None = None
+    phone: str
+    currency: str
+    total_spent: Decimal
+    transaction_count: int
+    first_seen_at: datetime | None = None
+    last_transaction_at: datetime | None = None
+
+
 class AdminApiKeyResponse(BaseModel):
     id: uuid.UUID
     merchant_id: uuid.UUID
