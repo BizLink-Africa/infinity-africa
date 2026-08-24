@@ -47,6 +47,12 @@ describe("PaymentForm", () => {
     expect(screen.getByText("Invoice for services")).toBeInTheDocument();
   });
 
+  it("shows the Infinity Africa logo mark in the header", () => {
+    render(<PaymentForm slug="test-slug" link={link} />);
+
+    expect(screen.getByText("Infinity Africa")).toBeInTheDocument();
+  });
+
   it("shows exactly the three active payment methods, nothing else", () => {
     render(<PaymentForm slug="test-slug" link={link} />);
 
