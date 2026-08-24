@@ -183,6 +183,23 @@ export interface AdminApiKeyRow {
   updated_at: string;
 }
 
+/** Platform-wide view (GET /v1/admin/api-keys) — same shape as
+ * AdminApiKeyRow plus which merchant owns the key; no updated_at
+ * (the endpoint doesn't return it). */
+export interface AdminApiKeyPlatformRow {
+  id: string;
+  merchant_id: string;
+  merchant_name: string;
+  name: string;
+  environment: string;
+  key_prefix: string;
+  scopes: string[];
+  status: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
 export interface AdminTransactionRow {
   transaction_id: string;
   merchant_id: string;

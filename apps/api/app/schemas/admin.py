@@ -27,6 +27,20 @@ class AdminOverviewResponse(BaseModel):
     pending_withdrawals: int
 
 
+class AdminApiKeyResponse(BaseModel):
+    id: uuid.UUID
+    merchant_id: uuid.UUID
+    merchant_name: str
+    name: str
+    environment: str
+    key_prefix: str
+    scopes: list[str]
+    status: str
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+    created_at: datetime
+
+
 class AdminMerchantResponse(BaseModel):
     merchant_id: uuid.UUID
     business_name: str

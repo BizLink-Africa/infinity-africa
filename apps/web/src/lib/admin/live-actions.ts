@@ -17,6 +17,7 @@ import {
   requestDocumentsForAlert,
   requestInfoWithdrawal,
   requestRefundForDispute,
+  revokeAdminApiKey,
   updateDisputeStatus,
   updateMerchantStatus,
   updatePricingRule,
@@ -34,6 +35,11 @@ export async function approveMerchantAction(merchantId: string) {
 export async function setMerchantStatusAction(merchantId: string, status: MerchantAccountStatus) {
   await updateMerchantStatus(merchantId, status);
   revalidatePath("/super-admin/merchants");
+}
+
+export async function revokeAdminApiKeyAction(apiKeyId: string) {
+  await revokeAdminApiKey(apiKeyId);
+  revalidatePath("/super-admin/api-keys");
 }
 
 export async function approveWithdrawalAction(withdrawalId: string) {

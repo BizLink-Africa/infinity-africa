@@ -5,13 +5,15 @@ export interface AdminNavItem {
 }
 
 // The following once linked here but were removed 2026-08-25: Customers,
-// API Keys, Reconciliation Center, Settlement Accounts, Compliance/KYC,
-// Provider Status, Support Tickets — all backed by /admin/* pages that are
-// entirely hardcoded mock data (see lib/admin/api.ts's own docstring), never
-// wired to a real backend. Rather than show fabricated numbers (e.g. a
-// "1,158 Verified Merchants" count on a platform with 2 real merchants),
-// they're unlinked until each one has a real implementation behind it. The
-// page files themselves still exist, just no longer reachable from here.
+// Reconciliation Center, Settlement Accounts, Compliance/KYC, Provider
+// Status, Support Tickets — all backed by /admin/* pages that are entirely
+// hardcoded mock data (see lib/admin/api.ts's own docstring), never wired to
+// a real backend. Rather than show fabricated numbers (e.g. a "1,158
+// Verified Merchants" count on a platform with 2 real merchants), they're
+// unlinked until each one has a real implementation behind it — API Keys
+// was the first to get one (GET/PATCH /v1/admin/api-keys*, real data, added
+// back below). The other pages' files still exist, just no longer reachable
+// from here.
 export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { label: "Dashboard", href: "/super-admin", icon: "dashboard" },
   { label: "Merchants", href: "/super-admin/merchants", icon: "storefront" },
@@ -26,6 +28,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { label: "Document Requests", href: "/super-admin/document-requests", icon: "folder_shared" },
   { label: "Disputes", href: "/super-admin/disputes", icon: "gavel" },
   { label: "Pricing Rules", href: "/super-admin/pricing-rules", icon: "sell" },
+  { label: "API Keys", href: "/super-admin/api-keys", icon: "api" },
   { label: "Webhooks", href: "/super-admin/webhooks", icon: "webhook" },
   { label: "Audit Logs", href: "/super-admin/audit-logs", icon: "history" },
   { label: "Settings", href: "/admin/settings", icon: "settings" },

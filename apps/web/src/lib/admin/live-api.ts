@@ -3,6 +3,7 @@ import "server-only";
 import { getAccessToken } from "@/lib/supabase/session";
 
 import type {
+  AdminApiKeyPlatformRow,
   AdminApiKeyRow,
   AdminCollectionRow,
   AdminDisputeRow,
@@ -117,6 +118,22 @@ export async function getAdminMerchant(merchantId: string): Promise<Merchant | n
 
 export async function listAdminMerchantApiKeys(merchantId: string): Promise<AdminApiKeyRow[]> {
   return apiList<AdminApiKeyRow>(`/v1/admin/merchants/${merchantId}/api-keys`);
+}
+
+export async function listAdminApiKeys(filters?: {
+  merchantId?: string;
+  status?: string;
+  environment?: string;
+}): Promise<AdminApiKeyPlatformRow[]> {
+  const params = new URLSearchParams(LIST_ALL_PARAMS);
+  if (filters?.merchantId) params.set("merchant_id", filters.merchantId);
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.environment) params.set("environment", filters.environment);
+  return apiList<AdminApiKeyPlatformRow>(`/v1/admin/api-keys?${params.toString()}`);
+}
+
+export async function revokeAdminApiKey(apiKeyId: string): Promise<AdminApiKeyPlatformRow> {
+  return apiWrite<AdminApiKeyPlatformRow>(`/v1/admin/api-keys/${apiKeyId}/revoke`, "PATCH");
 }
 
 export async function updateMerchantStatus(merchantId: string, status: MerchantAccountStatus): Promise<void> {

@@ -21,8 +21,10 @@ from fastapi import APIRouter, Depends, Query
 from app.auth import require_super_admin
 from app.core.errors import NotFoundError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
+from app.core.time import utc_now_iso
 from app.database.session import get_supabase_admin
 from app.schemas.admin import (
+    AdminApiKeyResponse,
     AdminAuditLogResponse,
     AdminCollectionResponse,
     AdminInvoiceResponse,
@@ -41,7 +43,7 @@ from app.services.admin_directory import batch_merchant_names, batch_user_profil
 from app.services.admin_overview import get_admin_overview
 from app.services.audit import write_audit_log
 from app.services.checkout_reconciliation import refresh_checkout_collection_status
-from app.services.crud import get_by_id
+from app.services.crud import get_by_id, update_row
 from app.services.ledger import get_wallet_balance
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -178,6 +180,94 @@ def list_admin_merchant_api_keys(
         .execute()
     ).data or []
     return APIResponse(data=[ApiKeyResponse(**row) for row in rows])
+
+
+@router.get("/api-keys", response_model=APIResponse[list[AdminApiKeyResponse]])
+def list_admin_api_keys(
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
+    status: Annotated[str | None, Query(description="active | revoked")] = None,
+    environment: Annotated[str | None, Query(description="sandbox | live")] = None,
+):
+    """Platform-wide view across every merchant's API keys — never the
+    hashed_key column (ApiKeyResponse/AdminApiKeyResponse both omit it),
+    same as the merchant-scoped GET .../api-keys above."""
+    client = get_supabase_admin()
+    query = client.table("api_keys").select("*", count="exact")
+    if merchant_id is not None:
+        query = query.eq("merchant_id", str(merchant_id))
+    if status is not None:
+        query = query.eq("status", status)
+    if environment is not None:
+        query = query.eq("environment", environment)
+    result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
+    rows = result.data or []
+    merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+
+    data = [
+        AdminApiKeyResponse(
+            id=row["id"],
+            merchant_id=row["merchant_id"],
+            merchant_name=merchant_names.get(row["merchant_id"], ""),
+            name=row["name"],
+            environment=row["environment"],
+            key_prefix=row["key_prefix"],
+            scopes=row["scopes"],
+            status=row["status"],
+            last_used_at=row.get("last_used_at"),
+            revoked_at=row.get("revoked_at"),
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
+    return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
+
+
+@router.patch("/api-keys/{api_key_id}/revoke", response_model=APIResponse[AdminApiKeyResponse])
+def revoke_admin_api_key(
+    api_key_id: uuid.UUID,
+    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    """Super Admin equivalent of the merchant's own PATCH
+    .../api-keys/{id}/revoke (merchant_portal.py) — not scoped to any one
+    merchant, since a platform admin may need to revoke a key regardless
+    of which merchant owns it (e.g. responding to a reported leak)."""
+    client = get_supabase_admin()
+    row = get_by_id(client, "api_keys", api_key_id)
+    if not row:
+        raise NotFoundError("API key not found")
+
+    updated = update_row(client, "api_keys", api_key_id, {"status": "revoked", "revoked_at": utc_now_iso()})
+    merchant_id = uuid.UUID(row["merchant_id"])
+
+    write_audit_log(
+        client,
+        actor_id=admin.id,
+        actor_type="user",
+        merchant_id=merchant_id,
+        action="api_key.revoked_by_admin",
+        resource_type="api_key",
+        resource_id=api_key_id,
+    )
+
+    result = updated or row
+    merchant_names = batch_merchant_names(client, {result["merchant_id"]})
+    return APIResponse(
+        data=AdminApiKeyResponse(
+            id=result["id"],
+            merchant_id=result["merchant_id"],
+            merchant_name=merchant_names.get(result["merchant_id"], ""),
+            name=result["name"],
+            environment=result["environment"],
+            key_prefix=result["key_prefix"],
+            scopes=result["scopes"],
+            status=result["status"],
+            last_used_at=result.get("last_used_at"),
+            revoked_at=result.get("revoked_at"),
+            created_at=result["created_at"],
+        )
+    )
 
 
 @router.get("/merchant-users", response_model=APIResponse[list[AdminMerchantUserResponse]])
