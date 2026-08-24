@@ -19,9 +19,9 @@ const CREATE_FIELDS = [
 const SHARE_CHANNELS = ["WhatsApp", "SMS", "Email", "Instagram", "Website Checkout"];
 
 const PAYMENT_METHODS = [
-  { icon: "phone_iphone", label: "Push USSD" },
-  { icon: "touch_app", label: "STK Push" },
-  { icon: "bolt", label: "Selcom Pesa Push" },
+  { icon: "smartphone", label: "Pay by Mobile Money Push", description: "Approve with your mobile money PIN" },
+  { icon: "account_balance_wallet", label: "Pay with Selcom Pesa", description: "Approve in your Selcom Pesa app" },
+  { icon: "qr_code_scanner", label: "Scan QR / TanQR", description: "Scan with any supported payment app" },
 ];
 
 const STATUSES: Array<{ label: string; tone: string }> = [
@@ -57,30 +57,40 @@ export default function PaymentLinksPage() {
               </div>
             </div>
 
-            {/* Preview: customer payment link page */}
+            {/* Preview: matches the real customer payment page (PaymentForm) exactly */}
             <div className="relative flex items-center justify-center py-4">
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-primary-container/15 rounded-full blur-3xl" />
               <div className="relative z-10 w-full max-w-sm bg-surface border border-outline-variant/50 rounded-2xl shadow-ambient-lg overflow-hidden">
-                <div className="p-6 border-b border-outline-variant/40 text-center">
-                  <span className="text-sm font-bold text-primary">Infinity Africa</span>
-                  <p className="text-xs text-on-surface-variant mt-2">Amani Traders Ltd requests</p>
-                  <p className="text-3xl font-bold text-on-surface mt-1">TZS 25,000</p>
-                  <p className="text-xs text-on-surface-variant mt-1">Web design deposit · expires in 2 days</p>
+                <div className="bg-primary p-6 text-on-primary">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-on-primary/70">Payment Request</p>
+                    <span className="flex shrink-0 items-center gap-1">
+                      <Icon name="all_inclusive" className="text-on-primary text-[15px]" />
+                      <span className="text-xs font-bold tracking-tight text-on-primary">Infinity Africa</span>
+                    </span>
+                  </div>
+                  <p className="mt-2 text-3xl font-bold">TZS 25,000.00</p>
+                  <p className="mt-2 text-sm text-on-primary/80">Web design deposit</p>
+                  <p className="mt-3 text-sm text-on-primary/80">For Amani Traders Ltd · 255712345678</p>
+                  <p className="mt-1 text-xs text-on-primary/70">Expires in 2 days</p>
                 </div>
                 <div className="p-6 space-y-2.5">
-                  <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-1">Choose a payment method</p>
-                  {PAYMENT_METHODS.map((method, index) => (
+                  <p className="text-sm font-medium text-on-surface mb-1">Choose how you want to pay</p>
+                  {PAYMENT_METHODS.map((method) => (
                     <div
                       key={method.label}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-lg border text-sm font-medium ${
-                        index === 0 ? "border-primary-container bg-primary-container/5 text-on-surface" : "border-outline-variant/50 text-on-surface-variant"
-                      }`}
+                      className="w-full flex items-center gap-3.5 rounded border border-outline-variant px-4 py-3.5"
                     >
-                      <Icon name={method.icon} className="text-[18px] text-primary-container" />
-                      {method.label}
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
+                        <Icon name={method.icon} className="text-[19px]" />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-semibold text-on-surface">{method.label}</span>
+                        <span className="block text-xs text-on-surface-variant">{method.description}</span>
+                      </span>
+                      <Icon name="chevron_right" className="text-[16px] text-on-surface-variant shrink-0" />
                     </div>
                   ))}
-                  <button className="w-full mt-2 bg-primary-container text-on-primary text-sm font-medium py-3 rounded-lg">Pay Now</button>
                 </div>
               </div>
             </div>
