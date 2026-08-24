@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -18,8 +17,9 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
           <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-on-surface-variant p-1" aria-label="Open menu">
             <Icon name="menu" />
           </button>
-          <Link href="/" className="flex items-center">
-            <Image src="/infinity-logo-v2.png" alt="Infinity Africa" width={1774} height={887} className="h-7 w-auto" />
+          <Link href="/" className="flex items-center gap-1.5">
+            <Icon name="all_inclusive" className="text-primary text-[22px]" />
+            <span className="text-lg font-bold tracking-tight text-primary">Infinity Africa</span>
           </Link>
           <span className="hidden sm:inline text-sm font-semibold text-on-surface-variant border-l border-outline-variant pl-3 ml-1">
             API Docs

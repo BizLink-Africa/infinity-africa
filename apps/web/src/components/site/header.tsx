@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -23,8 +22,9 @@ export function Header() {
   return (
     <header className="bg-surface/90 backdrop-blur-sm sticky top-0 z-50 border-b border-outline-variant/60 w-full">
       <div className="flex justify-between items-center px-4 md:px-10 py-4 max-w-[1280px] mx-auto">
-        <Link href="/" className="flex items-center">
-          <Image src="/infinity-logo-v2.png" alt="Infinity Africa" width={1774} height={887} className="h-8 w-auto" priority />
+        <Link href="/" className="flex items-center gap-1.5">
+          <Icon name="all_inclusive" className="text-primary text-[26px]" />
+          <span className="text-xl font-bold tracking-tight text-primary">Infinity Africa</span>
         </Link>
         <nav className="hidden lg:flex items-center gap-7">
           {NAV_LINKS.map((link) => {

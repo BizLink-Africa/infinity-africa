@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 
 import { Icon } from "@/components/portal/icon";
@@ -25,8 +24,9 @@ export function Footer() {
     <footer className="bg-primary border-t border-on-primary/10 w-full">
       <div className="py-16 px-4 md:px-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 max-w-[1280px] mx-auto">
         <div className="col-span-1 lg:col-span-1">
-          <div className="inline-flex items-center rounded-lg bg-surface px-3 py-2 mb-4">
-            <Image src="/infinity-logo-v2.png" alt="Infinity Africa" width={1774} height={887} className="h-7 w-auto" />
+          <div className="inline-flex items-center gap-1.5 mb-4">
+            <Icon name="all_inclusive" className="text-on-primary text-[24px]" />
+            <span className="text-lg font-bold tracking-tight text-on-primary">Infinity Africa</span>
           </div>
           <p className="text-base text-on-primary/80 max-w-sm">
             Secure payment infrastructure for growing merchants — collect, link, invoice, and integrate from one
