@@ -4,6 +4,14 @@ export interface AdminNavItem {
   icon: string;
 }
 
+// The following once linked here but were removed 2026-08-25: Customers,
+// API Keys, Reconciliation Center, Settlement Accounts, Compliance/KYC,
+// Provider Status, Support Tickets — all backed by /admin/* pages that are
+// entirely hardcoded mock data (see lib/admin/api.ts's own docstring), never
+// wired to a real backend. Rather than show fabricated numbers (e.g. a
+// "1,158 Verified Merchants" count on a platform with 2 real merchants),
+// they're unlinked until each one has a real implementation behind it. The
+// page files themselves still exist, just no longer reachable from here.
 export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { label: "Dashboard", href: "/super-admin", icon: "dashboard" },
   { label: "Merchants", href: "/super-admin/merchants", icon: "storefront" },
@@ -12,20 +20,13 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { label: "Collections", href: "/super-admin/collections", icon: "payments" },
   { label: "Payment Links", href: "/super-admin/payment-links", icon: "link" },
   { label: "Invoices", href: "/super-admin/invoices", icon: "receipt" },
-  { label: "Customers", href: "/admin/customers", icon: "group" },
   { label: "Withdrawals", href: "/super-admin/withdrawals", icon: "receipt_long" },
   { label: "Transactions", href: "/super-admin/transactions", icon: "list_alt" },
   { label: "Risk Monitoring", href: "/super-admin/risk-monitoring", icon: "gpp_maybe" },
   { label: "Document Requests", href: "/super-admin/document-requests", icon: "folder_shared" },
   { label: "Disputes", href: "/super-admin/disputes", icon: "gavel" },
   { label: "Pricing Rules", href: "/super-admin/pricing-rules", icon: "sell" },
-  { label: "API Keys", href: "/admin/api-keys", icon: "api" },
   { label: "Webhooks", href: "/super-admin/webhooks", icon: "webhook" },
-  { label: "Reconciliation Center", href: "/admin/reconciliation-center", icon: "account_balance" },
-  { label: "Settlement Accounts", href: "/admin/settlement-accounts", icon: "account_balance_wallet" },
-  { label: "Compliance/KYC", href: "/admin/compliance-kyc", icon: "verified_user" },
-  { label: "Provider Status", href: "/admin/provider-status", icon: "dns" },
   { label: "Audit Logs", href: "/super-admin/audit-logs", icon: "history" },
-  { label: "Support Tickets", href: "/admin/support-tickets", icon: "support_agent" },
   { label: "Settings", href: "/admin/settings", icon: "settings" },
 ];
