@@ -115,10 +115,27 @@ describe("ApiCredentialsTabs", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: /API Keys/ })).toHaveAttribute("aria-selected", "true"));
   });
 
-  it("the tab bar scrolls horizontally instead of wrapping the layout on narrow viewports", async () => {
+  it("the tab bar scrolls horizontally instead of wrapping the layout on narrow (mobile) viewports", async () => {
     const { ApiCredentialsTabs } = await import("./api-credentials-tabs");
     render(<ApiCredentialsTabs />);
 
     expect(screen.getByRole("tab", { name: /Overview/ }).closest(".overflow-x-auto")).toBeInTheDocument();
+  });
+
+  it("disables the scroll container at desktop/laptop widths so no scrollbar shows there", async () => {
+    const { ApiCredentialsTabs } = await import("./api-credentials-tabs");
+    render(<ApiCredentialsTabs />);
+
+    const tabBar = screen.getByRole("tab", { name: /Overview/ }).closest(".overflow-x-auto");
+    expect(tabBar?.className).toContain("md:overflow-visible");
+  });
+
+  it("all six tabs sit in a single non-wrapping row so none of them (like Developer Docs) get pushed off-screen", async () => {
+    const { ApiCredentialsTabs } = await import("./api-credentials-tabs");
+    render(<ApiCredentialsTabs />);
+
+    const tabBar = screen.getByRole("tab", { name: /Overview/ }).closest(".overflow-x-auto");
+    expect(tabBar?.className).toContain("flex-nowrap");
+    expect(screen.getByRole("tab", { name: /Developer Docs/ })).toBeInTheDocument();
   });
 });

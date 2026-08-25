@@ -48,7 +48,7 @@ export function ApiCredentialsTabs({ initialTab }: { initialTab?: string }) {
         description="Everything for integrating your website, mobile app, or backend with Infinity Africa — in one place."
       />
 
-      <div className="flex flex-nowrap gap-1 rounded-lg border border-surface-container-highest bg-surface-container-low p-1 overflow-x-auto">
+      <div className="flex flex-nowrap gap-0.5 rounded-lg border border-surface-container-highest bg-surface-container-low p-1 overflow-x-auto md:overflow-visible">
         {TABS.map((tab) => (
           <button
             key={tab.value}
@@ -56,13 +56,13 @@ export function ApiCredentialsTabs({ initialTab }: { initialTab?: string }) {
             role="tab"
             aria-selected={activeTab === tab.value}
             onClick={() => selectTab(tab.value)}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
               activeTab === tab.value
                 ? "bg-primary-container text-on-primary"
                 : "text-on-surface-variant hover:bg-surface-container-highest"
             }`}
           >
-            <Icon name={tab.icon} className="text-[18px]" />
+            <Icon name={tab.icon} className="text-[16px]" />
             {tab.label}
           </button>
         ))}

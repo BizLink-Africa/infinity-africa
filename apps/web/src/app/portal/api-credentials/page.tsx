@@ -20,7 +20,7 @@ export default async function ApiCredentialsPage() {
   }
 
   return (
-    <PortalShell>
+    <PortalShell fullWidth>
       <Suspense fallback={null}>
         <ApiCredentialsTabs />
       </Suspense>
