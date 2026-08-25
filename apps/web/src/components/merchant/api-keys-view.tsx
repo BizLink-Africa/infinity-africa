@@ -152,9 +152,9 @@ export function ApiKeysView() {
         }
       />
 
-      <div className="flex items-start gap-3 rounded-lg border border-error/30 bg-error-container/30 px-4 py-3.5">
-        <Icon name="warning" className="text-[20px] text-error shrink-0 mt-0.5" />
-        <p className="text-sm text-on-error-container">
+      <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary-container/10 px-4 py-3.5">
+        <Icon name="warning" className="text-[20px] text-primary shrink-0 mt-0.5" />
+        <p className="text-sm text-on-background">
           <span className="font-semibold">Use secret keys only on your backend.</span> Never expose them in
           frontend or mobile apps — anyone who sees your source code, a browser DevTools request, or an
           unpacked app bundle can read a key embedded there. Have your client app call your own backend, and
