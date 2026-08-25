@@ -9,12 +9,14 @@ doesn't.
 """
 
 import uuid
+from datetime import date, datetime
 from decimal import Decimal
 
 from supabase import Client
 
 from app.core.errors import InsufficientBalanceError
 from app.core.pagination import PaginationParams
+from app.core.time import dar_es_salaam_day_bounds_utc
 from app.services.crud import execute_maybe_single, get_by_id, insert_row
 
 
@@ -137,9 +139,18 @@ def get_wallet_balance(client: Client, *, merchant_id: uuid.UUID, currency: str)
     return Decimal(str(account["balance"])) if account else Decimal(0)
 
 
-def list_wallet_ledger(
-    client: Client, *, merchant_id: uuid.UUID, currency: str, pagination: PaginationParams
-) -> tuple[list[dict], int]:
+def _parse_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _wallet_ledger_entries(
+    client: Client,
+    *,
+    merchant_id: uuid.UUID,
+    currency: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[dict]:
     """Every ledger_entries row for the merchant's wallet account, newest
     first, with a per-row balance_after computed here — ledger_entries
     itself stores no running balance (only ledger_accounts.balance, the
@@ -149,11 +160,18 @@ def list_wallet_ledger(
     post_collection_entries/post_disbursement_entries/reverse_disbursement_entries
     above.
 
-    Fetches the full entry history to compute correct running balances
-    before paginating in Python — acceptable at merchant-portal scale, the
-    same tradeoff app/services/merchant_overview.py already makes; revisit
-    with a real query/materialized view if this ever needs to scale past
-    that."""
+    Always replays the COMPLETE, unfiltered history first to compute
+    correct running balances, then applies start_date/end_date afterward —
+    filtering before the replay would make the first entry inside the
+    window look like it opened at balance 0, which is wrong. Fetches
+    everything before paginating in Python — acceptable at merchant-portal
+    scale, the same tradeoff app/services/merchant_overview.py already
+    makes; revisit with a real query/materialized view if this ever needs
+    to scale past that.
+
+    Joins each entry onto its transactions row (type/reference/provider_
+    reference/method/fee_amount/net_amount/status) for the Wallet Ledger's
+    audit columns — batched in one query, not per-row."""
     account_id = _get_or_create_ledger_account(
         client, merchant_id=merchant_id, purpose="merchant_wallet", account_type="liability", currency=currency
     )
@@ -166,6 +184,12 @@ def list_wallet_ledger(
         .data
         or []
     )
+
+    transaction_ids = {e["transaction_id"] for e in entries if e.get("transaction_id")}
+    transactions_by_id: dict[str, dict] = {}
+    if transaction_ids:
+        txn_rows = client.table("transactions").select("*").in_("id", list(transaction_ids)).execute().data or []
+        transactions_by_id = {t["id"]: t for t in txn_rows}
 
     running = Decimal(0)
     enriched = []
@@ -181,6 +205,7 @@ def list_wallet_ledger(
         # ledger_entries is immutable and this scans the complete history.
         balance_before = entry.get("balance_before")
         balance_after = entry.get("balance_after")
+        txn = transactions_by_id.get(entry.get("transaction_id")) or {}
         enriched.append(
             {
                 "id": entry["id"],
@@ -191,13 +216,60 @@ def list_wallet_ledger(
                 "amount": str(amount),
                 "balance_before": str(balance_before) if balance_before is not None else str(opening),
                 "balance_after": str(balance_after) if balance_after is not None else str(running),
+                "type": txn.get("type"),
+                "reference": txn.get("reference"),
+                "provider_reference": txn.get("provider_reference"),
+                "method": txn.get("method"),
+                "fee_amount": txn.get("fee_amount"),
+                "net_amount": txn.get("net_amount"),
+                "status": txn.get("status"),
             }
         )
     enriched.reverse()  # newest first, matching every other list endpoint's convention
 
+    start_utc, end_utc = dar_es_salaam_day_bounds_utc(start_date, end_date)
+    if start_utc is not None or end_utc is not None:
+        enriched = [
+            e
+            for e in enriched
+            if (start_utc is None or _parse_iso(e["date"]) >= start_utc)
+            and (end_utc is None or _parse_iso(e["date"]) < end_utc)
+        ]
+
+    return enriched
+
+
+def list_wallet_ledger(
+    client: Client,
+    *,
+    merchant_id: uuid.UUID,
+    currency: str,
+    pagination: PaginationParams,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> tuple[list[dict], int]:
+    enriched = _wallet_ledger_entries(
+        client, merchant_id=merchant_id, currency=currency, start_date=start_date, end_date=end_date
+    )
     total = len(enriched)
     page = enriched[pagination.start : pagination.end + 1]
     return page, total
+
+
+def export_wallet_ledger_rows(
+    client: Client,
+    *,
+    merchant_id: uuid.UUID,
+    currency: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[dict]:
+    """Same rows list_wallet_ledger's callers page through, but complete
+    and unpaginated — for a one-shot Excel export of the whole filtered
+    range."""
+    return _wallet_ledger_entries(
+        client, merchant_id=merchant_id, currency=currency, start_date=start_date, end_date=end_date
+    )
 
 
 def post_collection_entries(

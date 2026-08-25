@@ -4,11 +4,13 @@ transaction-by-reference lookup — end to end against the in-memory
 FakeSupabaseClient (see tests/fakes.py), same pattern as test_routers.py.
 """
 
+import io
 import uuid
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 
 from app.config import get_settings
 from app.main import app
@@ -949,6 +951,211 @@ def test_wallet_ledger_404s_with_no_membership(fake_client):
     user_id = uuid.uuid4()
     response = client.get("/v1/merchant/wallet/ledger", headers=auth_headers(user_id))
     assert response.status_code == 404
+
+
+def _seed_wallet_entry(fake_client, account_id: str, *, direction: str, amount: str, created_at: str, **overrides):
+    row = {
+        "ledger_account_id": account_id,
+        "direction": direction,
+        "amount": amount,
+        "currency": "TZS",
+        "description": None,
+        "created_at": created_at,
+        **overrides,
+    }
+    return fake_client.seed("ledger_entries", row)
+
+
+def test_wallet_ledger_filters_by_date_range_without_resetting_the_running_balance(fake_client):
+    """The date filter must apply AFTER the full-history balance replay —
+    an entry inside the window should still show its true opening balance
+    (accumulated from everything before the window), not 0."""
+    merchant_id, user_id = _merchant_and_member(fake_client)
+    _fund_wallet(fake_client, merchant_id, "0")
+    account = next(
+        a
+        for a in fake_client.table("ledger_accounts")._table.rows
+        if a["merchant_id"] == str(merchant_id) and a["purpose"] == "merchant_wallet"
+    )
+
+    _seed_wallet_entry(fake_client, account["id"], direction="credit", amount="1000", created_at="2026-08-10T09:00:00+00:00")
+    _seed_wallet_entry(fake_client, account["id"], direction="credit", amount="500", created_at="2026-08-15T09:00:00+00:00")
+    _seed_wallet_entry(fake_client, account["id"], direction="debit", amount="200", created_at="2026-08-20T09:00:00+00:00")
+
+    response = client.get(
+        "/v1/merchant/wallet/ledger?start_date=2026-08-15&end_date=2026-08-15",
+        headers=auth_headers(user_id),
+    )
+    assert response.status_code == 200, response.text
+    rows = response.json()["data"]
+    assert len(rows) == 1
+    assert Decimal(rows[0]["balance_before"]) == Decimal("1000.00")
+    assert Decimal(rows[0]["balance_after"]) == Decimal("1500.00")
+
+
+def test_wallet_ledger_cannot_see_another_merchants_entries(fake_client):
+    merchant_a_id, user_a = _merchant_and_member(fake_client, business_name="Merchant A")
+    merchant_b_id, _user_b = _merchant_and_member(fake_client, business_name="Merchant B")
+    _fund_wallet(fake_client, merchant_a_id, "0")
+    _fund_wallet(fake_client, merchant_b_id, "0")
+
+    account_a = next(
+        a for a in fake_client.table("ledger_accounts")._table.rows if a["merchant_id"] == str(merchant_a_id)
+    )
+    account_b = next(
+        a for a in fake_client.table("ledger_accounts")._table.rows if a["merchant_id"] == str(merchant_b_id)
+    )
+    _seed_wallet_entry(fake_client, account_a["id"], direction="credit", amount="1000", created_at="2026-08-15T09:00:00+00:00")
+    _seed_wallet_entry(fake_client, account_b["id"], direction="credit", amount="9999999", created_at="2026-08-15T09:00:00+00:00")
+
+    # merchant_id is never accepted from the client — there is no query
+    # param for it at all — so merchant A's own JWT is the only thing
+    # that can ever scope this request.
+    response = client.get("/v1/merchant/wallet/ledger", headers=auth_headers(user_a))
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    assert len(rows) == 1
+    assert Decimal(rows[0]["amount"]) == Decimal("1000.00")
+
+
+# --- Wallet ledger Excel export ---------------------------------------------
+
+
+def test_wallet_ledger_export_requires_start_and_end_date(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client)
+    response = client.get("/v1/merchant/wallet/ledger/export", headers=auth_headers(user_id))
+    assert response.status_code == 422
+
+
+def test_wallet_ledger_export_rejects_end_date_before_start_date(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client)
+    response = client.get(
+        "/v1/merchant/wallet/ledger/export?start_date=2026-08-20&end_date=2026-08-01",
+        headers=auth_headers(user_id),
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_wallet_ledger_export_404s_with_no_membership(fake_client):
+    user_id = uuid.uuid4()
+    response = client.get(
+        "/v1/merchant/wallet/ledger/export?start_date=2026-08-01&end_date=2026-08-31",
+        headers=auth_headers(user_id),
+    )
+    assert response.status_code == 404
+
+
+def test_wallet_ledger_export_returns_xlsx_with_correct_content_type_and_filename(fake_client):
+    merchant_id, user_id = _merchant_and_member(fake_client, business_name="Masanja Traders", merchant_code="27048391")
+    _fund_wallet(fake_client, merchant_id, "0")
+    account = next(a for a in fake_client.table("ledger_accounts")._table.rows if a["merchant_id"] == str(merchant_id))
+    txn = fake_client.seed(
+        "transactions",
+        {
+            "merchant_id": str(merchant_id),
+            "reference": "TXN-EXPORT-1",
+            "provider_reference": "SELCOM-9",
+            "type": "collection",
+            "method": "USSD_PUSH",
+            "gross_amount": "1000",
+            "fee_amount": "15",
+            "net_amount": "985",
+            "currency": "TZS",
+            "status": "successful",
+        },
+    )
+    _seed_wallet_entry(
+        fake_client,
+        account["id"],
+        direction="credit",
+        amount="985",
+        created_at="2026-08-15T09:00:00+00:00",
+        transaction_id=txn["id"],
+    )
+
+    response = client.get(
+        "/v1/merchant/wallet/ledger/export?start_date=2026-08-01&end_date=2026-08-31",
+        headers=auth_headers(user_id),
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert (
+        response.headers["content-disposition"]
+        == 'attachment; filename="infinity-africa-wallet-ledger-2026-08-01-to-2026-08-31.xlsx"'
+    )
+
+    wb = load_workbook(io.BytesIO(response.content))
+    ws = wb.active
+    header = [cell.value for cell in ws[1]]
+    assert header == [
+        "Merchant ID",
+        "Business Name",
+        "Date",
+        "Transaction ID",
+        "Type",
+        "Direction",
+        "Reference",
+        "Provider Reference",
+        "Payment Method",
+        "Opening Balance",
+        "Amount",
+        "Charge / Fee",
+        "Net Amount",
+        "Closing Balance",
+        "Status",
+    ]
+    assert ws.freeze_panes == "A2"
+
+    data_row = [cell.value for cell in ws[2]]
+    assert data_row[0] == "27048391"
+    assert data_row[1] == "Masanja Traders"
+    assert data_row[3] == txn["id"]
+    assert data_row[4] == "collection"
+    assert data_row[5] == "credit"
+    assert data_row[6] == "TXN-EXPORT-1"
+    assert data_row[7] == "SELCOM-9"
+    assert data_row[8] == "USSD_PUSH"
+    assert data_row[9] == 0.0  # opening balance
+    assert data_row[10] == 985.0  # amount
+    assert data_row[11] == 15.0  # charge/fee
+    assert data_row[12] == 985.0  # net amount
+    assert data_row[13] == 985.0  # closing balance
+    assert data_row[14] == "successful"
+
+
+def test_wallet_ledger_export_respects_the_date_range(fake_client):
+    merchant_id, user_id = _merchant_and_member(fake_client)
+    _fund_wallet(fake_client, merchant_id, "0")
+    account = next(a for a in fake_client.table("ledger_accounts")._table.rows if a["merchant_id"] == str(merchant_id))
+
+    _seed_wallet_entry(fake_client, account["id"], direction="credit", amount="1000", created_at="2026-08-05T09:00:00+00:00")
+    _seed_wallet_entry(fake_client, account["id"], direction="credit", amount="500", created_at="2026-08-15T09:00:00+00:00")
+
+    response = client.get(
+        "/v1/merchant/wallet/ledger/export?start_date=2026-08-10&end_date=2026-08-31",
+        headers=auth_headers(user_id),
+    )
+    assert response.status_code == 200
+    wb = load_workbook(io.BytesIO(response.content))
+    ws = wb.active
+    assert ws.max_row == 2  # header + the one entry inside the range
+    assert ws[2][10].value == 500.0  # amount column
+
+
+def test_wallet_ledger_export_with_no_entries_in_range_still_returns_a_valid_workbook(fake_client):
+    merchant_id, user_id = _merchant_and_member(fake_client)
+    _fund_wallet(fake_client, merchant_id, "0")
+
+    response = client.get(
+        "/v1/merchant/wallet/ledger/export?start_date=2026-08-01&end_date=2026-08-31",
+        headers=auth_headers(user_id),
+    )
+    assert response.status_code == 200
+    wb = load_workbook(io.BytesIO(response.content))
+    ws = wb.active
+    assert ws.max_row == 1  # header row only, no data rows
+    assert next(cell.value for cell in ws[1]) == "Merchant ID"
 
 
 # --- Withdrawals dispatch -------------------------------------------------

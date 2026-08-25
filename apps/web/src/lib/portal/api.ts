@@ -622,8 +622,47 @@ export async function createCustomer(input: CreateCustomerInput): Promise<Custom
 
 // --- Wallet ---------------------------------------------------------------
 
-export async function listWalletLedger(): Promise<WalletLedgerEntry[]> {
-  return (await apiGet<WalletLedgerEntry[]>("/v1/merchant/wallet/ledger")) ?? [];
+export interface WalletLedgerDateRange {
+  start_date?: string;
+  end_date?: string;
+}
+
+export async function listWalletLedger(filters?: WalletLedgerDateRange): Promise<WalletLedgerEntry[]> {
+  const params = new URLSearchParams({ page_size: "100" });
+  if (filters?.start_date) params.set("start_date", filters.start_date);
+  if (filters?.end_date) params.set("end_date", filters.end_date);
+  return (await apiGet<WalletLedgerEntry[]>(`/v1/merchant/wallet/ledger?${params.toString()}`)) ?? [];
+}
+
+/** Downloads the Wallet Ledger Excel export for the given date range as a
+ * Blob — the caller turns it into a browser download (see
+ * apps/web/src/app/portal/wallet/page.tsx). A plain <a href> can't be used
+ * here: the export endpoint requires the merchant's own bearer token,
+ * which only a fetch() with an Authorization header can attach. Throws
+ * with a user-facing message on any failure — same convention as
+ * apiWrite — so the caller can show it as an error banner. */
+export async function exportWalletLedger({ start_date, end_date }: Required<WalletLedgerDateRange>): Promise<Blob> {
+  const params = new URLSearchParams({ start_date, end_date, format: "xlsx" });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/v1/merchant/wallet/ledger/export?${params.toString()}`, {
+      headers: await getAuthHeader(),
+    });
+  } catch {
+    throw new Error("Couldn't reach Infinity Africa. Check your connection and try again.");
+  }
+
+  if (!res.ok) {
+    let message = "Couldn't export the wallet ledger. Please try again.";
+    try {
+      const body: ApiEnvelope<never> = await res.json();
+      message = body.error?.message ?? message;
+    } catch {
+      // Non-JSON error body — fall back to the generic message above.
+    }
+    throw new Error(message);
+  }
+  return res.blob();
 }
 
 // --- Support (MOCK) ------------------------------------------------------------

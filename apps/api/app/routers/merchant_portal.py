@@ -17,7 +17,7 @@ existing /v1/disbursements/* routes are untouched.
 
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Annotated
 
@@ -29,6 +29,7 @@ from fastapi import (
     Header,
     Query,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -109,7 +110,7 @@ from app.services.crud import (
 from app.services.disbursements import execute_disbursement, quote_withdrawal_fee
 from app.services.hosted_checkout import execute_hosted_checkout_collection
 from app.services.idempotency import run_idempotent
-from app.services.ledger import list_wallet_ledger
+from app.services.ledger import export_wallet_ledger_rows, list_wallet_ledger
 from app.services.merchant_overview import get_merchant_overview
 from app.services.payment_links import (
     batch_collection_counts,
@@ -119,6 +120,7 @@ from app.services.payment_links import (
     validate_payment_link_for_collection,
     with_effective_status,
 )
+from app.services.wallet_ledger_export import build_wallet_ledger_workbook
 from app.services.wallet_push import execute_wallet_push_collection
 
 router = APIRouter(prefix="/merchant", tags=["merchant-portal"])
@@ -158,16 +160,65 @@ def get_my_overview(
 def list_my_wallet_ledger(
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role())],
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    start_date: Annotated[date | None, Query(description="Africa/Dar_es_Salaam calendar date, inclusive")] = None,
+    end_date: Annotated[date | None, Query(description="Africa/Dar_es_Salaam calendar date, inclusive")] = None,
 ):
+    """merchant_id always comes from the caller's own membership
+    (require_own_merchant_role -> get_own_merchant), never from a query
+    param — a merchant can only ever see their own wallet ledger."""
     client = get_supabase_admin()
     merchant = get_by_id(client, "merchants", membership.merchant_id)
     if not merchant:
         raise NotFoundError("Merchant not found")
     rows, total = list_wallet_ledger(
-        client, merchant_id=membership.merchant_id, currency=merchant["currency"], pagination=pagination
+        client,
+        merchant_id=membership.merchant_id,
+        currency=merchant["currency"],
+        pagination=pagination,
+        start_date=start_date,
+        end_date=end_date,
     )
     data = [WalletLedgerEntryResponse(**row) for row in rows]
     return APIResponse(data=data, meta=build_page_meta(pagination, total))
+
+
+@router.get("/wallet/ledger/export")
+def export_my_wallet_ledger(
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role())],
+    start_date: Annotated[date, Query(description="Africa/Dar_es_Salaam calendar date, inclusive")],
+    end_date: Annotated[date, Query(description="Africa/Dar_es_Salaam calendar date, inclusive")],
+    format: Annotated[str, Query()] = "xlsx",
+):
+    """Same ownership rule as GET /wallet/ledger — merchant_id is resolved
+    from the caller's own membership, never accepted from the request.
+    start_date/end_date are required here (unlike the list endpoint):
+    the exported filename literally encodes the range, so there must
+    always be one to encode."""
+    if format != "xlsx":
+        raise ValidationAPIError("Only format=xlsx is supported")
+    if end_date < start_date:
+        raise ValidationAPIError("end_date must be on or after start_date")
+
+    client = get_supabase_admin()
+    merchant = get_by_id(client, "merchants", membership.merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
+    rows = export_wallet_ledger_rows(
+        client,
+        merchant_id=membership.merchant_id,
+        currency=merchant["currency"],
+        start_date=start_date,
+        end_date=end_date,
+    )
+    workbook_bytes = build_wallet_ledger_workbook(merchant=merchant, rows=rows)
+
+    filename = f"infinity-africa-wallet-ledger-{start_date.isoformat()}-to-{end_date.isoformat()}.xlsx"
+    return Response(
+        content=workbook_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # --- Payment links ------------------------------------------------------------

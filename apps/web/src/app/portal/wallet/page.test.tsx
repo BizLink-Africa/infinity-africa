@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WalletLedgerEntry } from "@/lib/portal/types";
@@ -6,11 +6,13 @@ import type { WalletLedgerEntry } from "@/lib/portal/types";
 const getAvailableBalance = vi.fn();
 const listWalletLedger = vi.fn();
 const getMyMerchant = vi.fn();
+const exportWalletLedger = vi.fn();
 
 vi.mock("@/lib/portal/api", () => ({
   getAvailableBalance: (...args: unknown[]) => getAvailableBalance(...args),
   listWalletLedger: (...args: unknown[]) => listWalletLedger(...args),
   getMyMerchant: (...args: unknown[]) => getMyMerchant(...args),
+  exportWalletLedger: (...args: unknown[]) => exportWalletLedger(...args),
 }));
 
 function ledgerEntry(overrides: Partial<WalletLedgerEntry> = {}): WalletLedgerEntry {
@@ -23,6 +25,13 @@ function ledgerEntry(overrides: Partial<WalletLedgerEntry> = {}): WalletLedgerEn
     amount: "1970.00",
     balance_before: "500.00",
     balance_after: "2470.00",
+    type: "collection",
+    reference: "TXN-REF-1",
+    provider_reference: "SELCOM-1",
+    method: "USSD_PUSH",
+    fee_amount: "30.00",
+    net_amount: "1970.00",
+    status: "successful",
     ...overrides,
   };
 }
@@ -32,9 +41,10 @@ describe("Merchant portal WalletPage", () => {
     vi.clearAllMocks();
     getAvailableBalance.mockResolvedValue("2470.00");
     getMyMerchant.mockResolvedValue({ merchant_code: "27048391" });
+    listWalletLedger.mockResolvedValue([]);
   });
 
-  it("renders the opening and closing balance columns for a ledger entry", async () => {
+  it("renders the opening/closing balance, charge, and transaction ID columns", async () => {
     listWalletLedger.mockResolvedValue([ledgerEntry()]);
     const { default: WalletPage } = await import("./page");
     render(<WalletPage />);
@@ -43,10 +53,13 @@ describe("Merchant portal WalletPage", () => {
     expect(screen.getByText("Opening Balance")).toBeInTheDocument();
     expect(screen.getByText("Closing Balance")).toBeInTheDocument();
     expect(screen.getByText("Transaction ID")).toBeInTheDocument();
+    expect(screen.getByText("Charge / Fee")).toBeInTheDocument();
+    expect(screen.getByText("Net Amount")).toBeInTheDocument();
+    expect(screen.getByText("Type")).toBeInTheDocument();
+    expect(screen.getByText("Status")).toBeInTheDocument();
   });
 
   it("shows an empty state, not an error, when there is no wallet activity yet", async () => {
-    listWalletLedger.mockResolvedValue([]);
     const { default: WalletPage } = await import("./page");
     render(<WalletPage />);
 
@@ -54,37 +67,101 @@ describe("Merchant portal WalletPage", () => {
   });
 
   it("shows the merchant's Merchant ID in the page header", async () => {
-    listWalletLedger.mockResolvedValue([]);
     const { default: WalletPage } = await import("./page");
     render(<WalletPage />);
 
     expect(await screen.findByText("27048391")).toBeInTheDocument();
   });
 
-  it("does not show the untracked Pending Clearance / Reserved Funds placeholder cards", async () => {
-    listWalletLedger.mockResolvedValue([]);
+  it("renders the date filters, quick filters, Apply, Reset, and Export controls", async () => {
     const { default: WalletPage } = await import("./page");
     render(<WalletPage />);
 
-    await waitFor(() => expect(getAvailableBalance).toHaveBeenCalled());
-    expect(screen.queryByText("Pending Clearance")).not.toBeInTheDocument();
-    expect(screen.queryByText("Reserved Funds")).not.toBeInTheDocument();
-    expect(screen.queryByText("Not tracked yet")).not.toBeInTheDocument();
-    expect(screen.queryByText("Ready to withdraw")).not.toBeInTheDocument();
+    expect(await screen.findByText("Start Date")).toBeInTheDocument();
+    expect(screen.getByText("End Date")).toBeInTheDocument();
+    for (const label of ["Today", "Yesterday", "Last 7 Days", "Last 30 Days", "This Month", "Last Month"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("button", { name: "Apply Filter" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Export Excel/ })).toBeInTheDocument();
   });
 
-  it("exports the wallet ledger to a downloadable CSV (Excel-openable)", async () => {
+  it("clicking a quick filter sets both dates and refetches the ledger", async () => {
+    const { default: WalletPage } = await import("./page");
+    render(<WalletPage />);
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Today" }));
+
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(2));
+    const lastCallArgs = listWalletLedger.mock.calls[1][0];
+    expect(lastCallArgs.start_date).toBe(lastCallArgs.end_date);
+    expect(lastCallArgs.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    const startInput = screen.getByLabelText("Start Date") as HTMLInputElement;
+    const endInput = screen.getByLabelText("End Date") as HTMLInputElement;
+    expect(startInput.value).toBe(lastCallArgs.start_date);
+    expect(endInput.value).toBe(lastCallArgs.end_date);
+  });
+
+  it("Apply Filter refreshes the ledger using the typed date range", async () => {
+    const { default: WalletPage } = await import("./page");
+    render(<WalletPage />);
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Start Date"), { target: { value: "2026-08-01" } });
+    fireEvent.change(screen.getByLabelText("End Date"), { target: { value: "2026-08-15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply Filter" }));
+
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(2));
+    expect(listWalletLedger).toHaveBeenLastCalledWith({ start_date: "2026-08-01", end_date: "2026-08-15" });
+  });
+
+  it("Reset clears the date filters and refetches unfiltered", async () => {
+    const { default: WalletPage } = await import("./page");
+    render(<WalletPage />);
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Last 7 Days" }));
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(3));
+    expect(listWalletLedger).toHaveBeenLastCalledWith({ start_date: undefined, end_date: undefined });
+
+    const startInput = screen.getByLabelText("Start Date") as HTMLInputElement;
+    expect(startInput.value).toBe("");
+  });
+
+  it("shows the date-range-specific empty message once a filter is applied and returns nothing", async () => {
+    const { default: WalletPage } = await import("./page");
+    render(<WalletPage />);
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Today" }));
+
+    expect(await screen.findByText("No wallet ledger entries found for this date range.")).toBeInTheDocument();
+  });
+
+  it("Export Excel calls the backend export endpoint and downloads the returned file", async () => {
     if (!URL.createObjectURL) URL.createObjectURL = vi.fn();
     if (!URL.revokeObjectURL) URL.revokeObjectURL = vi.fn();
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const fakeBlob = new Blob(["xlsx-bytes"], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    exportWalletLedger.mockResolvedValue(fakeBlob);
 
-    listWalletLedger.mockResolvedValue([ledgerEntry()]);
     const { default: WalletPage } = await import("./page");
     render(<WalletPage />);
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(1));
 
-    const button = await screen.findByRole("button", { name: /Export to Excel/ });
-    expect(button).not.toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Start Date"), { target: { value: "2026-08-01" } });
+    fireEvent.change(screen.getByLabelText("End Date"), { target: { value: "2026-08-15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply Filter" }));
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(2));
 
     const clickSpy = vi.fn();
     const originalCreateElement = document.createElement.bind(document);
@@ -94,19 +171,28 @@ describe("Merchant portal WalletPage", () => {
       return el;
     });
 
-    button.click();
+    fireEvent.click(screen.getByRole("button", { name: /Export Excel/ }));
 
-    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
-    const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
-    const text = await blob.text();
-    expect(text).toContain(
-      '"Date","Transaction ID","Description","Direction","Opening Balance","Amount","Closing Balance"',
-    );
-    expect(text).toContain("txn-1");
-    expect(text).toContain("500.00");
-    expect(text).toContain("2470.00");
+    await waitFor(() => expect(exportWalletLedger).toHaveBeenCalledWith({ start_date: "2026-08-01", end_date: "2026-08-15" }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledWith(fakeBlob));
     expect(clickSpy).toHaveBeenCalledTimes(1);
 
+    // Filters stay exactly as the merchant left them after exporting.
+    expect((screen.getByLabelText("Start Date") as HTMLInputElement).value).toBe("2026-08-01");
+    expect((screen.getByLabelText("End Date") as HTMLInputElement).value).toBe("2026-08-15");
+
     createElementSpy.mockRestore();
+  });
+
+  it("shows an error banner, not a raw response, when export fails", async () => {
+    exportWalletLedger.mockRejectedValue(new Error("Couldn't export the wallet ledger. Please try again."));
+
+    const { default: WalletPage } = await import("./page");
+    render(<WalletPage />);
+    await waitFor(() => expect(listWalletLedger).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: /Export Excel/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't export the wallet ledger. Please try again.");
   });
 });

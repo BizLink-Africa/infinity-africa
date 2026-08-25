@@ -53,6 +53,16 @@ class WalletLedgerEntryResponse(BaseModel):
     amount: Decimal
     balance_before: Decimal
     balance_after: Decimal
+    # Joined from the entry's transactions row (see
+    # app/services/ledger.py::_wallet_ledger_entries) — null when the entry
+    # has no linked transaction, never guessed.
+    type: str | None = None
+    reference: str | None = None
+    provider_reference: str | None = None
+    method: str | None = None
+    fee_amount: Decimal | None = None
+    net_amount: Decimal | None = None
+    status: str | None = None
 
 
 # --- Payment links ------------------------------------------------------------

@@ -292,6 +292,15 @@ export interface WalletLedgerEntry {
   amount: string;
   balance_before: string;
   balance_after: string;
+  /** Joined from the entry's transaction — null when there isn't one
+   * linked (older/edge-case rows), never guessed. */
+  type: string | null;
+  reference: string | null;
+  provider_reference: string | null;
+  method: string | null;
+  fee_amount: string | null;
+  net_amount: string | null;
+  status: string | null;
 }
 
 /** apps/api's MerchantUserResponse (merchant_users row + the invited
