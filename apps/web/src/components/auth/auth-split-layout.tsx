@@ -17,7 +17,7 @@ export function AuthSplitLayout({
 }) {
   return (
     <div className="flex flex-1 min-h-full">
-      <div className="hidden lg:flex lg:w-1/2 relative flex-col justify-center overflow-hidden bg-primary text-on-primary p-8">
+      <div className="hidden lg:flex lg:w-[52%] relative flex-col justify-center overflow-hidden bg-primary text-on-primary p-8">
         <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-on-primary/5" aria-hidden />
         <div className="absolute bottom-10 left-10 w-80 h-80 rounded-full bg-on-primary/5" aria-hidden />
 
@@ -72,7 +72,7 @@ export function AuthSplitLayout({
         </div>
       </div>
 
-      <div className="flex flex-1 items-center justify-center bg-surface-container px-4 py-16">
+      <div className="flex flex-1 items-center justify-center bg-surface-container px-4 py-16 xl:pl-8 xl:pr-16">
         <div className={`w-full ${maxWidthClassName}`}>
           <Link
             href="/"
