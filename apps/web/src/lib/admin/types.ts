@@ -214,6 +214,7 @@ export interface AdminIpAllowlistRow {
   merchant_id: string;
   merchant_name: string;
   api_key_id: string | null;
+  key_prefix: string | null;
   environment: "sandbox" | "live";
   label: string;
   ip_address_or_cidr: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import { Card, tdClass, thClass } from "@/components/portal/card";
 import { EmptyState } from "@/components/portal/empty-state";
@@ -9,8 +9,32 @@ import { PageHeader } from "@/components/portal/page-header";
 import { SegmentedControl } from "@/components/portal/segmented-control";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatDateTime } from "@/lib/format";
-import { createApiKey, getMyMerchant, listApiKeys, renameApiKey, revokeApiKey, rotateApiKey } from "@/lib/portal/api";
-import { API_KEY_SCOPES, type ApiKey, type ApiKeyScope } from "@/lib/portal/types";
+import {
+  createApiKey,
+  createIpAllowlistEntry,
+  deleteIpAllowlistEntry,
+  getMyMerchant,
+  listApiKeys,
+  listIpAllowlist,
+  renameApiKey,
+  revokeApiKey,
+  rotateApiKey,
+  updateApiKeyIpWhitelist,
+} from "@/lib/portal/api";
+import { API_KEY_SCOPES, type AllowedIpDraft, type ApiKey, type ApiKeyScope, type IpAllowlistEntry } from "@/lib/portal/types";
+
+// IPv4 dotted-quad, optionally with a /0-32 CIDR suffix — the only format
+// the backend accepts (app.schemas.ip_allowlist._validate_ip_or_cidr uses
+// Python's ipaddress module, which is stricter about IPv6 shorthand than a
+// hand-written regex could safely match, so this client-side check only
+// needs to catch the common IPv4 case early; the server is the real check).
+const IPV4_OCTET = "(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
+const IPV4_ADDRESS_RE = new RegExp(`^${IPV4_OCTET}(\\.${IPV4_OCTET}){3}$`);
+const IPV4_CIDR_RE = new RegExp(`^${IPV4_OCTET}(\\.${IPV4_OCTET}){3}/(3[0-2]|[12]?[0-9])$`);
+
+function isValidIpOrCidr(value: string): boolean {
+  return IPV4_ADDRESS_RE.test(value) || IPV4_CIDR_RE.test(value);
+}
 
 const SCOPE_LABELS: Record<ApiKeyScope, string> = {
   "collections:write": "Collections — create",
@@ -41,11 +65,25 @@ export function ApiKeysView() {
   const [keyName, setKeyName] = useState("");
   const [scopes, setScopes] = useState<ApiKeyScope[]>([]);
   const [ipWhitelistChoice, setIpWhitelistChoice] = useState<"enabled" | "continue_without">("continue_without");
+  const [allowedIps, setAllowedIps] = useState<AllowedIpDraft[]>([]);
+  const [ipInputValue, setIpInputValue] = useState("");
+  const [ipLabelInputValue, setIpLabelInputValue] = useState("");
+  const [ipFormError, setIpFormError] = useState<string | null>(null);
   const [merchantApproved, setMerchantApproved] = useState<boolean | null>(null);
   const [apiSuspended, setApiSuspended] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+
+  // Per-key "Manage IPs" panel (API key detail: linked allowed IPs, add/
+  // remove, and switching Enable/Continue-without after creation).
+  const [expandedKeyId, setExpandedKeyId] = useState<string | null>(null);
+  const [expandedIps, setExpandedIps] = useState<IpAllowlistEntry[]>([]);
+  const [expandedLoading, setExpandedLoading] = useState(false);
+  const [expandedIpInput, setExpandedIpInput] = useState("");
+  const [expandedLabelInput, setExpandedLabelInput] = useState("");
+  const [expandedError, setExpandedError] = useState<string | null>(null);
+  const [expandedToggling, setExpandedToggling] = useState(false);
 
   const visibleKeys = keys.filter((key) => key.environment === environment);
   // Self-service production: a merchant creates their own Live key the
@@ -54,6 +92,7 @@ export function ApiKeysView() {
   // client-side (approval/KYC); a pricing-rule gap or a suspension surfaces
   // through the server's own rejection message in generateError instead.
   const liveBlocked = environment === "live" && merchantApproved === false;
+  const ipWhitelistMissingIps = ipWhitelistChoice === "enabled" && allowedIps.length === 0;
 
   useEffect(() => {
     listApiKeys().then(setKeys);
@@ -68,9 +107,129 @@ export function ApiKeysView() {
     setScopes((prev) => (prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]));
   }
 
+  function handleAddIp() {
+    // Supports one IP at a time, or pasting several separated by commas
+    // and/or newlines in one go.
+    const candidates = ipInputValue
+      .split(/[,\n]/)
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    if (candidates.length === 0) return;
+
+    const existing = new Set(allowedIps.map((entry) => entry.ip_address_or_cidr.toLowerCase()));
+    const toAdd: AllowedIpDraft[] = [];
+    const invalid: string[] = [];
+    const duplicates: string[] = [];
+    const label = candidates.length === 1 ? ipLabelInputValue.trim() || null : null;
+
+    for (const candidate of candidates) {
+      if (!isValidIpOrCidr(candidate)) {
+        invalid.push(candidate);
+        continue;
+      }
+      const key = candidate.toLowerCase();
+      if (existing.has(key) || toAdd.some((e) => e.ip_address_or_cidr.toLowerCase() === key)) {
+        duplicates.push(candidate);
+        continue;
+      }
+      toAdd.push({ ip_address_or_cidr: candidate, label });
+    }
+
+    if (toAdd.length > 0) {
+      setAllowedIps((prev) => [...prev, ...toAdd]);
+    }
+
+    if (invalid.length > 0) {
+      setIpFormError(`Invalid IP address or CIDR: ${invalid.join(", ")}`);
+    } else if (duplicates.length > 0) {
+      setIpFormError(`Already added: ${duplicates.join(", ")}`);
+    } else {
+      setIpFormError(null);
+    }
+
+    // Only clear the inputs once everything typed was actually accepted —
+    // otherwise the merchant would lose whatever they need to go fix.
+    if (invalid.length === 0 && duplicates.length === 0) {
+      setIpInputValue("");
+      setIpLabelInputValue("");
+    }
+  }
+
+  function handleRemoveIp(index: number) {
+    setAllowedIps((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function loadExpandedIps(keyId: string) {
+    setExpandedLoading(true);
+    try {
+      setExpandedIps(await listIpAllowlist({ apiKeyId: keyId }));
+    } finally {
+      setExpandedLoading(false);
+    }
+  }
+
+  async function toggleExpandKey(key: ApiKey) {
+    if (expandedKeyId === key.id) {
+      setExpandedKeyId(null);
+      return;
+    }
+    setExpandedKeyId(key.id);
+    setExpandedError(null);
+    setExpandedIpInput("");
+    setExpandedLabelInput("");
+    await loadExpandedIps(key.id);
+  }
+
+  async function handleAddExpandedIp(key: ApiKey) {
+    const ip = expandedIpInput.trim();
+    if (!ip) return;
+    if (!isValidIpOrCidr(ip)) {
+      setExpandedError(`Invalid IP address or CIDR: ${ip}`);
+      return;
+    }
+    if (expandedIps.some((entry) => entry.ip_address_or_cidr.toLowerCase() === ip.toLowerCase())) {
+      setExpandedError(`Already added: ${ip}`);
+      return;
+    }
+    setExpandedError(null);
+    await createIpAllowlistEntry({
+      environment: key.environment,
+      label: expandedLabelInput.trim() || ip,
+      ip_address_or_cidr: ip,
+      api_key_id: key.id,
+    });
+    setExpandedIpInput("");
+    setExpandedLabelInput("");
+    await loadExpandedIps(key.id);
+  }
+
+  async function handleRemoveExpandedIp(key: ApiKey, entryId: string) {
+    await deleteIpAllowlistEntry(entryId);
+    await loadExpandedIps(key.id);
+  }
+
+  async function handleToggleKeyIpWhitelist(key: ApiKey) {
+    const enabling = !key.ip_whitelist_enabled;
+    if (enabling && expandedIps.filter((e) => e.status !== "rejected").length === 0) {
+      setExpandedError("Add at least one allowed server IP or choose Continue without IP whitelisting.");
+      return;
+    }
+    setExpandedToggling(true);
+    setExpandedError(null);
+    try {
+      const updated = await updateApiKeyIpWhitelist(key.id, enabling);
+      setKeys((prev) => prev.map((k) => (k.id === key.id ? updated : k)));
+    } catch (err) {
+      setExpandedError(err instanceof Error ? err.message : "Couldn't update IP whitelisting for this key.");
+    } finally {
+      setExpandedToggling(false);
+    }
+  }
+
   async function handleGenerate(event: React.FormEvent) {
     event.preventDefault();
-    if (!keyName.trim() || scopes.length === 0) return;
+    if (!keyName.trim() || scopes.length === 0 || ipWhitelistMissingIps) return;
 
     setGenerating(true);
     setGenerateError(null);
@@ -81,6 +240,7 @@ export function ApiKeysView() {
         scopes,
         ip_whitelist_enabled: ipWhitelistChoice === "enabled",
         continue_without_ip_whitelist: ipWhitelistChoice === "continue_without",
+        allowed_ips: ipWhitelistChoice === "enabled" ? allowedIps : undefined,
       });
       setKeys((prev) => [key, ...prev]);
       setRevealed(plaintext_key);
@@ -89,6 +249,10 @@ export function ApiKeysView() {
       setKeyName("");
       setScopes([]);
       setIpWhitelistChoice("continue_without");
+      setAllowedIps([]);
+      setIpInputValue("");
+      setIpLabelInputValue("");
+      setIpFormError(null);
     } catch (err) {
       setGenerateError(err instanceof Error ? err.message : "Couldn't generate this API key.");
     } finally {
@@ -273,23 +437,116 @@ export function ApiKeysView() {
                   <span className="text-sm">
                     <span className="font-medium text-on-surface">Enable IP whitelisting</span>
                     <span className="block text-xs text-on-surface-variant mt-0.5">
-                      Only accept this key from server IPs you approve — add them on the IP Allowlist page.
+                      Only accept this key from server IPs you approve, added below.
                     </span>
                   </span>
                 </label>
               </div>
+
+              {ipWhitelistChoice === "enabled" && (
+                <div className="mt-3 rounded-lg border border-surface-container-highest bg-surface-container-lowest p-4 space-y-3">
+                  <p className="text-sm font-medium text-on-surface">Allowed server IPs</p>
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <input
+                      className="flex-1 px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm font-mono"
+                      placeholder="Enter server IP address or CIDR"
+                      type="text"
+                      value={ipInputValue}
+                      onChange={(event) => setIpInputValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleAddIp();
+                        }
+                      }}
+                    />
+                    <input
+                      className="sm:w-56 px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+                      placeholder="Label, e.g. Main ecommerce server"
+                      type="text"
+                      value={ipLabelInputValue}
+                      onChange={(event) => setIpLabelInputValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleAddIp();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddIp}
+                      disabled={!ipInputValue.trim()}
+                      className="shrink-0 bg-primary-container text-on-primary text-sm font-medium py-2.5 px-4 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-60"
+                    >
+                      Add IP
+                    </button>
+                  </div>
+                  <p className="text-xs text-on-surface-variant">
+                    41.59.10.20 for a single address, or 41.59.10.20/32 (CIDR) for a range. Paste several at once
+                    separated by commas or new lines.
+                  </p>
+                  {ipFormError && <p className="text-sm text-error">{ipFormError}</p>}
+
+                  {allowedIps.length > 0 && (
+                    <div className="overflow-x-auto rounded-lg border border-surface-container-highest">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="text-on-surface-variant text-xs font-semibold bg-surface-container-low">
+                            <th className="px-3 py-2">IP / CIDR</th>
+                            <th className="px-3 py-2">Label</th>
+                            <th className="px-3 py-2 text-right">Remove</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allowedIps.map((entry, index) => (
+                            <tr key={`${entry.ip_address_or_cidr}-${index}`} className="border-t border-surface-container-highest">
+                              <td className="px-3 py-2 font-mono text-xs text-on-background">{entry.ip_address_or_cidr}</td>
+                              <td className="px-3 py-2 text-on-surface-variant text-xs">{entry.label ?? "—"}</td>
+                              <td className="px-3 py-2 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveIp(index)}
+                                  className="text-error text-xs font-semibold hover:underline"
+                                >
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {ipWhitelistMissingIps && (
+                    <p className="text-sm text-error">
+                      Add at least one allowed server IP or choose Continue without IP whitelisting.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
             {generateError && <p className="text-sm text-error">{generateError}</p>}
             <div className="flex items-center gap-3">
               <button
                 type="submit"
-                disabled={generating || !keyName.trim() || scopes.length === 0 || liveBlocked || apiSuspended}
+                disabled={
+                  generating ||
+                  !keyName.trim() ||
+                  scopes.length === 0 ||
+                  liveBlocked ||
+                  apiSuspended ||
+                  ipWhitelistMissingIps
+                }
                 title={
                   apiSuspended
                     ? "API access is suspended for this account"
                     : liveBlocked
                       ? "Production API keys are available after your business account is approved"
-                      : undefined
+                      : ipWhitelistMissingIps
+                        ? "Add at least one allowed server IP or choose Continue without IP whitelisting."
+                        : undefined
                 }
                 className="bg-primary-container text-on-primary text-sm font-medium py-2.5 px-5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-60"
               >
@@ -347,7 +604,8 @@ export function ApiKeysView() {
               </thead>
               <tbody className="text-sm">
                 {visibleKeys.map((key) => (
-                  <tr key={key.id} className="border-t border-surface-container-highest">
+                  <Fragment key={key.id}>
+                  <tr className="border-t border-surface-container-highest">
                     <td className={`${tdClass} font-medium text-on-background`}>
                       {renamingId === key.id ? (
                         <div className="flex items-center gap-2">
@@ -386,11 +644,13 @@ export function ApiKeysView() {
                       {key.key_prefix}••••••••{key.key_last4 ?? ""}
                     </td>
                     <td className={tdClass}>
-                      <StatusBadge
-                        label={key.ip_whitelist_enabled ? "Enabled" : "Any IP"}
-                        tone={key.ip_whitelist_enabled ? "positive" : "neutral"}
-                        dot
-                      />
+                      <button type="button" onClick={() => toggleExpandKey(key)} className="hover:opacity-80">
+                        <StatusBadge
+                          label={key.ip_whitelist_enabled ? "Enabled" : "Any IP"}
+                          tone={key.ip_whitelist_enabled ? "positive" : "neutral"}
+                          dot
+                        />
+                      </button>
                     </td>
                     <td className={tdClass}>
                       <div className="flex flex-wrap gap-1 max-w-[220px]">
@@ -424,6 +684,13 @@ export function ApiKeysView() {
                         <div className="flex items-center justify-end gap-3">
                           <button
                             type="button"
+                            onClick={() => toggleExpandKey(key)}
+                            className="text-on-surface-variant text-xs font-semibold hover:underline"
+                          >
+                            {expandedKeyId === key.id ? "Hide IPs" : "Manage IPs"}
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleRotate(key.id)}
                             disabled={rotatingId === key.id || revokingId === key.id}
                             className="text-primary text-xs font-semibold hover:underline disabled:opacity-60"
@@ -443,6 +710,115 @@ export function ApiKeysView() {
                       )}
                     </td>
                   </tr>
+                  {expandedKeyId === key.id && (
+                    <tr className="border-t border-surface-container-highest bg-surface-container-lowest">
+                      <td colSpan={8} className="px-5 py-4">
+                        <div className="max-w-2xl space-y-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-on-background">
+                              Allowed IPs for &ldquo;{key.name}&rdquo;
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleKeyIpWhitelist(key)}
+                              disabled={expandedToggling}
+                              className="text-xs font-semibold text-primary hover:underline disabled:opacity-60"
+                            >
+                              {expandedToggling
+                                ? "Updating…"
+                                : key.ip_whitelist_enabled
+                                  ? "Switch to Continue without IP whitelisting"
+                                  : "Switch to Enable IP whitelisting"}
+                            </button>
+                          </div>
+
+                          {expandedLoading ? (
+                            <p className="text-sm text-on-surface-variant">Loading…</p>
+                          ) : (
+                            <>
+                              {expandedIps.length === 0 ? (
+                                <p className="text-sm text-on-surface-variant">No IPs linked to this key yet.</p>
+                              ) : (
+                                <div className="overflow-x-auto rounded-lg border border-surface-container-highest">
+                                  <table className="w-full text-left text-sm bg-surface">
+                                    <thead>
+                                      <tr className="text-on-surface-variant text-xs font-semibold bg-surface-container-low">
+                                        <th className="px-3 py-2">IP / CIDR</th>
+                                        <th className="px-3 py-2">Label</th>
+                                        <th className="px-3 py-2">Status</th>
+                                        <th className="px-3 py-2 text-right">Remove</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {expandedIps.map((entry) => (
+                                        <tr key={entry.id} className="border-t border-surface-container-highest">
+                                          <td className="px-3 py-2 font-mono text-xs text-on-background">
+                                            {entry.ip_address_or_cidr}
+                                          </td>
+                                          <td className="px-3 py-2 text-on-surface-variant text-xs">{entry.label}</td>
+                                          <td className="px-3 py-2">
+                                            <StatusBadge
+                                              label={entry.status}
+                                              tone={
+                                                entry.status === "active"
+                                                  ? "positive"
+                                                  : entry.status === "pending"
+                                                    ? "pending"
+                                                    : "negative"
+                                              }
+                                            />
+                                          </td>
+                                          <td className="px-3 py-2 text-right">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRemoveExpandedIp(key, entry.id)}
+                                              className="text-error text-xs font-semibold hover:underline"
+                                            >
+                                              Remove
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              <div className="flex flex-col sm:flex-row gap-2.5">
+                                <input
+                                  className="flex-1 px-3.5 py-2 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm font-mono"
+                                  placeholder="Enter server IP address or CIDR"
+                                  type="text"
+                                  value={expandedIpInput}
+                                  onChange={(event) => setExpandedIpInput(event.target.value)}
+                                />
+                                <input
+                                  className="sm:w-56 px-3.5 py-2 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+                                  placeholder="Label, e.g. Main ecommerce server"
+                                  type="text"
+                                  value={expandedLabelInput}
+                                  onChange={(event) => setExpandedLabelInput(event.target.value)}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddExpandedIp(key)}
+                                  disabled={!expandedIpInput.trim()}
+                                  className="shrink-0 bg-primary-container text-on-primary text-sm font-medium py-2 px-4 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-60"
+                                >
+                                  Add IP
+                                </button>
+                              </div>
+                              {expandedError && <p className="text-sm text-error">{expandedError}</p>}
+                              <p className="text-xs text-on-surface-variant">
+                                New IPs start pending until Infinity Africa approves them.
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

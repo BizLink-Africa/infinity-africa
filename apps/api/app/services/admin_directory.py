@@ -24,6 +24,16 @@ def batch_merchant_names(client: Client, merchant_ids: set[str]) -> dict[str, st
     return {row["id"]: row["business_name"] for row in rows}
 
 
+def batch_api_key_prefixes(client: Client, api_key_ids: set[str]) -> dict[str, str]:
+    """id -> key_prefix, for join-on-display only — never selects hashed_key."""
+    if not api_key_ids:
+        return {}
+    rows = (
+        client.table("api_keys").select("id, key_prefix").in_("id", list(api_key_ids)).execute()
+    ).data or []
+    return {row["id"]: row["key_prefix"] for row in rows}
+
+
 def best_effort_user_profile(client: Client, user_id: str | uuid.UUID | None) -> dict:
     if not user_id:
         return {"full_name": None, "email": None}

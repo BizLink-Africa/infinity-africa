@@ -46,12 +46,12 @@ def _merchant_admin(fake_client):
     return merchant_id, user_id
 
 
-def _activate_allowlist_entry(fake_client, merchant_id, *, environment="live", ip="41.222.10.5"):
+def _activate_allowlist_entry(fake_client, merchant_id, *, environment="live", ip="41.222.10.5", api_key_id=None):
     return fake_client.seed(
         "api_ip_allowlist",
         {
             "merchant_id": str(merchant_id),
-            "api_key_id": None,
+            "api_key_id": str(api_key_id) if api_key_id else None,
             "environment": environment,
             "label": "Main server",
             "ip_address_or_cidr": ip,
@@ -189,6 +189,47 @@ def test_sandbox_requests_are_never_ip_restricted(fake_client):
 
     response = _probe(raw_key, merchant_id, "9.9.9.9")
     assert response.status_code == 404  # sandbox is never IP-restricted, even with the flag on
+
+
+def test_an_ip_scoped_to_one_key_does_not_apply_to_a_different_key(fake_client):
+    """A row with api_key_id set (e.g. the inline "Allowed server IPs" list
+    added at key creation) is scoped to that one key — it doesn't grant
+    access to a sibling key that also has ip_whitelist_enabled=true."""
+    merchant_id, _user_id = _merchant_admin(fake_client)
+    raw_key_a, key_row_a = make_api_key(fake_client, merchant_id, environment="live", ip_whitelist_enabled=True)
+    raw_key_b, _key_row_b = make_api_key(fake_client, merchant_id, environment="live", ip_whitelist_enabled=True)
+    _activate_allowlist_entry(fake_client, merchant_id, ip="41.222.10.5", api_key_id=key_row_a["id"])
+
+    response_a = _probe(raw_key_a, merchant_id, "41.222.10.5")
+    assert response_a.status_code == 404  # key A's own IP -> passes
+
+    response_b = _probe(raw_key_b, merchant_id, "41.222.10.5")
+    assert response_b.status_code == 403  # same IP, but not approved for key B
+
+
+def test_a_merchant_wide_ip_entry_applies_to_every_whitelisted_key(fake_client):
+    """api_key_id=null (the standalone IP Allowlist page's original
+    behavior) still applies across every key with whitelisting enabled."""
+    merchant_id, _user_id = _merchant_admin(fake_client)
+    _activate_allowlist_entry(fake_client, merchant_id, ip="41.222.10.5", api_key_id=None)
+    raw_key_a, _row_a = make_api_key(fake_client, merchant_id, environment="live", ip_whitelist_enabled=True)
+    raw_key_b, _row_b = make_api_key(fake_client, merchant_id, environment="live", ip_whitelist_enabled=True)
+
+    assert _probe(raw_key_a, merchant_id, "41.222.10.5").status_code == 404
+    assert _probe(raw_key_b, merchant_id, "41.222.10.5").status_code == 404
+
+
+def test_admin_ip_allowlist_listing_shows_the_linked_keys_prefix(fake_client):
+    merchant_id, _user_id = _merchant_admin(fake_client)
+    _raw_key, key_row = make_api_key(fake_client, merchant_id, environment="live", ip_whitelist_enabled=True)
+    _activate_allowlist_entry(fake_client, merchant_id, ip="41.222.10.5", api_key_id=key_row["id"])
+
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+    response = client.get("/v1/admin/ip-allowlist", headers=auth_headers(admin_id))
+    assert response.status_code == 200, response.text
+    row = response.json()["data"][0]
+    assert row["key_prefix"] == key_row["key_prefix"]
 
 
 def test_last_used_ip_is_recorded_and_visible_to_super_admin(fake_client):

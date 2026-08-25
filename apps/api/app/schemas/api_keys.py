@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.ip_allowlist import _validate_ip_or_cidr
+
 # Permission scopes a merchant can grant to an API key. Dashboard JWT
 # sessions are never scope-checked — only API-key callers are (see
 # app.auth.dependencies.require_api_key_scope).
@@ -18,6 +20,20 @@ API_KEY_SCOPES: tuple[str, ...] = (
 )
 
 
+class InlineIpAllowlistEntry(BaseModel):
+    """One row of the "Enable IP whitelisting" form's inline IP list —
+    submitted alongside ApiKeyCreate, not a separate POST /ip-allowlist
+    call. label is optional (falls back to the IP itself for display)."""
+
+    ip_address_or_cidr: str
+    label: str | None = None
+
+    @field_validator("ip_address_or_cidr")
+    @classmethod
+    def _check_ip(cls, value: str) -> str:
+        return _validate_ip_or_cidr(value)
+
+
 class ApiKeyCreate(BaseModel):
     name: str
     environment: str = Field(default="sandbox", pattern="^(sandbox|live)$")
@@ -27,6 +43,11 @@ class ApiKeyCreate(BaseModel):
     # see the validator below.
     ip_whitelist_enabled: bool = False
     continue_without_ip_whitelist: bool = True
+    # Required (min 1) when ip_whitelist_enabled=true — the inline "Allowed
+    # server IPs" list on the same form, so a merchant enabling whitelisting
+    # doesn't have to leave and come back from the separate IP Allowlist
+    # page before the key is even usable.
+    allowed_ips: list[InlineIpAllowlistEntry] = Field(default_factory=list)
 
     @field_validator("scopes")
     @classmethod
@@ -42,11 +63,40 @@ class ApiKeyCreate(BaseModel):
             self.continue_without_ip_whitelist = False
         else:
             self.continue_without_ip_whitelist = True
+            self.allowed_ips = []
+        return self
+
+    @model_validator(mode="after")
+    def _require_at_least_one_ip_when_enabled(self) -> "ApiKeyCreate":
+        if self.ip_whitelist_enabled and not self.allowed_ips:
+            raise ValueError(
+                "Add at least one allowed server IP or choose Continue without IP whitelisting."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _reject_duplicate_ips(self) -> "ApiKeyCreate":
+        seen: set[str] = set()
+        for entry in self.allowed_ips:
+            normalized = entry.ip_address_or_cidr.strip().lower()
+            if normalized in seen:
+                raise ValueError(f"Duplicate IP/CIDR in the list: {entry.ip_address_or_cidr}")
+            seen.add(normalized)
         return self
 
 
 class ApiKeyRename(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+
+
+class ApiKeyIpWhitelistUpdate(BaseModel):
+    """Switch an existing key's IP-whitelisting choice after creation
+    (Merchant Portal API key detail panel). Switching TO enabled requires
+    the key to already have at least one non-rejected linked allowlist
+    entry — add IPs first via POST /v1/merchant/ip-allowlist with this
+    key's id, then flip this."""
+
+    ip_whitelist_enabled: bool
 
 
 class ApiKeyCreateResponse(BaseModel):

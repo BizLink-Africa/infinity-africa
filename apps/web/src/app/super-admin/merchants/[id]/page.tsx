@@ -350,6 +350,7 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
                 <thead>
                   <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
                     <th className={thClass}>IP / CIDR</th>
+                    <th className={thClass}>Key</th>
                     <th className={thClass}>Environment</th>
                     <th className={thClass}>Status</th>
                     <th className={`${thClass} text-right`}>Actions</th>
@@ -361,6 +362,9 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
                       <td className={tdClass}>
                         <div className="font-mono text-xs">{row.ip_address_or_cidr}</div>
                         <div className="text-xs text-on-surface-variant">{row.label}</div>
+                      </td>
+                      <td className={`${tdClass} text-xs font-mono text-on-surface-variant`}>
+                        {row.key_prefix ?? "All keys"}
                       </td>
                       <td className={`${tdClass} text-xs capitalize`}>{row.environment}</td>
                       <td className={tdClass}>{row.status}</td>

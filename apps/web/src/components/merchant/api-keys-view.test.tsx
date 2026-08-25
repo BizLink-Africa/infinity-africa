@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ApiKey } from "@/lib/portal/types";
+import type { ApiKey, IpAllowlistEntry } from "@/lib/portal/types";
 
 const key: ApiKey = {
   id: "key-1",
@@ -27,6 +27,10 @@ const revokeApiKey = vi.fn();
 const rotateApiKey = vi.fn();
 const renameApiKey = vi.fn();
 const getMyMerchant = vi.fn();
+const listIpAllowlist = vi.fn();
+const createIpAllowlistEntry = vi.fn();
+const deleteIpAllowlistEntry = vi.fn();
+const updateApiKeyIpWhitelist = vi.fn();
 
 vi.mock("@/lib/portal/api", () => ({
   listApiKeys: (...args: unknown[]) => listApiKeys(...args),
@@ -35,6 +39,10 @@ vi.mock("@/lib/portal/api", () => ({
   rotateApiKey: (...args: unknown[]) => rotateApiKey(...args),
   renameApiKey: (...args: unknown[]) => renameApiKey(...args),
   getMyMerchant: (...args: unknown[]) => getMyMerchant(...args),
+  listIpAllowlist: (...args: unknown[]) => listIpAllowlist(...args),
+  createIpAllowlistEntry: (...args: unknown[]) => createIpAllowlistEntry(...args),
+  deleteIpAllowlistEntry: (...args: unknown[]) => deleteIpAllowlistEntry(...args),
+  updateApiKeyIpWhitelist: (...args: unknown[]) => updateApiKeyIpWhitelist(...args),
 }));
 
 describe("ApiKeysView", () => {
@@ -46,6 +54,7 @@ describe("ApiKeysView", () => {
       kyc_status: "verified",
       api_access_suspended: false,
     });
+    listIpAllowlist.mockResolvedValue([]);
   });
 
   it("always shows the never-expose-secrets warning", async () => {
@@ -122,11 +131,7 @@ describe("ApiKeysView", () => {
     expect(submitButton).toBeDisabled();
   });
 
-  it("defaults to 'continue without IP whitelisting' and passes the merchant's choice through to createApiKey", async () => {
-    createApiKey.mockResolvedValue({ key: { ...key, id: "key-2" }, plaintext_key: "inf_sandbox_newkey123" });
-    const { ApiKeysView } = await import("./api-keys-view");
-    render(<ApiKeysView />);
-
+  async function openFormAndFillBasics() {
     // Wait for the key list to settle first — otherwise the trigger button
     // this test clicks can be the EmptyState's (0 sandbox keys, transient)
     // one instant and the table header's (1 sandbox key, from the mock)
@@ -137,18 +142,151 @@ describe("ApiKeysView", () => {
       target: { value: "My integration" },
     });
     fireEvent.click(screen.getByLabelText(/Collections — create/));
-    fireEvent.click(screen.getByRole("radio", { name: /Enable IP whitelisting/ }));
+  }
 
-    const submitButton = (await screen.findAllByRole("button", { name: "Generate API Key" })).find(
+  function findSubmitButton() {
+    return screen.getAllByRole("button", { name: "Generate API Key" }).find(
       (button) => button.getAttribute("type") === "submit",
     )!;
-    fireEvent.click(submitButton);
+  }
+
+  it("defaults to 'continue without IP whitelisting' and passes the merchant's choice through to createApiKey", async () => {
+    createApiKey.mockResolvedValue({ key: { ...key, id: "key-2" }, plaintext_key: "inf_sandbox_newkey123" });
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    await openFormAndFillBasics();
+    fireEvent.click(findSubmitButton());
 
     await waitFor(() =>
       expect(createApiKey).toHaveBeenCalledWith(
-        expect.objectContaining({ ip_whitelist_enabled: true, continue_without_ip_whitelist: false }),
+        expect.objectContaining({ ip_whitelist_enabled: false, continue_without_ip_whitelist: true }),
       ),
     );
+  });
+
+  it("blocks Generate API Key when IP whitelisting is enabled with no IPs added, and shows the required message", async () => {
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    await openFormAndFillBasics();
+    fireEvent.click(screen.getByRole("radio", { name: /Enable IP whitelisting/ }));
+
+    expect(
+      screen.getByText("Add at least one allowed server IP or choose Continue without IP whitelisting."),
+    ).toBeInTheDocument();
+    expect(findSubmitButton()).toBeDisabled();
+    expect(createApiKey).not.toHaveBeenCalled();
+  });
+
+  it("adds a valid IP inline, enabling submit, and passes allowed_ips to createApiKey", async () => {
+    createApiKey.mockResolvedValue({ key: { ...key, id: "key-2" }, plaintext_key: "inf_sandbox_newkey123" });
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    await openFormAndFillBasics();
+    fireEvent.click(screen.getByRole("radio", { name: /Enable IP whitelisting/ }));
+    fireEvent.change(screen.getByPlaceholderText("Enter server IP address or CIDR"), {
+      target: { value: "41.59.10.20/32" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Label, e.g. Main ecommerce server"), {
+      target: { value: "Main ecommerce server" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add IP" }));
+
+    expect(await screen.findByText("41.59.10.20/32")).toBeInTheDocument();
+    expect(screen.getByText("Main ecommerce server")).toBeInTheDocument();
+    expect(findSubmitButton()).not.toBeDisabled();
+
+    fireEvent.click(findSubmitButton());
+    await waitFor(() =>
+      expect(createApiKey).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ip_whitelist_enabled: true,
+          allowed_ips: [{ ip_address_or_cidr: "41.59.10.20/32", label: "Main ecommerce server" }],
+        }),
+      ),
+    );
+  });
+
+  it("rejects an invalid IP with a clear inline error and does not add it to the list", async () => {
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    await openFormAndFillBasics();
+    fireEvent.click(screen.getByRole("radio", { name: /Enable IP whitelisting/ }));
+    fireEvent.change(screen.getByPlaceholderText("Enter server IP address or CIDR"), {
+      target: { value: "not-an-ip" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add IP" }));
+
+    expect(await screen.findByText("Invalid IP address or CIDR: not-an-ip")).toBeInTheDocument();
+    expect(screen.queryByText("not-an-ip")).not.toBeInTheDocument();
+  });
+
+  it("rejects a duplicate IP with a clear inline error", async () => {
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    await openFormAndFillBasics();
+    fireEvent.click(screen.getByRole("radio", { name: /Enable IP whitelisting/ }));
+    fireEvent.change(screen.getByPlaceholderText("Enter server IP address or CIDR"), {
+      target: { value: "41.59.10.20" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add IP" }));
+    fireEvent.change(screen.getByPlaceholderText("Enter server IP address or CIDR"), {
+      target: { value: "41.59.10.20" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add IP" }));
+
+    expect(await screen.findByText("Already added: 41.59.10.20")).toBeInTheDocument();
+    expect(screen.getAllByText("41.59.10.20")).toHaveLength(1);
+  });
+
+  it("supports pasting multiple comma-separated IPs at once", async () => {
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    await openFormAndFillBasics();
+    fireEvent.click(screen.getByRole("radio", { name: /Enable IP whitelisting/ }));
+    fireEvent.change(screen.getByPlaceholderText("Enter server IP address or CIDR"), {
+      target: { value: "41.59.10.20, 41.59.10.21, 41.59.10.22/32" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add IP" }));
+
+    expect(await screen.findByText("41.59.10.20")).toBeInTheDocument();
+    expect(await screen.findByText("41.59.10.21")).toBeInTheDocument();
+    expect(await screen.findByText("41.59.10.22/32")).toBeInTheDocument();
+  });
+
+  it("removes an added IP from the inline list", async () => {
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    await openFormAndFillBasics();
+    fireEvent.click(screen.getByRole("radio", { name: /Enable IP whitelisting/ }));
+    fireEvent.change(screen.getByPlaceholderText("Enter server IP address or CIDR"), {
+      target: { value: "41.59.10.20" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add IP" }));
+    expect(await screen.findByText("41.59.10.20")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.queryByText("41.59.10.20")).not.toBeInTheDocument());
+    expect(findSubmitButton()).toBeDisabled();
+  });
+
+  it("shows the recommendation warning for Continue without IP whitelisting on a Live key", async () => {
+    getMyMerchant.mockResolvedValue({ status: "active", kyc_status: "verified", api_access_suspended: false });
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Live" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Generate API Key" }))[0]);
+
+    expect(
+      await screen.findByText(/For production, IP whitelisting is recommended for stronger security/),
+    ).toBeInTheDocument();
   });
 
   it("never writes the revealed secret to localStorage or sessionStorage", async () => {
@@ -165,6 +303,46 @@ describe("ApiKeysView", () => {
 
     expect(localSetItem).not.toHaveBeenCalled();
     localSetItem.mockRestore();
+  });
+
+  it("Manage IPs panel shows linked IPs and lets the merchant add/remove them", async () => {
+    const entry: IpAllowlistEntry = {
+      id: "entry-1",
+      merchant_id: "merchant-1",
+      api_key_id: "key-1",
+      environment: "sandbox",
+      label: "Office",
+      ip_address_or_cidr: "41.59.10.20",
+      status: "active",
+      notes: null,
+      created_at: "2026-08-01T10:00:00Z",
+      updated_at: "2026-08-01T10:00:00Z",
+    };
+    listIpAllowlist.mockResolvedValue([entry]);
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Manage IPs" }));
+    expect(await screen.findByText("41.59.10.20")).toBeInTheDocument();
+    expect(listIpAllowlist).toHaveBeenCalledWith({ apiKeyId: "key-1" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(deleteIpAllowlistEntry).toHaveBeenCalledWith("entry-1"));
+  });
+
+  it("blocks switching a key to Enable IP whitelisting from the detail panel when it has no linked IPs", async () => {
+    listIpAllowlist.mockResolvedValue([]);
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Manage IPs" }));
+    await screen.findByText("No IPs linked to this key yet.");
+    fireEvent.click(screen.getByRole("button", { name: "Switch to Enable IP whitelisting" }));
+
+    expect(
+      await screen.findByText("Add at least one allowed server IP or choose Continue without IP whitelisting."),
+    ).toBeInTheDocument();
+    expect(updateApiKeyIpWhitelist).not.toHaveBeenCalled();
   });
 
   it("does not show Rotate/Revoke for an already-revoked key", async () => {

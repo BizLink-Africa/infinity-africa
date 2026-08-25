@@ -230,6 +230,13 @@ export interface ApiKey {
   updated_at: string;
 }
 
+/** One row of the inline "Allowed server IPs" list on the API key creation
+ * form — submitted as ApiKeyCreate.allowed_ips, not a separate call. */
+export interface AllowedIpDraft {
+  ip_address_or_cidr: string;
+  label: string | null;
+}
+
 export interface IpAllowlistEntry {
   id: string;
   merchant_id: string;

@@ -15,6 +15,7 @@ import { getAccessTokenClient } from "@/lib/supabase/client-session";
 
 import { mockSupportTickets, MOCK_MERCHANT_ID } from "./mock-data";
 import type {
+  AllowedIpDraft,
   ApiEnvelope,
   ApiKey,
   ApiRequestLog,
@@ -410,11 +411,14 @@ export async function createApiKey(input: {
   name: string;
   environment: ApiKey["environment"];
   scopes: string[];
-  // Part 6's per-key choice: enable IP whitelisting (merchant will add
-  // approved IPs separately), or explicitly continue without it. Exactly
+  // Part 6's per-key choice: enable IP whitelisting (with the allowed IPs
+  // added inline, right here), or explicitly continue without it. Exactly
   // one is true — the backend reconciles this if both/neither are sent.
   ip_whitelist_enabled?: boolean;
   continue_without_ip_whitelist?: boolean;
+  // Required (min 1), enforced server-side, when ip_whitelist_enabled is
+  // true — the inline "Allowed server IPs" list on the same form.
+  allowed_ips?: AllowedIpDraft[];
 }): Promise<{ key: ApiKey; plaintext_key: string }> {
   const created = await apiWrite<ApiKey & { plaintext_key: string }>("/v1/merchant/api-keys", "POST", input);
   const { plaintext_key, ...key } = created;
@@ -423,6 +427,16 @@ export async function createApiKey(input: {
 
 export async function renameApiKey(apiKeyId: string, name: string): Promise<ApiKey> {
   return apiWrite<ApiKey>(`/v1/merchant/api-keys/${apiKeyId}`, "PATCH", { name });
+}
+
+/** Switch an existing key between "Enable"/"Continue without" IP
+ * whitelisting — the backend rejects enabling if the key has no linked,
+ * non-rejected allowlist entry yet (add one first via createIpAllowlistEntry
+ * with this key's id). */
+export async function updateApiKeyIpWhitelist(apiKeyId: string, ipWhitelistEnabled: boolean): Promise<ApiKey> {
+  return apiWrite<ApiKey>(`/v1/merchant/api-keys/${apiKeyId}/ip-whitelist`, "PATCH", {
+    ip_whitelist_enabled: ipWhitelistEnabled,
+  });
 }
 
 export async function revokeApiKey(apiKeyId: string): Promise<ApiKey> {
@@ -444,8 +458,9 @@ export async function rotateApiKey(apiKeyId: string): Promise<{ key: ApiKey; pla
 
 // --- IP Allowlist (LIVE) -------------------------------------------------------
 
-export async function listIpAllowlist(): Promise<IpAllowlistEntry[]> {
-  return (await apiGet<IpAllowlistEntry[]>("/v1/merchant/ip-allowlist")) ?? [];
+export async function listIpAllowlist(filters?: { apiKeyId?: string }): Promise<IpAllowlistEntry[]> {
+  const params = filters?.apiKeyId ? `?api_key_id=${encodeURIComponent(filters.apiKeyId)}` : "";
+  return (await apiGet<IpAllowlistEntry[]>(`/v1/merchant/ip-allowlist${params}`)) ?? [];
 }
 
 export async function createIpAllowlistEntry(input: {
@@ -453,6 +468,7 @@ export async function createIpAllowlistEntry(input: {
   label: string;
   ip_address_or_cidr: string;
   notes?: string | null;
+  api_key_id?: string | null;
 }): Promise<IpAllowlistEntry> {
   return apiWrite<IpAllowlistEntry>("/v1/merchant/ip-allowlist", "POST", input);
 }

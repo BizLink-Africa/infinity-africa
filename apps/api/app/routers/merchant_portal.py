@@ -21,7 +21,17 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Header, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 
 from app.auth import hash_api_key, require_own_merchant_role
 from app.config import get_settings
@@ -33,6 +43,7 @@ from app.database.session import get_supabase_admin
 from app.schemas.api_keys import (
     ApiKeyCreate,
     ApiKeyCreateResponse,
+    ApiKeyIpWhitelistUpdate,
     ApiKeyRename,
     ApiKeyResponse,
 )
@@ -1028,6 +1039,42 @@ def _generate_api_key(environment: str) -> tuple[str, str, str]:
     return plaintext, prefix, last4
 
 
+def _insert_ip_allowlist_entries(
+    client,
+    *,
+    merchant_id: uuid.UUID,
+    api_key_id: uuid.UUID,
+    environment: str,
+    entries: list,
+    created_by: uuid.UUID,
+    status_value: str = "pending",
+) -> list[dict]:
+    """Inline "Allowed server IPs" list submitted alongside key creation —
+    each row is scoped to this specific key (api_key_id set, not null), and
+    starts `pending` like every other merchant-added IP: the existing
+    Super Admin approval rule is unchanged, this only removes the "leave
+    the form, go add IPs on a different page" round trip."""
+    rows = []
+    for entry in entries:
+        rows.append(
+            insert_row(
+                client,
+                "api_ip_allowlist",
+                {
+                    "merchant_id": str(merchant_id),
+                    "api_key_id": str(api_key_id),
+                    "environment": environment,
+                    "label": entry.label,
+                    "ip_address_or_cidr": entry.ip_address_or_cidr,
+                    "notes": None,
+                    "status": status_value,
+                    "created_by": str(created_by),
+                },
+            )
+        )
+    return rows
+
+
 @router.get("/api-keys", response_model=APIResponse[list[ApiKeyResponse]])
 def list_my_api_keys(
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
@@ -1075,6 +1122,16 @@ def create_my_api_key(
             "created_by": str(membership.user_id),
         },
     )
+    if payload.ip_whitelist_enabled and payload.allowed_ips:
+        _insert_ip_allowlist_entries(
+            client,
+            merchant_id=membership.merchant_id,
+            api_key_id=uuid.UUID(row["id"]),
+            environment=payload.environment,
+            entries=payload.allowed_ips,
+            created_by=membership.user_id,
+        )
+
     write_audit_log(
         client,
         actor_id=membership.user_id,
@@ -1087,6 +1144,7 @@ def create_my_api_key(
             "environment": payload.environment,
             "scopes": payload.scopes,
             "ip_whitelist_enabled": payload.ip_whitelist_enabled,
+            "allowed_ip_count": len(payload.allowed_ips),
         },
         ip_address=client_ip(request),
         user_agent=request.headers.get("user-agent"),
@@ -1220,6 +1278,38 @@ def rotate_my_api_key(
             "created_by": str(membership.user_id),
         },
     )
+
+    if old_row.get("ip_whitelist_enabled"):
+        # Carry the old key's linked allowlist entries forward to the new
+        # key id, preserving their status — otherwise IP protection would
+        # silently lapse the moment a whitelisted key is rotated, since
+        # is_ip_allowed() only matches rows scoped to this exact key id (or
+        # merchant-wide null rows, which need no copying). The old,
+        # revoked key's rows are left as-is, as a historical record.
+        old_entries = (
+            client.table("api_ip_allowlist")
+            .select("*")
+            .eq("api_key_id", str(api_key_id))
+            .neq("status", "rejected")
+            .execute()
+        ).data or []
+        for entry in old_entries:
+            insert_row(
+                client,
+                "api_ip_allowlist",
+                {
+                    "merchant_id": str(membership.merchant_id),
+                    "api_key_id": new_row["id"],
+                    "environment": entry["environment"],
+                    "label": entry.get("label"),
+                    "ip_address_or_cidr": entry["ip_address_or_cidr"],
+                    "notes": entry.get("notes"),
+                    "status": entry["status"],
+                    "created_by": str(membership.user_id),
+                    "approved_by": entry.get("approved_by"),
+                },
+            )
+
     write_audit_log(
         client,
         actor_id=membership.user_id,
@@ -1248,6 +1338,58 @@ def rotate_my_api_key(
     )
 
 
+@router.patch("/api-keys/{api_key_id}/ip-whitelist", response_model=APIResponse[ApiKeyResponse])
+def update_my_api_key_ip_whitelist(
+    api_key_id: uuid.UUID,
+    payload: ApiKeyIpWhitelistUpdate,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
+):
+    """Switch a key between "Enable IP whitelisting" and "Continue without
+    IP whitelisting" after it already exists — from the API key detail
+    panel. Switching to enabled requires at least one non-rejected linked
+    entry to already exist (add one first via POST .../ip-allowlist with
+    this key's id)."""
+    client = get_supabase_admin()
+    row = get_by_id(client, "api_keys", api_key_id)
+    if not row or uuid.UUID(row["merchant_id"]) != membership.merchant_id:
+        raise NotFoundError("API key not found")
+
+    if payload.ip_whitelist_enabled:
+        linked = (
+            client.table("api_ip_allowlist")
+            .select("id")
+            .eq("api_key_id", str(api_key_id))
+            .neq("status", "rejected")
+            .execute()
+        ).data or []
+        if not linked:
+            raise ValidationAPIError(
+                "Add at least one allowed server IP or choose Continue without IP whitelisting."
+            )
+
+    updated = update_row(
+        client,
+        "api_keys",
+        api_key_id,
+        {
+            "ip_whitelist_enabled": payload.ip_whitelist_enabled,
+            "continue_without_ip_whitelist": not payload.ip_whitelist_enabled,
+        },
+        merchant_id=membership.merchant_id,
+    )
+    write_audit_log(
+        client,
+        actor_id=membership.user_id,
+        actor_type="user",
+        merchant_id=membership.merchant_id,
+        action="api_key.ip_whitelist_updated",
+        resource_type="api_key",
+        resource_id=api_key_id,
+        metadata={"ip_whitelist_enabled": payload.ip_whitelist_enabled},
+    )
+    return APIResponse(data=ApiKeyResponse(**updated))
+
+
 # --- IP allowlist -------------------------------------------------------------
 # Merchant-provided server IPs — Infinity never generates these. Only ever
 # enforced for `live` traffic, and only once at least one `active` row
@@ -1259,9 +1401,15 @@ def rotate_my_api_key(
 def list_my_ip_allowlist(
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    api_key_id: Annotated[uuid.UUID | None, Query(description="Filter to entries linked to one API key")] = None,
 ):
+    """Also used by the API key detail panel — GET .../ip-allowlist?api_key_id=...
+    to show/manage the IPs linked to one specific key."""
     client = get_supabase_admin()
-    rows, total = list_for_merchant(client, "api_ip_allowlist", merchant_id=membership.merchant_id, pagination=pagination)
+    filters = {"api_key_id": str(api_key_id)} if api_key_id else None
+    rows, total = list_for_merchant(
+        client, "api_ip_allowlist", merchant_id=membership.merchant_id, pagination=pagination, filters=filters
+    )
     data = [IpAllowlistResponse(**row) for row in rows]
     return APIResponse(data=data, meta=build_page_meta(pagination, total))
 

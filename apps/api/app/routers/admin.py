@@ -44,7 +44,11 @@ from app.schemas.common import APIResponse
 from app.schemas.ip_allowlist import AdminIpAllowlistResponse
 from app.schemas.webhook_config import WebhookConfigResponse
 from app.services.admin_customers import list_admin_customers
-from app.services.admin_directory import batch_merchant_names, batch_user_profiles
+from app.services.admin_directory import (
+    batch_api_key_prefixes,
+    batch_merchant_names,
+    batch_user_profiles,
+)
 from app.services.admin_overview import get_admin_overview
 from app.services.api_access import is_production_api_access_allowed
 from app.services.audit import write_audit_log
@@ -778,8 +782,16 @@ def list_admin_ip_allowlist(
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    key_prefixes = batch_api_key_prefixes(client, {r["api_key_id"] for r in rows if r.get("api_key_id")})
 
-    data = [AdminIpAllowlistResponse(**row, merchant_name=merchant_names.get(row["merchant_id"], "")) for row in rows]
+    data = [
+        AdminIpAllowlistResponse(
+            **row,
+            merchant_name=merchant_names.get(row["merchant_id"], ""),
+            key_prefix=key_prefixes.get(row["api_key_id"]) if row.get("api_key_id") else None,
+        )
+        for row in rows
+    ]
     return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
 
 
@@ -804,7 +816,12 @@ def _review_ip_allowlist_entry(
     )
     result = updated or row
     merchant_names = batch_merchant_names(client, {result["merchant_id"]})
-    return AdminIpAllowlistResponse(**result, merchant_name=merchant_names.get(result["merchant_id"], ""))
+    key_prefix = None
+    if result.get("api_key_id"):
+        key_prefix = batch_api_key_prefixes(client, {result["api_key_id"]}).get(result["api_key_id"])
+    return AdminIpAllowlistResponse(
+        **result, merchant_name=merchant_names.get(result["merchant_id"], ""), key_prefix=key_prefix
+    )
 
 
 @router.post("/ip-allowlist/{entry_id}/approve", response_model=APIResponse[AdminIpAllowlistResponse])

@@ -51,5 +51,6 @@ class IpAllowlistResponse(BaseModel):
 
 class AdminIpAllowlistResponse(IpAllowlistResponse):
     merchant_name: str
+    key_prefix: str | None = None
     created_by: uuid.UUID | None = None
     approved_by: uuid.UUID | None = None

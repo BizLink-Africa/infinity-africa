@@ -205,6 +205,7 @@ def verify_api_key(
     if data["environment"] == "live" and not is_ip_allowed(
         supabase,
         merchant_id=uuid.UUID(data["merchant_id"]),
+        api_key_id=uuid.UUID(data["id"]),
         environment="live",
         ip=ip,
         ip_whitelist_enabled=bool(data.get("ip_whitelist_enabled")),

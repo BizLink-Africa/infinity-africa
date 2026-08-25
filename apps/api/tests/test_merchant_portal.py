@@ -378,12 +378,108 @@ def test_create_api_key_reconciles_conflicting_ip_whitelist_flags(fake_client):
             "scopes": ["collections:write"],
             "ip_whitelist_enabled": True,
             "continue_without_ip_whitelist": True,
+            "allowed_ips": [{"ip_address_or_cidr": "41.59.10.20"}],
         },
     )
     assert response.status_code == 201, response.text
     body = response.json()["data"]
     assert body["ip_whitelist_enabled"] is True
     assert body["continue_without_ip_whitelist"] is False
+
+
+def test_create_api_key_with_ip_whitelisting_enabled_requires_at_least_one_ip(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    response = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={"name": "Dev key", "scopes": ["collections:write"], "ip_whitelist_enabled": True},
+    )
+    assert response.status_code == 422, response.text
+    assert "Add at least one allowed server IP" in response.text
+
+
+def test_create_api_key_with_ip_whitelisting_enabled_rejects_duplicate_ips(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    response = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={
+            "name": "Dev key",
+            "scopes": ["collections:write"],
+            "ip_whitelist_enabled": True,
+            "allowed_ips": [
+                {"ip_address_or_cidr": "41.59.10.20"},
+                {"ip_address_or_cidr": "41.59.10.20", "label": "Duplicate"},
+            ],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "Duplicate" in response.text
+
+
+def test_create_api_key_with_ip_whitelisting_enabled_rejects_invalid_ip(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    response = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={
+            "name": "Dev key",
+            "scopes": ["collections:write"],
+            "ip_whitelist_enabled": True,
+            "allowed_ips": [{"ip_address_or_cidr": "not-an-ip"}],
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_create_api_key_accepts_a_cidr_and_creates_linked_pending_allowlist_entries(fake_client):
+    merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    response = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={
+            "name": "Dev key",
+            "scopes": ["collections:write"],
+            "ip_whitelist_enabled": True,
+            "allowed_ips": [
+                {"ip_address_or_cidr": "41.59.10.20/32", "label": "Main ecommerce server"},
+                {"ip_address_or_cidr": "41.59.11.0/24"},
+            ],
+        },
+    )
+    assert response.status_code == 201, response.text
+    key_id = response.json()["data"]["id"]
+
+    entries = [
+        row
+        for row in fake_client.table("api_ip_allowlist")._table.rows
+        if row["api_key_id"] == key_id
+    ]
+    assert len(entries) == 2
+    assert {e["ip_address_or_cidr"] for e in entries} == {"41.59.10.20/32", "41.59.11.0/24"}
+    assert all(e["status"] == "pending" for e in entries)
+    assert all(e["merchant_id"] == str(merchant_id) for e in entries)
+    labeled = next(e for e in entries if e["ip_address_or_cidr"] == "41.59.10.20/32")
+    assert labeled["label"] == "Main ecommerce server"
+
+
+def test_create_api_key_without_ip_whitelisting_ignores_any_submitted_ips(fake_client):
+    """continue_without_ip_whitelist wipes allowed_ips server-side even if
+    the client sent some — the choice is binary, not additive."""
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    response = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={
+            "name": "Dev key",
+            "scopes": ["collections:write"],
+            "allowed_ips": [{"ip_address_or_cidr": "41.59.10.20"}],
+        },
+    )
+    assert response.status_code == 201, response.text
+    key_id = response.json()["data"]["id"]
+    entries = [row for row in fake_client.table("api_ip_allowlist")._table.rows if row["api_key_id"] == key_id]
+    assert entries == []
 
 
 def test_create_api_key_writes_an_audit_log_with_ip_and_user_agent(fake_client):
@@ -476,6 +572,90 @@ def test_rotate_api_key_revokes_old_and_creates_new_with_same_settings(fake_clie
     rows = {row["id"]: row for row in fake_client.table("api_keys")._table.rows}
     assert rows[created["id"]]["status"] == "revoked"
     assert rows[new_key["id"]]["status"] == "active"
+
+
+def test_rotate_carries_forward_linked_ip_allowlist_entries_to_the_new_key(fake_client):
+    merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    create_pricing_rule(fake_client, merchant_id=merchant_id)
+    created = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={
+            "name": "Prod key",
+            "environment": "live",
+            "scopes": ["collections:write"],
+            "ip_whitelist_enabled": True,
+            "allowed_ips": [{"ip_address_or_cidr": "41.59.10.20"}],
+        },
+    ).json()["data"]
+
+    response = client.post(f"/v1/merchant/api-keys/{created['id']}/rotate", headers=auth_headers(user_id))
+    assert response.status_code == 201, response.text
+    new_key_id = response.json()["data"]["id"]
+
+    new_entries = [
+        row for row in fake_client.table("api_ip_allowlist")._table.rows if row["api_key_id"] == new_key_id
+    ]
+    assert len(new_entries) == 1
+    assert new_entries[0]["ip_address_or_cidr"] == "41.59.10.20"
+    assert new_entries[0]["status"] == "pending"
+
+    old_entries = [
+        row for row in fake_client.table("api_ip_allowlist")._table.rows if row["api_key_id"] == created["id"]
+    ]
+    assert len(old_entries) == 1  # left alone, historical record tied to the now-revoked key
+
+
+def test_toggle_ip_whitelist_requires_a_linked_ip_before_enabling(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    created = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={"name": "Key", "scopes": ["collections:write"]},
+    ).json()["data"]
+
+    response = client.patch(
+        f"/v1/merchant/api-keys/{created['id']}/ip-whitelist",
+        headers=auth_headers(user_id),
+        json={"ip_whitelist_enabled": True},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_toggle_ip_whitelist_succeeds_once_a_linked_ip_exists(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    created = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={"name": "Key", "scopes": ["collections:write"]},
+    ).json()["data"]
+    client.post(
+        "/v1/merchant/ip-allowlist",
+        headers=auth_headers(user_id),
+        json={
+            "environment": "sandbox",
+            "label": "Office",
+            "ip_address_or_cidr": "41.59.10.20",
+            "api_key_id": created["id"],
+        },
+    )
+
+    response = client.patch(
+        f"/v1/merchant/api-keys/{created['id']}/ip-whitelist",
+        headers=auth_headers(user_id),
+        json={"ip_whitelist_enabled": True},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()["data"]
+    assert body["ip_whitelist_enabled"] is True
+    assert body["continue_without_ip_whitelist"] is False
+
+    back_to_open = client.patch(
+        f"/v1/merchant/api-keys/{created['id']}/ip-whitelist",
+        headers=auth_headers(user_id),
+        json={"ip_whitelist_enabled": False},
+    )
+    assert back_to_open.json()["data"]["continue_without_ip_whitelist"] is True
 
 
 def test_rotate_already_revoked_key_is_rejected(fake_client):
