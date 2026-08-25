@@ -18,6 +18,7 @@ from app.schemas.merchants import (
 )
 from app.services.audit import write_audit_log
 from app.services.crud import get_by_id, insert_row, update_row
+from app.services.merchant_code import generate_merchant_code
 
 router = APIRouter(prefix="/merchants", tags=["merchants"])
 
@@ -32,6 +33,7 @@ def create_merchant(
     data = payload.model_dump(mode="json")
     data["status"] = "pending"
     data["kyc_status"] = "unverified"
+    data["merchant_code"] = generate_merchant_code(client)
     row = insert_row(client, "merchants", data)
 
     write_audit_log(

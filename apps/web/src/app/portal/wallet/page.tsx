@@ -7,21 +7,33 @@ import { KpiCard } from "@/components/portal/kpi-card";
 import { PageHeader } from "@/components/portal/page-header";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { getAvailableBalance, listWalletLedger } from "@/lib/portal/api";
+import { getAvailableBalance, getMyMerchant, listWalletLedger } from "@/lib/portal/api";
 import type { WalletLedgerEntry } from "@/lib/portal/types";
 
 export default function WalletPage() {
   const [availableBalance, setAvailableBalance] = useState<string | null>(null);
   const [ledger, setLedger] = useState<WalletLedgerEntry[]>([]);
+  const [merchantCode, setMerchantCode] = useState<string | null>(null);
 
   useEffect(() => {
     getAvailableBalance().then(setAvailableBalance);
     listWalletLedger().then(setLedger);
+    getMyMerchant().then((merchant) => setMerchantCode(merchant?.merchant_code ?? null));
   }, []);
 
   return (
     <div className="space-y-8">
-      <PageHeader title="Wallet" description="Your available balance and wallet activity." />
+      <PageHeader
+        title="Wallet"
+        description="Your available balance and wallet activity."
+        action={
+          merchantCode ? (
+            <p className="text-xs text-on-surface-variant">
+              Merchant ID: <span className="font-mono font-semibold text-on-background">{merchantCode}</span>
+            </p>
+          ) : undefined
+        }
+      />
 
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard

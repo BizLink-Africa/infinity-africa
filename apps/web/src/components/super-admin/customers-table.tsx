@@ -39,7 +39,10 @@ export function CustomersTable({ rows }: { rows: AdminCustomerPlatformRow[] }) {
                     </div>
                   </td>
                   <td className={`${tdClass} font-mono text-xs text-on-surface-variant`}>{row.phone}</td>
-                  <td className={`${tdClass} text-on-surface-variant`}>{row.merchant_name}</td>
+                  <td className={tdClass}>
+                    <div className="text-on-surface-variant">{row.merchant_name}</div>
+                    {row.merchant_code && <div className="font-mono text-xs text-on-surface-variant">{row.merchant_code}</div>}
+                  </td>
                   <td className={`${tdClass} text-on-surface-variant`}>{row.transaction_count.toLocaleString()}</td>
                   <td className={`${tdClass} font-semibold text-on-background`}>
                     {formatCurrency(row.total_spent, row.currency)}

@@ -58,6 +58,7 @@ def test_list_admin_payment_links(fake_client):
     assert response.status_code == 200
     row = response.json()["data"][0]
     assert row["merchant_name"] == "Amani Store"
+    assert row["merchant_code"] == merchant["merchant_code"]
     assert row["customer_name"] == "Baraka"
     assert row["status"] == "ACTIVE"
 
@@ -84,6 +85,7 @@ def test_list_admin_invoices(fake_client):
     assert response.status_code == 200
     row = response.json()["data"][0]
     assert row["merchant_name"] == "Neema Salon"
+    assert row["merchant_code"] == merchant["merchant_code"]
     assert row["invoice_number"] == "INV-1001"
     assert row["total_amount"] == "50000"
 
@@ -107,6 +109,7 @@ def test_list_admin_collections_uses_customer_phone_not_name(fake_client):
     assert response.status_code == 200
     row = response.json()["data"][0]
     assert row["merchant_name"] == "Juma Traders"
+    assert row["merchant_code"] == merchant["merchant_code"]
     assert row["phone"] == "+255700000000"
     assert "customer_name" not in row
 
@@ -214,6 +217,7 @@ def test_list_admin_withdrawals_filters_pending_approval_queue(fake_client):
     assert len(queue) == 1
     assert queue[0]["status"] == "PENDING_ADMIN_APPROVAL"
     assert queue[0]["destination"] == "Baraka Ltd"
+    assert queue[0]["merchant_code"] == merchant["merchant_code"]
 
 
 def test_list_admin_transactions(fake_client):
@@ -241,6 +245,7 @@ def test_list_admin_transactions(fake_client):
     assert response.status_code == 200
     row = response.json()["data"][0]
     assert row["merchant_name"] == "Kilimanjaro Cafe"
+    assert row["merchant_code"] == merchant["merchant_code"]
     assert row["reference"] == "TXN-1"
     assert row["net_amount"] == "9800"
     # Audit fields: transaction ID (id), provider reference, and the
@@ -326,3 +331,16 @@ def test_list_admin_transactions_filters(fake_client):
     rows = by_transaction_id.json()["data"]
     assert len(rows) == 1
     assert rows[0]["transaction_id"] == txn_a["id"]
+
+    # A Super Admin searching by Merchant ID (not the internal UUID) — the
+    # merchant complains "where's my money", quotes their Merchant ID, and
+    # this is how support finds every transaction for that business.
+    by_merchant_code = client.get(
+        f"/v1/admin/transactions?merchant_code={merchant_a['merchant_code']}", headers=headers
+    )
+    rows = by_merchant_code.json()["data"]
+    assert len(rows) == 2
+    assert all(row["merchant_id"] == merchant_a["id"] for row in rows)
+
+    unknown_code = client.get("/v1/admin/transactions?merchant_code=27999999", headers=headers)
+    assert unknown_code.json()["data"] == []

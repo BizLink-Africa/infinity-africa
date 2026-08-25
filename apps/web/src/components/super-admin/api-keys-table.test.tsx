@@ -12,6 +12,7 @@ function row(overrides: Partial<AdminApiKeyPlatformRow>): AdminApiKeyPlatformRow
     id: "key-1",
     merchant_id: "merchant-1",
     merchant_name: "Amani Traders",
+    merchant_code: "27048391",
     name: "Production key",
     environment: "live",
     key_prefix: "inf_live_abc123",

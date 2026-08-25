@@ -35,6 +35,7 @@ class AdminDocumentRequestResponse(BaseModel):
     request_id: uuid.UUID
     merchant_id: uuid.UUID
     merchant_name: str | None = None
+    merchant_code: str | None = None
     transaction_id: uuid.UUID | None = None
     alert_id: uuid.UUID | None = None
     requested_documents: list[str]
@@ -46,8 +47,15 @@ class AdminDocumentRequestResponse(BaseModel):
     files: list[DocumentRequestFileResponse] = []
 
     @classmethod
-    def from_row(cls, row: dict, *, merchant_name: str | None) -> "AdminDocumentRequestResponse":
-        return cls(request_id=row["id"], merchant_name=merchant_name, **{k: v for k, v in row.items() if k != "id"})
+    def from_row(
+        cls, row: dict, *, merchant_name: str | None, merchant_code: str | None = None
+    ) -> "AdminDocumentRequestResponse":
+        return cls(
+            request_id=row["id"],
+            merchant_name=merchant_name,
+            merchant_code=merchant_code,
+            **{k: v for k, v in row.items() if k != "id"},
+        )
 
 
 class DocumentRequestReviewInput(BaseModel):

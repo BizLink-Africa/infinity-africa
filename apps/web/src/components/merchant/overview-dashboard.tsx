@@ -34,7 +34,16 @@ export function OverviewDashboard({ overview }: { overview: MerchantOverview }) 
       <PageHeader
         title={`Welcome back, ${overview.merchant.business_name}`}
         description="Here's what's happening with your Infinity Africa account."
-        action={<StatusBadge label={KYC_LABEL[kycStatus] ?? kycStatus} tone={KYC_TONE[kycStatus] ?? "neutral"} dot />}
+        action={
+          <div className="flex flex-col items-start md:items-end gap-1.5">
+            <StatusBadge label={KYC_LABEL[kycStatus] ?? kycStatus} tone={KYC_TONE[kycStatus] ?? "neutral"} dot />
+            {overview.merchant.merchant_code && (
+              <p className="text-xs text-on-surface-variant">
+                Merchant ID: <span className="font-mono font-semibold text-on-background">{overview.merchant.merchant_code}</span>
+              </p>
+            )}
+          </div>
+        }
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">

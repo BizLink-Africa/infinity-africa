@@ -52,6 +52,7 @@ class AdminFraudAlertResponse(BaseModel):
     alert_id: uuid.UUID
     merchant_id: uuid.UUID
     merchant_name: str | None = None
+    merchant_code: str | None = None
     transaction_id: uuid.UUID | None = None
     customer_phone: str | None = None
     rule_code: str
@@ -63,8 +64,15 @@ class AdminFraudAlertResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_row(cls, row: dict, *, merchant_name: str | None) -> "AdminFraudAlertResponse":
-        return cls(alert_id=row["id"], merchant_name=merchant_name, **{k: v for k, v in row.items() if k != "id"})
+    def from_row(
+        cls, row: dict, *, merchant_name: str | None, merchant_code: str | None = None
+    ) -> "AdminFraudAlertResponse":
+        return cls(
+            alert_id=row["id"],
+            merchant_name=merchant_name,
+            merchant_code=merchant_code,
+            **{k: v for k, v in row.items() if k != "id"},
+        )
 
 
 class TransactionReviewResponse(BaseModel):

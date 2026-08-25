@@ -99,7 +99,12 @@ export function MerchantUsersTable({ rows }: { rows: MerchantUserRow[] }) {
                         </div>
                       </div>
                     </td>
-                    <td className={`${tdClass} text-on-surface-variant`}>{user.merchant_name}</td>
+                    <td className={tdClass}>
+                      <div className="text-on-surface-variant">{user.merchant_name}</div>
+                      {user.merchant_code && (
+                        <div className="font-mono text-xs text-on-surface-variant">{user.merchant_code}</div>
+                      )}
+                    </td>
                     <td className={tdClass}>
                       <StatusBadge label={USER_ROLE_LABELS[user.role]} tone="info" />
                     </td>

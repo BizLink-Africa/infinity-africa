@@ -28,6 +28,7 @@ from app.schemas.withdrawals import PricingRuleCreate
 from app.services.audit import write_audit_log
 from app.services.crud import get_by_id, insert_row, update_row
 from app.services.ledger import get_wallet_balance
+from app.services.merchant_code import generate_merchant_code
 
 # Required for a merchant to go live — checked at approval time, not at
 # submission, since documents upload separately via
@@ -137,6 +138,7 @@ def create_merchant_onboarding(
             "contact_phone": payload.contact_phone,
             "status": "pending",
             "kyc_status": "unverified",
+            "merchant_code": generate_merchant_code(client),
         },
     )
     merchant_id = uuid.UUID(merchant["id"])
@@ -281,6 +283,7 @@ def _to_submission_row(submission: dict, merchant: dict, documents: list[dict]) 
     return {
         "id": submission["id"],
         "merchant_id": submission["merchant_id"],
+        "merchant_code": merchant.get("merchant_code"),
         "business_name": merchant.get("business_name", ""),
         "owner_email": merchant.get("contact_email", ""),
         "contact_phone": merchant.get("contact_phone"),

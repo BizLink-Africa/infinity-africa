@@ -30,6 +30,10 @@ export type MerchantAccountStatus = "pending" | "active" | "suspended" | "closed
 
 export interface Merchant {
   merchant_id: string;
+  /** Human-friendly Merchant ID (27 + 6 digits) — identification only,
+   * never an auth secret. Null only for defensive typing; a real merchant
+   * always has one after supabase/migrations/20260829010000. */
+  merchant_code: string | null;
   business_name: string;
   owner_name: string | null;
   email: string;
@@ -51,6 +55,7 @@ export interface MerchantUserRow {
   user_id: string;
   merchant_id: string;
   merchant_name: string;
+  merchant_code: string | null;
   full_name: string | null;
   email: string | null;
   role: UserRole;
@@ -62,6 +67,7 @@ export interface AdminCollectionRow {
   collection_id: string;
   merchant_id: string;
   merchant_name: string;
+  merchant_code: string | null;
   source: string | null;
   method: string;
   amount: string;
@@ -89,6 +95,7 @@ export interface AdminPaymentLinkRow {
   link_id: string;
   merchant_id: string;
   merchant_name: string;
+  merchant_code: string | null;
   customer_name: string | null;
   customer_phone: string | null;
   amount: string;
@@ -106,6 +113,7 @@ export interface AdminInvoiceRow {
   invoice_number: string;
   merchant_id: string;
   merchant_name: string;
+  merchant_code: string | null;
   customer_name: string | null;
   customer_phone: string | null;
   total_amount: string;
@@ -128,6 +136,7 @@ export interface AdminWithdrawalRow {
   withdrawal_id: string;
   merchant_id: string;
   merchant_name: string;
+  merchant_code: string | null;
   method: "SELCOM_PESA" | "MOBILE_MONEY" | "BANK_ACCOUNT";
   amount: string;
   currency: string;
@@ -184,6 +193,7 @@ export interface AdminCustomerPlatformRow {
   id: string;
   merchant_id: string;
   merchant_name: string;
+  merchant_code: string | null;
   full_name: string | null;
   phone: string;
   currency: string;
@@ -213,6 +223,7 @@ export interface AdminIpAllowlistRow {
   id: string;
   merchant_id: string;
   merchant_name: string;
+  merchant_code: string | null;
   api_key_id: string | null;
   key_prefix: string | null;
   environment: "sandbox" | "live";
@@ -233,6 +244,7 @@ export interface AdminApiKeyPlatformRow {
   id: string;
   merchant_id: string;
   merchant_name: string;
+  merchant_code: string | null;
   name: string;
   environment: string;
   key_prefix: string;
@@ -250,6 +262,7 @@ export interface AdminTransactionRow {
   transaction_id: string;
   merchant_id: string;
   merchant_name: string;
+  merchant_code: string | null;
   type: "collection" | "disbursement" | "fee" | "refund" | "reversal" | "adjustment";
   reference: string;
   provider_reference: string | null;
@@ -397,6 +410,7 @@ export interface AdminFraudAlertRow {
   alert_id: string;
   merchant_id: string;
   merchant_name: string | null;
+  merchant_code: string | null;
   transaction_id: string | null;
   customer_phone: string | null;
   rule_code: string;
@@ -424,6 +438,7 @@ export interface AdminDocumentRequestRow {
   request_id: string;
   merchant_id: string;
   merchant_name: string | null;
+  merchant_code: string | null;
   transaction_id: string | null;
   alert_id: string | null;
   requested_documents: string[];
@@ -448,6 +463,7 @@ export interface AdminDisputeRow {
   dispute_id: string;
   merchant_id: string | null;
   merchant_name: string | null;
+  merchant_code: string | null;
   transaction_id: string | null;
   customer_name: string;
   customer_phone: string;

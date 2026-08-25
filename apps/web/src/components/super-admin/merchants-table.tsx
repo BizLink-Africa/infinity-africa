@@ -34,12 +34,17 @@ export function MerchantsTable({ rows }: { rows: Merchant[] }) {
       };
       if (merchant.account_status !== labels[statusFilter]) return false;
     }
-    if (
-      search &&
-      !merchant.business_name.toLowerCase().includes(search.toLowerCase()) &&
-      !(merchant.contact_phone ?? "").includes(search)
-    ) {
-      return false;
+    if (search) {
+      const needle = search.toLowerCase();
+      const haystack = [
+        merchant.business_name,
+        merchant.merchant_code ?? "",
+        merchant.email,
+        merchant.contact_phone ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(needle)) return false;
     }
     return true;
   });
@@ -50,7 +55,7 @@ export function MerchantsTable({ rows }: { rows: Merchant[] }) {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <input
             className="sm:col-span-2 px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg text-sm"
-            placeholder="Search by merchant name or phone"
+            placeholder="Search by Merchant ID, business name, email, or phone"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -105,7 +110,15 @@ export function MerchantsTable({ rows }: { rows: Merchant[] }) {
                           </div>
                           <div>
                             <div className="font-medium text-on-background">{merchant.business_name}</div>
-                            <div className="text-xs text-on-surface-variant">{merchant.email}</div>
+                            <div className="text-xs text-on-surface-variant">
+                              {merchant.email}
+                              {merchant.merchant_code && (
+                                <>
+                                  {" "}
+                                  · <span className="font-mono">{merchant.merchant_code}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </Link>
                       </td>

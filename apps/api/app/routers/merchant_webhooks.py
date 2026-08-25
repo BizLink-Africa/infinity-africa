@@ -49,18 +49,26 @@ router = APIRouter(prefix="/merchant", tags=["merchant-webhooks"])
 _ADMIN_AND_STAFF = (UserRole.MERCHANT_ADMIN, UserRole.MERCHANT_STAFF)
 _ADMIN_AND_DEVELOPER = (UserRole.MERCHANT_ADMIN, UserRole.DEVELOPER)
 
-_SAMPLE_TEST_PAYLOAD = {
-    "event": "collection.success",
-    "test": True,
-    "collection_id": "00000000-0000-0000-0000-000000000000",
-    "reference": "TXN-TEST0000",
-    "amount": "1000.00",
-    "fee": "15.00",
-    "net_amount": "985.00",
-    "currency": "TZS",
-    "status": "successful",
-    "timestamp": "2026-08-24T09:00:00+03:00",
-}
+def _sample_test_payload(merchant: dict | None) -> dict:
+    """Same shape a real collection.success delivery gets once
+    enqueue_webhook_event's `event`/`merchant_code` stamping runs — built
+    from the caller's own merchant row so a test delivery shows their real
+    Merchant ID, not a placeholder."""
+    return {
+        "event": "collection.success",
+        "test": True,
+        "merchant_code": merchant.get("merchant_code") if merchant else None,
+        "collection_id": "00000000-0000-0000-0000-000000000000",
+        "transaction_id": "00000000-0000-0000-0000-000000000000",
+        "reference": "TXN-TEST0000",
+        "merchant_reference": "TXN-TEST0000",
+        "amount": "1000.00",
+        "fee": "15.00",
+        "net_amount": "985.00",
+        "currency": "TZS",
+        "status": "successful",
+        "timestamp": "2026-08-24T09:00:00+03:00",
+    }
 
 
 @router.get("/webhook-config", response_model=APIResponse[WebhookConfigResponse])
@@ -124,7 +132,7 @@ def send_test_webhook(
     if not webhook_url:
         raise ValidationAPIError("Configure a webhook URL before sending a test delivery")
 
-    raw_body = json.dumps(_SAMPLE_TEST_PAYLOAD).encode("utf-8")
+    raw_body = json.dumps(_sample_test_payload(merchant)).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if webhook_secret:
         headers["X-Infinity-Signature"] = sign_outbound_payload(raw_body=raw_body, secret=webhook_secret)

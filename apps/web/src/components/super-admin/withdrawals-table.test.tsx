@@ -15,6 +15,7 @@ const pendingRow: AdminWithdrawalRow = {
   withdrawal_id: "wd-1",
   merchant_id: "merchant-1",
   merchant_name: "Juma Traders Ltd",
+  merchant_code: "27048391",
   method: "MOBILE_MONEY",
   amount: "100000.00",
   currency: "TZS",

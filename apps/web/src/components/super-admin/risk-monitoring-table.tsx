@@ -53,7 +53,12 @@ export function RiskMonitoringTable({ rows }: { rows: AdminFraudAlertRow[] }) {
                     <td className={tdClass}>
                       <StatusBadge label={alert.risk_level} tone={RISK_TONE[alert.risk_level]} dot />
                     </td>
-                    <td className={`${tdClass} font-medium text-on-background`}>{alert.merchant_name ?? "—"}</td>
+                    <td className={tdClass}>
+                      <div className="font-medium text-on-background">{alert.merchant_name ?? "—"}</div>
+                      {alert.merchant_code && (
+                        <div className="font-mono text-xs text-on-surface-variant">{alert.merchant_code}</div>
+                      )}
+                    </td>
                     <td className={tdClass}>{alert.customer_phone ?? "—"}</td>
                     <td className={`${tdClass} font-mono text-xs`}>{alert.rule_code}</td>
                     <td className={tdClass}>

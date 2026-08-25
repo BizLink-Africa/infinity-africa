@@ -34,6 +34,7 @@ class AdminCustomerResponse(BaseModel):
     id: str
     merchant_id: uuid.UUID
     merchant_name: str
+    merchant_code: str | None = None
     full_name: str | None = None
     phone: str
     currency: str
@@ -47,6 +48,7 @@ class AdminApiKeyResponse(BaseModel):
     id: uuid.UUID
     merchant_id: uuid.UUID
     merchant_name: str
+    merchant_code: str | None = None
     name: str
     environment: str
     key_prefix: str
@@ -62,6 +64,7 @@ class AdminApiKeyResponse(BaseModel):
 
 class AdminMerchantResponse(BaseModel):
     merchant_id: uuid.UUID
+    merchant_code: str | None = None
     business_name: str
     owner_name: str | None = None
     email: str
@@ -80,6 +83,7 @@ class AdminMerchantUserResponse(BaseModel):
     user_id: uuid.UUID
     merchant_id: uuid.UUID
     merchant_name: str
+    merchant_code: str | None = None
     full_name: str | None = None
     email: str | None = None
     role: str
@@ -91,6 +95,7 @@ class AdminPaymentLinkResponse(BaseModel):
     link_id: uuid.UUID
     merchant_id: uuid.UUID
     merchant_name: str
+    merchant_code: str | None = None
     customer_name: str | None = None
     customer_phone: str | None = None
     amount: Decimal
@@ -105,6 +110,7 @@ class AdminInvoiceResponse(BaseModel):
     invoice_number: str
     merchant_id: uuid.UUID
     merchant_name: str
+    merchant_code: str | None = None
     customer_name: str | None = None
     customer_phone: str | None = None
     total_amount: Decimal
@@ -117,6 +123,7 @@ class AdminCollectionResponse(BaseModel):
     collection_id: uuid.UUID
     merchant_id: uuid.UUID
     merchant_name: str
+    merchant_code: str | None = None
     source: str | None = None
     method: str
     amount: Decimal
@@ -144,6 +151,7 @@ class AdminWithdrawalResponse(BaseModel):
     withdrawal_id: uuid.UUID
     merchant_id: uuid.UUID
     merchant_name: str
+    merchant_code: str | None = None
     method: str
     amount: Decimal
     currency: str
@@ -172,6 +180,7 @@ class AdminTransactionResponse(BaseModel):
     transaction_id: uuid.UUID
     merchant_id: uuid.UUID
     merchant_name: str
+    merchant_code: str | None = None
     reference: str
     provider_reference: str | None = None
     type: str

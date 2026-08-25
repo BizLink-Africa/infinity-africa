@@ -56,6 +56,7 @@ class AdminDisputeResponse(BaseModel):
     dispute_id: uuid.UUID
     merchant_id: uuid.UUID | None = None
     merchant_name: str | None = None
+    merchant_code: str | None = None
     transaction_id: uuid.UUID | None = None
     customer_name: str
     customer_phone: str
@@ -70,8 +71,15 @@ class AdminDisputeResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_row(cls, row: dict, *, merchant_name: str | None) -> "AdminDisputeResponse":
-        return cls(dispute_id=row["id"], merchant_name=merchant_name, **{k: v for k, v in row.items() if k != "id"})
+    def from_row(
+        cls, row: dict, *, merchant_name: str | None, merchant_code: str | None = None
+    ) -> "AdminDisputeResponse":
+        return cls(
+            dispute_id=row["id"],
+            merchant_name=merchant_name,
+            merchant_code=merchant_code,
+            **{k: v for k, v in row.items() if k != "id"},
+        )
 
 
 class DisputeMessageCreate(BaseModel):

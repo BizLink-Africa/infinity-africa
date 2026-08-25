@@ -5,6 +5,7 @@ declares) — just plain functions for seeding the FakeSupabaseClient and
 minting a bearer token.
 """
 
+import itertools
 import time
 import uuid
 
@@ -13,6 +14,15 @@ import jwt
 from app.core.time import utc_now_iso
 
 TEST_JWT_SECRET = "test-secret-do-not-use-in-production"
+
+_merchant_code_seq = itertools.count(100000)
+
+
+def _next_test_merchant_code() -> str:
+    """A fresh, unique 27****** Merchant ID for each seeded test merchant —
+    mirrors app/services/merchant_code.py's format without needing a real
+    (or fake) database uniqueness check in test setup."""
+    return f"27{next(_merchant_code_seq):06d}"
 
 
 def token_for(user_id: uuid.UUID) -> str:
@@ -43,6 +53,7 @@ def make_merchant_member(fake_client, merchant_id: uuid.UUID, user_id: uuid.UUID
 def create_merchant(fake_client, **overrides) -> dict:
     data = {
         "business_name": "Test Merchant",
+        "merchant_code": _next_test_merchant_code(),
         "legal_name": None,
         "country": "TZ",
         "currency": "TZS",

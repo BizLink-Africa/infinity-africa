@@ -46,6 +46,7 @@ from app.schemas.webhook_config import WebhookConfigResponse
 from app.services.admin_customers import list_admin_customers
 from app.services.admin_directory import (
     batch_api_key_prefixes,
+    batch_merchant_codes,
     batch_merchant_names,
     batch_user_profiles,
 )
@@ -53,7 +54,7 @@ from app.services.admin_overview import get_admin_overview
 from app.services.api_access import is_production_api_access_allowed
 from app.services.audit import write_audit_log
 from app.services.checkout_reconciliation import refresh_checkout_collection_status
-from app.services.crud import get_by_id, update_row
+from app.services.crud import execute_maybe_single, get_by_id, update_row
 from app.services.ledger import get_wallet_balance
 from app.services.webhooks import last_webhook_delivery
 
@@ -113,6 +114,7 @@ def list_admin_merchants(
         data.append(
             AdminMerchantResponse(
                 merchant_id=merchant["id"],
+                merchant_code=merchant.get("merchant_code"),
                 business_name=merchant["business_name"],
                 owner_name=profile.get("full_name"),
                 email=merchant["contact_email"],
@@ -163,6 +165,7 @@ def get_admin_merchant(
     return APIResponse(
         data=AdminMerchantResponse(
             merchant_id=merchant["id"],
+            merchant_code=merchant.get("merchant_code"),
             business_name=merchant["business_name"],
             owner_name=profile.get("full_name"),
             email=merchant["contact_email"],
@@ -286,12 +289,14 @@ def list_admin_api_keys(
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
 
     data = [
         AdminApiKeyResponse(
             id=row["id"],
             merchant_id=row["merchant_id"],
             merchant_name=merchant_names.get(row["merchant_id"], ""),
+            merchant_code=merchant_codes.get(row["merchant_id"]),
             name=row["name"],
             environment=row["environment"],
             key_prefix=row["key_prefix"],
@@ -338,11 +343,13 @@ def revoke_admin_api_key(
 
     result = updated or row
     merchant_names = batch_merchant_names(client, {result["merchant_id"]})
+    merchant_codes = batch_merchant_codes(client, {result["merchant_id"]})
     return APIResponse(
         data=AdminApiKeyResponse(
             id=result["id"],
             merchant_id=result["merchant_id"],
             merchant_name=merchant_names.get(result["merchant_id"], ""),
+            merchant_code=merchant_codes.get(result["merchant_id"]),
             name=result["name"],
             environment=result["environment"],
             key_prefix=result["key_prefix"],
@@ -408,6 +415,7 @@ def list_admin_merchant_users(
     )
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
     profiles = batch_user_profiles(client, {r["user_id"] for r in rows})
 
     data = [
@@ -415,6 +423,7 @@ def list_admin_merchant_users(
             user_id=row["user_id"],
             merchant_id=row["merchant_id"],
             merchant_name=merchant_names.get(row["merchant_id"], ""),
+            merchant_code=merchant_codes.get(row["merchant_id"]),
             full_name=profiles.get(row["user_id"], {}).get("full_name"),
             email=profiles.get(row["user_id"], {}).get("email"),
             role=row["role"],
@@ -439,12 +448,14 @@ def list_admin_payment_links(
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
 
     data = [
         AdminPaymentLinkResponse(
             link_id=row["id"],
             merchant_id=row["merchant_id"],
             merchant_name=merchant_names.get(row["merchant_id"], ""),
+            merchant_code=merchant_codes.get(row["merchant_id"]),
             customer_name=row.get("customer_name"),
             customer_phone=row.get("customer_phone"),
             amount=row["amount"],
@@ -471,6 +482,7 @@ def list_admin_invoices(
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
 
     data = [
         AdminInvoiceResponse(
@@ -478,6 +490,7 @@ def list_admin_invoices(
             invoice_number=row["invoice_number"],
             merchant_id=row["merchant_id"],
             merchant_name=merchant_names.get(row["merchant_id"], ""),
+            merchant_code=merchant_codes.get(row["merchant_id"]),
             customer_name=row.get("customer_name"),
             customer_phone=row.get("customer_phone"),
             total_amount=row["total_amount"],
@@ -534,6 +547,7 @@ def list_admin_collections(
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
 
     # Selcom Checkout wallet-push collections carry their own order_id on
     # the *linked* checkout_orders row, not on collections itself —
@@ -567,6 +581,7 @@ def list_admin_collections(
             collection_id=row["id"],
             merchant_id=row["merchant_id"],
             merchant_name=merchant_names.get(row["merchant_id"], ""),
+            merchant_code=merchant_codes.get(row["merchant_id"]),
             source=row.get("source"),
             method=row["method"],
             amount=row["amount"],
@@ -619,6 +634,7 @@ async def refresh_admin_collection_status(
     )
 
     merchant_names = batch_merchant_names(client, {resolved["merchant_id"]})
+    merchant_codes = batch_merchant_codes(client, {resolved["merchant_id"]})
     order_id = None
     if resolved.get("checkout_order_id"):
         order = get_by_id(client, "checkout_orders", uuid.UUID(resolved["checkout_order_id"]))
@@ -629,6 +645,7 @@ async def refresh_admin_collection_status(
             collection_id=resolved["id"],
             merchant_id=resolved["merchant_id"],
             merchant_name=merchant_names.get(resolved["merchant_id"], ""),
+            merchant_code=merchant_codes.get(resolved["merchant_id"]),
             method=resolved["method"],
             amount=resolved["amount"],
             currency=resolved["currency"],
@@ -664,12 +681,14 @@ def list_admin_withdrawals(
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
 
     data = [
         AdminWithdrawalResponse(
             withdrawal_id=row["id"],
             merchant_id=row["merchant_id"],
             merchant_name=merchant_names.get(row["merchant_id"], ""),
+            merchant_code=merchant_codes.get(row["merchant_id"]),
             method=row["method"],
             amount=row["amount"],
             currency=row["currency"],
@@ -697,6 +716,7 @@ def list_admin_transactions(
     _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
     merchant_id: Annotated[uuid.UUID | None, Query()] = None,
+    merchant_code: Annotated[str | None, Query(description="8-digit Merchant ID, e.g. 27048391")] = None,
     type: Annotated[str | None, Query(description="collection | disbursement | fee | refund | reversal | adjustment")] = None,
     status: Annotated[str | None, Query()] = None,
     provider_reference: Annotated[str | None, Query()] = None,
@@ -708,6 +728,13 @@ def list_admin_transactions(
     query = client.table("transactions").select("*", count="exact")
     if merchant_id is not None:
         query = query.eq("merchant_id", str(merchant_id))
+    if merchant_code is not None:
+        merchant_row = execute_maybe_single(
+            client.table("merchants").select("id").eq("merchant_code", merchant_code).maybe_single()
+        )
+        # An unknown code must return zero rows, not "no filter at all" —
+        # filter on an id nothing can match rather than skipping the filter.
+        query = query.eq("merchant_id", merchant_row["id"] if merchant_row else "00000000-0000-0000-0000-000000000000")
     if type is not None:
         query = query.eq("type", type)
     if status is not None:
@@ -723,12 +750,14 @@ def list_admin_transactions(
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
 
     data = [
         AdminTransactionResponse(
             transaction_id=row["id"],
             merchant_id=row["merchant_id"],
             merchant_name=merchant_names.get(row["merchant_id"], ""),
+            merchant_code=merchant_codes.get(row["merchant_id"]),
             reference=row["reference"],
             provider_reference=row.get("provider_reference"),
             type=row["type"],
@@ -802,12 +831,14 @@ def list_admin_ip_allowlist(
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
     key_prefixes = batch_api_key_prefixes(client, {r["api_key_id"] for r in rows if r.get("api_key_id")})
 
     data = [
         AdminIpAllowlistResponse(
             **row,
             merchant_name=merchant_names.get(row["merchant_id"], ""),
+            merchant_code=merchant_codes.get(row["merchant_id"]),
             key_prefix=key_prefixes.get(row["api_key_id"]) if row.get("api_key_id") else None,
         )
         for row in rows
@@ -836,11 +867,15 @@ def _review_ip_allowlist_entry(
     )
     result = updated or row
     merchant_names = batch_merchant_names(client, {result["merchant_id"]})
+    merchant_codes = batch_merchant_codes(client, {result["merchant_id"]})
     key_prefix = None
     if result.get("api_key_id"):
         key_prefix = batch_api_key_prefixes(client, {result["api_key_id"]}).get(result["api_key_id"])
     return AdminIpAllowlistResponse(
-        **result, merchant_name=merchant_names.get(result["merchant_id"], ""), key_prefix=key_prefix
+        **result,
+        merchant_name=merchant_names.get(result["merchant_id"], ""),
+        merchant_code=merchant_codes.get(result["merchant_id"]),
+        key_prefix=key_prefix,
     )
 
 
@@ -879,8 +914,16 @@ def list_admin_api_logs(
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
 
-    data = [AdminApiRequestLogResponse(**row, merchant_name=merchant_names.get(row["merchant_id"], "")) for row in rows]
+    data = [
+        AdminApiRequestLogResponse(
+            **row,
+            merchant_name=merchant_names.get(row["merchant_id"], ""),
+            merchant_code=merchant_codes.get(row["merchant_id"]),
+        )
+        for row in rows
+    ]
     return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
 
 

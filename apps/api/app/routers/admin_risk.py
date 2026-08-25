@@ -27,7 +27,7 @@ from app.schemas.fraud import (
 )
 from app.schemas.notifications import NotificationResponse
 from app.services import document_requests_service
-from app.services.admin_directory import batch_merchant_names
+from app.services.admin_directory import batch_merchant_codes, batch_merchant_names
 from app.services.collections import finalize_pending_review_collection
 from app.services.crud import get_by_id, insert_row, update_row
 from app.services.notifications_service import notify_merchant
@@ -48,7 +48,13 @@ def list_risk_alerts(
     result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
-    data = [AdminFraudAlertResponse.from_row(row, merchant_name=names.get(row["merchant_id"])) for row in rows]
+    codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
+    data = [
+        AdminFraudAlertResponse.from_row(
+            row, merchant_name=names.get(row["merchant_id"]), merchant_code=codes.get(row["merchant_id"])
+        )
+        for row in rows
+    ]
     return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
 
 
@@ -107,7 +113,12 @@ def update_risk_alert_status(
 
     row = updated or alert
     names = batch_merchant_names(client, {row["merchant_id"]})
-    return APIResponse(data=AdminFraudAlertResponse.from_row(row, merchant_name=names.get(row["merchant_id"])))
+    codes = batch_merchant_codes(client, {row["merchant_id"]})
+    return APIResponse(
+        data=AdminFraudAlertResponse.from_row(
+            row, merchant_name=names.get(row["merchant_id"]), merchant_code=codes.get(row["merchant_id"])
+        )
+    )
 
 
 @router.post("/risk-alerts/{alert_id}/notes", response_model=APIResponse[AdminFraudAlertResponse])
@@ -133,7 +144,12 @@ def add_risk_alert_note(
         },
     )
     names = batch_merchant_names(client, {alert["merchant_id"]})
-    return APIResponse(data=AdminFraudAlertResponse.from_row(alert, merchant_name=names.get(alert["merchant_id"])))
+    codes = batch_merchant_codes(client, {alert["merchant_id"]})
+    return APIResponse(
+        data=AdminFraudAlertResponse.from_row(
+            alert, merchant_name=names.get(alert["merchant_id"]), merchant_code=codes.get(alert["merchant_id"])
+        )
+    )
 
 
 @router.post("/risk-alerts/{alert_id}/request-documents", response_model=APIResponse[AdminDocumentRequestResponse])
@@ -157,7 +173,12 @@ def request_documents_for_alert(
         due_date=payload.due_date,
     )
     names = batch_merchant_names(client, {request["merchant_id"]})
-    return APIResponse(data=AdminDocumentRequestResponse.from_row(request, merchant_name=names.get(request["merchant_id"])))
+    codes = batch_merchant_codes(client, {request["merchant_id"]})
+    return APIResponse(
+        data=AdminDocumentRequestResponse.from_row(
+            request, merchant_name=names.get(request["merchant_id"]), merchant_code=codes.get(request["merchant_id"])
+        )
+    )
 
 
 @router.get("/document-requests", response_model=APIResponse[list[AdminDocumentRequestResponse]])
@@ -165,11 +186,17 @@ def list_document_requests(_admin: Annotated[AuthenticatedUser, Depends(require_
     client = get_supabase_admin()
     rows = document_requests_service.list_all_document_requests(client)
     names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
     for row in rows:
         for file in row.get("files", []):
             file["signed_url"] = document_requests_service.get_document_file_signed_url(client, file)
     return APIResponse(
-        data=[AdminDocumentRequestResponse.from_row(row, merchant_name=names.get(row["merchant_id"])) for row in rows]
+        data=[
+            AdminDocumentRequestResponse.from_row(
+                row, merchant_name=names.get(row["merchant_id"]), merchant_code=codes.get(row["merchant_id"])
+            )
+            for row in rows
+        ]
     )
 
 
@@ -183,7 +210,12 @@ def approve_document_request(
         client, request_id=request_id, reviewer_id=admin.id, status="APPROVED"
     )
     names = batch_merchant_names(client, {request["merchant_id"]})
-    return APIResponse(data=AdminDocumentRequestResponse.from_row(request, merchant_name=names.get(request["merchant_id"])))
+    codes = batch_merchant_codes(client, {request["merchant_id"]})
+    return APIResponse(
+        data=AdminDocumentRequestResponse.from_row(
+            request, merchant_name=names.get(request["merchant_id"]), merchant_code=codes.get(request["merchant_id"])
+        )
+    )
 
 
 @router.patch("/document-requests/{request_id}/reject", response_model=APIResponse[AdminDocumentRequestResponse])
@@ -196,7 +228,12 @@ def reject_document_request(
         client, request_id=request_id, reviewer_id=admin.id, status="REJECTED"
     )
     names = batch_merchant_names(client, {request["merchant_id"]})
-    return APIResponse(data=AdminDocumentRequestResponse.from_row(request, merchant_name=names.get(request["merchant_id"])))
+    codes = batch_merchant_codes(client, {request["merchant_id"]})
+    return APIResponse(
+        data=AdminDocumentRequestResponse.from_row(
+            request, merchant_name=names.get(request["merchant_id"]), merchant_code=codes.get(request["merchant_id"])
+        )
+    )
 
 
 @router.get("/notifications", response_model=APIResponse[list[NotificationResponse]])

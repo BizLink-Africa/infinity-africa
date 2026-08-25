@@ -7,6 +7,7 @@ import type { AdminTransactionRow } from "@/lib/admin/types";
 const CSV_HEADER = [
   "Date",
   "Merchant",
+  "Merchant ID",
   "Type",
   "Transaction ID",
   "Reference",
@@ -33,6 +34,7 @@ function transactionsToCsv(transactions: AdminTransactionRow[]): string {
     return [
       formatDateTime(transaction.created_at),
       transaction.merchant_name,
+      transaction.merchant_code ?? "",
       transaction.type,
       transaction.transaction_id,
       transaction.reference,

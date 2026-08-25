@@ -51,9 +51,12 @@ export function CollectionsTable({ collections: initialCollections }: { collecti
                   row.status === "pending" || row.status === "processing" || refreshedIds.has(row.collection_id);
                 return (
                   <tr key={row.collection_id} className="border-t border-surface-container-highest">
-                    <td className={`${tdClass} text-on-background font-medium`}>
+                    <td className={tdClass}>
                       <Link href={`/super-admin/merchants/${row.merchant_id}`} className="hover:underline">
-                        {row.merchant_name}
+                        <div className="text-on-background font-medium">{row.merchant_name}</div>
+                        {row.merchant_code && (
+                          <div className="font-mono text-xs text-on-surface-variant">{row.merchant_code}</div>
+                        )}
                       </Link>
                     </td>
                     <td className={`${tdClass} text-on-surface-variant text-xs`}>{row.source ?? "—"}</td>

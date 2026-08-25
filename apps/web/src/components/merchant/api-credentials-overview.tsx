@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/portal/page-header";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatDateTime } from "@/lib/format";
 import { getMyMerchant, getWebhookConfig, listApiKeys, listApiLogs, listIpAllowlist } from "@/lib/portal/api";
-import type { ApiKey, ApiRequestLog, IpAllowlistEntry, WebhookConfig } from "@/lib/portal/types";
+import type { ApiKey, ApiRequestLog, IpAllowlistEntry, MerchantProfile, WebhookConfig } from "@/lib/portal/types";
 
 import type { ApiCredentialsTab } from "./api-credentials-tabs";
 
@@ -25,13 +25,14 @@ export function ApiCredentialsOverview({ onSelectTab }: { onSelectTab: (tab: Api
   const [ipEntries, setIpEntries] = useState<IpAllowlistEntry[]>([]);
   const [logs, setLogs] = useState<ApiRequestLog[]>([]);
   const [docsVisited, setDocsVisited] = useState(false);
+  const [merchant, setMerchant] = useState<MerchantProfile | null>(null);
 
   useEffect(() => {
     listApiKeys().then(setKeys);
     getWebhookConfig().then(setWebhookConfig);
     listIpAllowlist().then(setIpEntries);
     listApiLogs().then(setLogs);
-    getMyMerchant();
+    getMyMerchant().then(setMerchant);
   }, []);
 
   const loading = keys === null;
@@ -77,6 +78,13 @@ export function ApiCredentialsOverview({ onSelectTab }: { onSelectTab: (tab: Api
       <PageHeader
         title="Overview"
         description="Your API integration at a glance — keys, webhooks, IP protection, and what's left to set up."
+        action={
+          merchant?.merchant_code ? (
+            <p className="text-xs text-on-surface-variant">
+              Merchant ID: <span className="font-mono font-semibold text-on-background">{merchant.merchant_code}</span>
+            </p>
+          ) : undefined
+        }
       />
 
       <Card>

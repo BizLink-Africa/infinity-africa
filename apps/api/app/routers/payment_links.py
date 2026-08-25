@@ -280,11 +280,18 @@ def get_public_collection_receipt(public_slug: str, collection_id: uuid.UUID):
 
     merchant = get_by_id(client, "merchants", uuid.UUID(link["merchant_id"]))
     merchant_name = merchant["business_name"] if merchant else "Unknown merchant"
+    merchant_code = merchant.get("merchant_code") if merchant else None
+
+    transaction = execute_maybe_single(
+        client.table("transactions").select("id").eq("collection_id", str(collection_id)).maybe_single()
+    )
 
     return APIResponse(
         data=PublicCollectionReceiptResponse(
             collection_id=collection_id,
+            transaction_id=transaction["id"] if transaction else None,
             merchant_name=merchant_name,
+            merchant_code=merchant_code,
             amount=collection["amount"],
             currency=collection["currency"],
             description=link.get("description"),

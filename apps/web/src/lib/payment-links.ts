@@ -18,7 +18,9 @@ export interface PublicPaymentLink {
 
 export interface PublicCollectionReceipt {
   collection_id: string;
+  transaction_id: string | null;
   merchant_name: string;
+  merchant_code: string | null;
   amount: string;
   currency: string;
   description: string | null;

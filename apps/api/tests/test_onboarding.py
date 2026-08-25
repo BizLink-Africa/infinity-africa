@@ -5,6 +5,7 @@ as test_merchant_portal.py.
 """
 
 import io
+import re
 import uuid
 
 import pytest
@@ -60,6 +61,7 @@ def test_create_merchant_account_success(fake_client):
     assert body["merchant"]["contact_email"] == "user@example.com"  # from the JWT, not the body
     assert body["merchant"]["status"] == "pending"
     assert body["account_status"] == "PENDING_VERIFICATION"
+    assert re.fullmatch(r"27\d{6}", body["merchant"]["merchant_code"])
 
     merchant_id = body["merchant"]["id"]
     membership = next(
@@ -114,6 +116,7 @@ def test_create_merchant_account_resubmission_after_rejection(fake_client):
         "/v1/onboarding/merchant-account", headers=auth_headers(user_id), json=_valid_payload()
     )
     merchant_id = first.json()["data"]["merchant"]["id"]
+    original_merchant_code = first.json()["data"]["merchant"]["merchant_code"]
     submission_row = next(
         r for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
     )
@@ -128,6 +131,9 @@ def test_create_merchant_account_resubmission_after_rejection(fake_client):
     assert second.status_code == 201
     assert second.json()["data"]["merchant"]["business_name"] == "Amani Traders Ltd (updated)"
     assert second.json()["data"]["merchant"]["id"] == merchant_id
+    # Merchant ID is generated once and never changes — a resubmission
+    # updates the business profile in place, not the identifier.
+    assert second.json()["data"]["merchant"]["merchant_code"] == original_merchant_code
 
     all_submissions = [
         r for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id

@@ -14,6 +14,7 @@ function row(overrides: Partial<AdminCollectionRow>): AdminCollectionRow {
     collection_id: "col-1",
     merchant_id: "merchant-1",
     merchant_name: "Juma Traders Ltd",
+    merchant_code: "27048391",
     source: "PAYMENT_LINK",
     method: "STK_PUSH",
     amount: "1000.00",

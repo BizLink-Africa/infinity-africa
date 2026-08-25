@@ -46,7 +46,12 @@ export function OnboardingTable({ rows }: { rows: OnboardingSubmission[] }) {
         <tbody className="text-sm">
           {rows.map((row) => (
             <tr key={row.id} className="border-t border-surface-container-highest align-top">
-              <td className={`${tdClass} font-medium text-on-background`}>{row.business_name}</td>
+              <td className={tdClass}>
+                <div className="font-medium text-on-background">{row.business_name}</div>
+                {row.merchant_code && (
+                  <div className="font-mono text-xs text-on-surface-variant">{row.merchant_code}</div>
+                )}
+              </td>
               <td className={`${tdClass} text-on-surface-variant`}>{row.owner_email}</td>
               <td className={`${tdClass} text-on-surface-variant`}>{row.contact_phone ?? "—"}</td>
               <td className={`${tdClass} text-on-surface-variant`}>{row.nature_of_business}</td>

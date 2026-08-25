@@ -486,7 +486,14 @@ export async function listApiLogs(): Promise<ApiRequestLog[]> {
 // --- Overview (LIVE) ---------------------------------------------------------
 
 export interface MerchantOverview {
-  merchant: { id: string; business_name: string; currency: string; status: string; kyc_status: string };
+  merchant: {
+    id: string;
+    merchant_code: string | null;
+    business_name: string;
+    currency: string;
+    status: string;
+    kyc_status: string;
+  };
   total_collections: string;
   available_balance: string;
   pending_transactions: number;

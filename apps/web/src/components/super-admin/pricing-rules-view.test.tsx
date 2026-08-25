@@ -16,6 +16,7 @@ vi.mock("@/lib/admin/live-actions", () => ({
 
 const merchant: Merchant = {
   merchant_id: "merchant-1",
+  merchant_code: "27048391",
   business_name: "Juma Traders Ltd",
   owner_name: null,
   email: "juma@example.com",

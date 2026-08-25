@@ -48,6 +48,7 @@ export function ReceiptCard({ receipt, slug }: { receipt: PublicCollectionReceip
           <Row label="Status" value="Successful" />
           <Row label="Receipt no." value={receiptNumber(receipt.collection_id)} mono />
           <Row label="Paid to" value={receipt.merchant_name} />
+          {receipt.merchant_code && <Row label="Merchant ID" value={receipt.merchant_code} mono />}
           {receipt.description && <Row label="Description" value={receipt.description} />}
           {(receipt.customer_name || receipt.customer_phone) && (
             <Row
@@ -61,7 +62,8 @@ export function ReceiptCard({ receipt, slug }: { receipt: PublicCollectionReceip
           {receipt.channel && <Row label="Channel" value={receipt.channel} />}
           {receipt.merchant_reference && <Row label="Merchant reference" value={receipt.merchant_reference} mono />}
           {receipt.provider_reference && <Row label="Selcom reference" value={receipt.provider_reference} mono />}
-          {receipt.provider_transid && <Row label="Transaction ID" value={receipt.provider_transid} mono />}
+          {receipt.transaction_id && <Row label="Transaction ID" value={receipt.transaction_id} mono />}
+          {receipt.provider_transid && <Row label="Provider Transaction ID" value={receipt.provider_transid} mono />}
           {receipt.completed_at && <Row label="Date" value={formatDateTime(receipt.completed_at)} />}
           <Row label="Collection ID" value={receipt.collection_id} mono />
         </dl>

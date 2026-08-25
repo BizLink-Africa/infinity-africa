@@ -36,7 +36,12 @@ export function DocumentRequestsTable({ rows }: { rows: AdminDocumentRequestRow[
               {rows.map((request) => (
                 <Fragment key={request.request_id}>
                   <tr className="border-t border-surface-container-highest">
-                    <td className={`${tdClass} font-medium text-on-background`}>{request.merchant_name ?? "—"}</td>
+                    <td className={tdClass}>
+                      <div className="font-medium text-on-background">{request.merchant_name ?? "—"}</div>
+                      {request.merchant_code && (
+                        <div className="font-mono text-xs text-on-surface-variant">{request.merchant_code}</div>
+                      )}
+                    </td>
                     <td className={tdClass}>{request.requested_documents.join(", ")}</td>
                     <td className={`${tdClass} text-on-surface-variant text-xs`}>{request.due_date ? formatDateTime(request.due_date) : "—"}</td>
                     <td className={tdClass}>

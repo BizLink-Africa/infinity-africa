@@ -7,7 +7,9 @@ import { ReceiptCard } from "./receipt-card";
 
 const receipt: PublicCollectionReceipt = {
   collection_id: "11111111-1111-1111-1111-111111111111",
+  transaction_id: "22222222-2222-2222-2222-222222222222",
   merchant_name: "Salome Mponeja Shop",
+  merchant_code: "27048391",
   amount: "2500.00",
   currency: "TZS",
   description: "Order #482",
@@ -61,7 +63,14 @@ describe("ReceiptCard", () => {
   it("omits optional rows entirely when the backend didn't return them", () => {
     render(
       <ReceiptCard
-        receipt={{ ...receipt, description: null, channel: null, provider_transid: null, merchant_reference: null }}
+        receipt={{
+          ...receipt,
+          description: null,
+          channel: null,
+          transaction_id: null,
+          provider_transid: null,
+          merchant_reference: null,
+        }}
         slug="test-slug"
       />,
     );
@@ -69,7 +78,15 @@ describe("ReceiptCard", () => {
     expect(screen.queryByText("Order #482")).not.toBeInTheDocument();
     expect(screen.queryByText("Channel")).not.toBeInTheDocument();
     expect(screen.queryByText("Transaction ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Provider Transaction ID")).not.toBeInTheDocument();
     expect(screen.queryByText("Merchant reference")).not.toBeInTheDocument();
+  });
+
+  it("shows the Merchant ID and Transaction ID rows when the backend returns them", () => {
+    render(<ReceiptCard receipt={receipt} slug="test-slug" />);
+
+    expect(screen.getByText("27048391")).toBeInTheDocument();
+    expect(screen.getByText("22222222-2222-2222-2222-222222222222")).toBeInTheDocument();
   });
 
   it("the Download Receipt PDF and Print Receipt buttons both trigger the browser print dialog", () => {

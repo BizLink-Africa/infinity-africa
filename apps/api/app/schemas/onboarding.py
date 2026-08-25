@@ -66,6 +66,7 @@ class OnboardingSubmissionResponse(BaseModel):
 
     id: uuid.UUID
     merchant_id: uuid.UUID
+    merchant_code: str | None = None
     business_name: str
     owner_email: str
     contact_phone: str | None = None

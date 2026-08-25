@@ -67,7 +67,12 @@ export default async function SuperAdminInvoicesPage() {
                 {invoices.map((invoice) => (
                   <tr key={invoice.invoice_id} className={`border-t border-surface-container-highest ${invoice.status === "CANCELLED" ? "opacity-60" : ""}`}>
                     <td className={`${tdClass} font-mono text-on-background`}>{invoice.invoice_number}</td>
-                    <td className={tdClass}>{invoice.merchant_name}</td>
+                    <td className={tdClass}>
+                      <div>{invoice.merchant_name}</div>
+                      {invoice.merchant_code && (
+                        <div className="font-mono text-xs text-on-surface-variant">{invoice.merchant_code}</div>
+                      )}
+                    </td>
                     <td className={tdClass}>{invoice.customer_name ?? invoice.customer_phone ?? "—"}</td>
                     <td className={`${tdClass} font-semibold text-on-background`}>{formatCurrency(invoice.total_amount, "TZS")}</td>
                     <td className={`${tdClass} text-xs ${invoice.status === "OVERDUE" ? "text-error font-semibold" : "text-on-surface-variant"}`}>

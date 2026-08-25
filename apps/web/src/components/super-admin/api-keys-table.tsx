@@ -32,7 +32,12 @@ export function ApiKeysTable({ rows }: { rows: AdminApiKeyPlatformRow[] }) {
             <tbody className="text-sm">
               {rows.map((row) => (
                 <tr key={row.id} className="border-t border-surface-container-highest">
-                  <td className={`${tdClass} text-on-background font-medium`}>{row.merchant_name}</td>
+                  <td className={tdClass}>
+                    <div className="text-on-background font-medium">{row.merchant_name}</div>
+                    {row.merchant_code && (
+                      <div className="font-mono text-xs text-on-surface-variant">{row.merchant_code}</div>
+                    )}
+                  </td>
                   <td className={tdClass}>{row.name}</td>
                   <td className={`${tdClass} text-on-surface-variant text-xs font-mono`}>
                     {row.key_prefix}••••{row.key_last4 ?? ""}

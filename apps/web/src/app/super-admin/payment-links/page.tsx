@@ -67,7 +67,12 @@ export default async function SuperAdminPaymentLinksPage() {
                 {links.map((link) => (
                   <tr key={link.link_id} className={`border-t border-surface-container-highest ${link.status === "EXPIRED" ? "opacity-60" : ""}`}>
                     <td className={`${tdClass} font-mono text-on-background`}>{link.link_id}</td>
-                    <td className={tdClass}>{link.merchant_name}</td>
+                    <td className={tdClass}>
+                      <div>{link.merchant_name}</div>
+                      {link.merchant_code && (
+                        <div className="font-mono text-xs text-on-surface-variant">{link.merchant_code}</div>
+                      )}
+                    </td>
                     <td className={tdClass}>{link.customer_name ?? link.customer_phone ?? "—"}</td>
                     <td className={`${tdClass} font-semibold text-on-background`}>{formatCurrency(link.amount, link.currency)}</td>
                     <td className={tdClass}>

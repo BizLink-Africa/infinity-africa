@@ -84,6 +84,29 @@ describe("ApiCredentialsOverview", () => {
     expect(onSelectTab).toHaveBeenCalledWith("webhooks");
   });
 
+  it("shows the merchant's Merchant ID in the page header", async () => {
+    getMyMerchant.mockResolvedValue({
+      id: "merchant-1",
+      merchant_code: "27048391",
+      business_name: "Masanja Traders",
+      legal_name: null,
+      country: "TZ",
+      currency: "TZS",
+      contact_email: "merchant@example.com",
+      contact_phone: null,
+      status: "active",
+      kyc_status: "verified",
+      api_access_suspended: false,
+      webhook_url: null,
+      created_at: "2026-08-01T10:00:00Z",
+      updated_at: "2026-08-01T10:00:00Z",
+    });
+    const { ApiCredentialsOverview } = await import("./api-credentials-overview");
+    render(<ApiCredentialsOverview onSelectTab={vi.fn()} />);
+
+    expect(await screen.findByText("27048391")).toBeInTheDocument();
+  });
+
   it("shows the last API request when one exists", async () => {
     listApiLogs.mockResolvedValue([
       { id: "log-1", api_key_id: "key-1", environment: "sandbox", method: "POST", path: "/v1/collections/wallet-push", status_code: 202, ip_address: "1.2.3.4", duration_ms: 120, created_at: "2026-08-20T09:00:00Z" },

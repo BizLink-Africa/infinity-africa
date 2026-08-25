@@ -67,6 +67,17 @@ class ProductionAccessRestrictedError(APIError):
     code = "production_access_restricted"
 
 
+class MerchantCodeGenerationError(APIError):
+    """Every candidate 8-digit Merchant ID (27 + 6 random digits) collided
+    with an existing merchant across the retry budget — see
+    app/services/merchant_code.py. 500, not 409: this isn't the caller's
+    fault, it means the retry limit needs raising or the ID space is
+    genuinely close to exhausted (extremely unlikely at 10^6 codes)."""
+
+    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    code = "merchant_code_generation_failed"
+
+
 class SelcomAPIError(APIError):
     """Selcom returned a non-2xx response, an unparseable body, or the
     request failed outright (timeout/connection error). 502, not 409/500 —

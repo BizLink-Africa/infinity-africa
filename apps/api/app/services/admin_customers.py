@@ -27,7 +27,7 @@ from decimal import Decimal
 from supabase import Client
 
 from app.core.pagination import PaginationParams
-from app.services.admin_directory import batch_merchant_names
+from app.services.admin_directory import batch_merchant_codes, batch_merchant_names
 
 _MAX_COLLECTIONS_SCANNED = 5000
 
@@ -101,12 +101,14 @@ def list_admin_customers(
 
     merchant_ids = {a.merchant_id for a in page}
     merchant_names = batch_merchant_names(client, merchant_ids)
+    merchant_codes = batch_merchant_codes(client, merchant_ids)
 
     data = [
         {
             "id": f"{a.merchant_id}:{a.phone}",
             "merchant_id": a.merchant_id,
             "merchant_name": merchant_names.get(a.merchant_id, ""),
+            "merchant_code": merchant_codes.get(a.merchant_id),
             "full_name": a.full_name,
             "phone": a.phone,
             "currency": a.currency,

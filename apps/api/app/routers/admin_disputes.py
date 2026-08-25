@@ -20,7 +20,7 @@ from app.schemas.disputes import (
 )
 from app.schemas.refunds import RefundResponse, RefundStatusUpdate
 from app.services import disputes_service
-from app.services.admin_directory import batch_merchant_names
+from app.services.admin_directory import batch_merchant_codes, batch_merchant_names
 
 router = APIRouter(prefix="/admin", tags=["admin-disputes"])
 
@@ -29,8 +29,15 @@ router = APIRouter(prefix="/admin", tags=["admin-disputes"])
 def list_disputes(_admin: Annotated[AuthenticatedUser, Depends(require_super_admin)]):
     client = get_supabase_admin()
     rows = disputes_service.list_all_disputes(client)
-    names = batch_merchant_names(client, {r["merchant_id"] for r in rows if r.get("merchant_id")})
-    data = [AdminDisputeResponse.from_row(row, merchant_name=names.get(row.get("merchant_id"))) for row in rows]
+    ids = {r["merchant_id"] for r in rows if r.get("merchant_id")}
+    names = batch_merchant_names(client, ids)
+    codes = batch_merchant_codes(client, ids)
+    data = [
+        AdminDisputeResponse.from_row(
+            row, merchant_name=names.get(row.get("merchant_id")), merchant_code=codes.get(row.get("merchant_id"))
+        )
+        for row in rows
+    ]
     return APIResponse(data=data)
 
 
@@ -50,8 +57,14 @@ def update_dispute_status(
     updated = disputes_service.update_dispute_status(
         client, dispute_id=dispute_id, status=payload.status, note=payload.note, admin_id=admin.id
     )
-    names = batch_merchant_names(client, {updated["merchant_id"]} if updated.get("merchant_id") else set())
-    return APIResponse(data=AdminDisputeResponse.from_row(updated, merchant_name=names.get(updated.get("merchant_id"))))
+    ids = {updated["merchant_id"]} if updated.get("merchant_id") else set()
+    names = batch_merchant_names(client, ids)
+    codes = batch_merchant_codes(client, ids)
+    return APIResponse(
+        data=AdminDisputeResponse.from_row(
+            updated, merchant_name=names.get(updated.get("merchant_id")), merchant_code=codes.get(updated.get("merchant_id"))
+        )
+    )
 
 
 @router.post("/disputes/{dispute_id}/request-refund", response_model=APIResponse[RefundResponse])

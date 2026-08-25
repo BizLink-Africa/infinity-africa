@@ -54,7 +54,12 @@ export function DisputesTable({ rows }: { rows: AdminDisputeRow[] }) {
               {rows.map((dispute) => (
                 <Fragment key={dispute.dispute_id}>
                   <tr className="border-t border-surface-container-highest">
-                    <td className={`${tdClass} font-medium text-on-background`}>{dispute.merchant_name ?? "Unmatched"}</td>
+                    <td className={tdClass}>
+                      <div className="font-medium text-on-background">{dispute.merchant_name ?? "Unmatched"}</div>
+                      {dispute.merchant_code && (
+                        <div className="font-mono text-xs text-on-surface-variant">{dispute.merchant_code}</div>
+                      )}
+                    </td>
                     <td className={tdClass}>
                       {dispute.customer_name}
                       <div className="text-xs text-on-surface-variant">{dispute.customer_phone}</div>

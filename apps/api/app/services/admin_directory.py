@@ -24,6 +24,20 @@ def batch_merchant_names(client: Client, merchant_ids: set[str]) -> dict[str, st
     return {row["id"]: row["business_name"] for row in rows}
 
 
+def batch_merchant_codes(client: Client, merchant_ids: set[str]) -> dict[str, str]:
+    """id -> merchant_code (the human-friendly 27****** Merchant ID), for
+    join-on-display on every Super Admin page that lists merchant-owned
+    rows — same shape/usage as batch_merchant_names, kept as its own
+    function (not merged into it) so every existing `.get(id, "")` caller
+    of batch_merchant_names is unaffected."""
+    if not merchant_ids:
+        return {}
+    rows = (
+        client.table("merchants").select("id, merchant_code").in_("id", list(merchant_ids)).execute()
+    ).data or []
+    return {row["id"]: row["merchant_code"] for row in rows}
+
+
 def batch_api_key_prefixes(client: Client, api_key_ids: set[str]) -> dict[str, str]:
     """id -> key_prefix, for join-on-display only — never selects hashed_key."""
     if not api_key_ids:

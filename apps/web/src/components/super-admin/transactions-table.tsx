@@ -63,7 +63,12 @@ export function TransactionsTable({ transactions }: { transactions: AdminTransac
                   <td className={`${tdClass} text-on-surface-variant text-xs whitespace-nowrap`}>
                     {formatDateTime(transaction.created_at)}
                   </td>
-                  <td className={`${tdClass} font-medium text-on-background`}>{transaction.merchant_name}</td>
+                  <td className={tdClass}>
+                    <div className="font-medium text-on-background">{transaction.merchant_name}</div>
+                    {transaction.merchant_code && (
+                      <div className="font-mono text-xs text-on-surface-variant">{transaction.merchant_code}</div>
+                    )}
+                  </td>
                   <td className={tdClass}>
                     <StatusBadge {...typeBadge(transaction.type)} />
                   </td>

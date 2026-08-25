@@ -23,6 +23,7 @@ export interface OnboardingMerchantAccountInput {
 
 export interface OnboardingMerchant {
   id: string;
+  merchant_code: string | null;
   business_name: string;
   legal_name: string | null;
   country: string;
@@ -67,6 +68,7 @@ export interface OnboardingDocument {
 export interface OnboardingSubmission {
   id: string;
   merchant_id: string;
+  merchant_code: string | null;
   business_name: string;
   owner_email: string;
   contact_phone: string | null;

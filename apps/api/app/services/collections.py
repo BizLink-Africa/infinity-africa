@@ -188,12 +188,17 @@ def _collection_webhook_payload(
     payload = {
         "collection_id": collection["id"],
         "reference": collection.get("merchant_reference"),
+        # Alias of "reference" above — kept as a second key (never a rename)
+        # so existing integrations parsing "reference" keep working; new
+        # integrations can use the clearer name directly.
+        "merchant_reference": collection.get("merchant_reference"),
         "amount": collection["amount"],
         "currency": collection["currency"],
         "status": external_status,
         "timestamp": utc_now_iso(),
     }
     if transaction:
+        payload["transaction_id"] = transaction.get("id")
         payload["fee"] = transaction.get("fee_amount")
         payload["net_amount"] = transaction.get("net_amount")
     if reason:

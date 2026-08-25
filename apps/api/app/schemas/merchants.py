@@ -31,6 +31,7 @@ class MerchantStatusUpdate(BaseModel):
 
 class MerchantResponse(BaseModel):
     id: uuid.UUID
+    merchant_code: str | None = None
     business_name: str
     legal_name: str | None = None
     country: str

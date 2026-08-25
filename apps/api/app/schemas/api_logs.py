@@ -23,3 +23,4 @@ class ApiRequestLogResponse(BaseModel):
 class AdminApiRequestLogResponse(ApiRequestLogResponse):
     merchant_id: uuid.UUID
     merchant_name: str
+    merchant_code: str | None = None

@@ -123,7 +123,14 @@ def enqueue_webhook_event(
     or if they've opted into a subset of events via webhook_subscribed_events
     and this event_name isn't in it. Null/empty subscribed_events means
     "all events" — the default, unchanged behavior for merchants who never
-    touch that setting."""
+    touch that setting.
+
+    Stamps `event` (the event_name) and `merchant_code` onto every outbound
+    payload here, in this one choke point, rather than in each of the many
+    per-event payload builders scattered across the codebase — merchant_code
+    is identification only (not a secret, not an auth credential), added so
+    a merchant's webhook receiver can attribute a delivery without a second
+    API call back to Infinity Africa."""
     merchant = get_by_id(client, "merchants", merchant_id)
     target_url = merchant.get("webhook_url") if merchant else None
 
@@ -134,13 +141,19 @@ def enqueue_webhook_event(
     if subscribed and event_name not in subscribed:
         return None
 
+    enriched_payload = {
+        "event": event_name,
+        "merchant_code": merchant.get("merchant_code") if merchant else None,
+        **payload,
+    }
+
     return insert_row(
         client,
         "webhook_events",
         {
             "merchant_id": str(merchant_id),
             "event_name": event_name,
-            "payload": payload,
+            "payload": enriched_payload,
             "target_url": target_url,
             "status": "pending",
             "attempts": 0,

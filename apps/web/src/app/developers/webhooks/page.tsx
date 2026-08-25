@@ -139,8 +139,11 @@ export default function WebhooksPage() {
         <h2 className="text-xl font-semibold text-on-surface mb-3">Payload shape</h2>
         <CodeBlock language="json — POST to your webhook_url">{`{
   "event": "collection.successful",
+  "merchant_code": "27048391",
   "collection_id": "col_xxxxx",
+  "transaction_id": "txn_xxxxx",
   "reference": "ORDER-4821",
+  "merchant_reference": "ORDER-4821",
   "amount": 50000,
   "fee": 750,
   "net_amount": 49250,
@@ -148,6 +151,14 @@ export default function WebhooksPage() {
   "status": "successful",
   "timestamp": "2026-08-23T10:00:00+03:00"
 }`}</CodeBlock>
+        <p className="text-xs text-on-surface-variant leading-relaxed mt-3">
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">merchant_code</code> is
+          your Merchant ID — identification only, never a secret and never usable as an API key.{" "}
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">reference</code> and{" "}
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">merchant_reference</code>{" "}
+          are the same value — kept as two keys so existing integrations parsing{" "}
+          <code className="font-mono text-xs">reference</code> keep working.
+        </p>
         <p className="text-xs text-on-surface-variant leading-relaxed mt-3">
           <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">fee</code>/<code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">net_amount</code> are
           only present once a fee has actually been calculated (i.e. from{" "}

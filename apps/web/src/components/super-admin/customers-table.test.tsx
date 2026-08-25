@@ -10,6 +10,7 @@ function row(overrides: Partial<AdminCustomerPlatformRow>): AdminCustomerPlatfor
     id: "merchant-1:255700000001",
     merchant_id: "merchant-1",
     merchant_name: "Amani Traders",
+    merchant_code: "27048391",
     full_name: "Grace Mushi",
     phone: "255700000001",
     currency: "TZS",

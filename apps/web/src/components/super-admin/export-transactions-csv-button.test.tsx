@@ -10,6 +10,7 @@ function transaction(overrides: Partial<AdminTransactionRow> = {}): AdminTransac
     transaction_id: "txn-1",
     merchant_id: "merchant-1",
     merchant_name: "Juma Traders Ltd",
+    merchant_code: "27048391",
     type: "collection",
     reference: "TXN-20260822-E7803AE4",
     provider_reference: "SELCOM-REF-1",
@@ -59,9 +60,10 @@ describe("ExportTransactionsCsvButton", () => {
     const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
     const text = await blob.text();
     expect(text).toContain(
-      '"Date","Merchant","Type","Transaction ID","Reference","Provider Reference","Method","Opening Balance","Amount","Charge","Net","Closing Balance","Currency","Direction","Status"',
+      '"Date","Merchant","Merchant ID","Type","Transaction ID","Reference","Provider Reference","Method","Opening Balance","Amount","Charge","Net","Closing Balance","Currency","Direction","Status"',
     );
     expect(text).toContain("Juma Traders Ltd");
+    expect(text).toContain("27048391");
     expect(text).toContain("TXN-20260822-E7803AE4");
     expect(text).toContain("SELCOM-REF-1");
     expect(text).toContain("500.00");

@@ -223,7 +223,9 @@ class PublicCollectionReceiptResponse(BaseModel):
     receipt is generated or guessed by this codebase."""
 
     collection_id: uuid.UUID
+    transaction_id: uuid.UUID | None = None
     merchant_name: str
+    merchant_code: str | None = None
     amount: Decimal
     currency: str
     description: str | None = None

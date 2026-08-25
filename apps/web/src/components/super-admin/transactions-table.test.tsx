@@ -10,6 +10,7 @@ function row(overrides: Partial<AdminTransactionRow> = {}): AdminTransactionRow 
     transaction_id: "11111111-2222-3333-4444-555555555555",
     merchant_id: "merchant-1",
     merchant_name: "Kilimanjaro Cafe",
+    merchant_code: "27048391",
     type: "collection",
     reference: "TXN-1",
     provider_reference: "SELCOM-REF-1",

@@ -103,7 +103,12 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                 {queue.map((request) => (
                   <Fragment key={request.withdrawal_id}>
                     <tr className="border-t border-surface-container-highest">
-                      <td className={`${tdClass} font-medium text-on-background`}>{request.merchant_name}</td>
+                      <td className={tdClass}>
+                        <div className="font-medium text-on-background">{request.merchant_name}</div>
+                        {request.merchant_code && (
+                          <div className="font-mono text-xs text-on-surface-variant">{request.merchant_code}</div>
+                        )}
+                      </td>
                       <td className={tdClass}>
                         <div>{request.destination}</div>
                         <div className="text-xs text-on-surface-variant font-mono">
@@ -236,7 +241,12 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                   return (
                     <tr key={row.withdrawal_id} className="border-t border-surface-container-highest">
                       <td className={`${tdClass} text-on-surface-variant text-xs`}>{formatDateTime(row.created_at)}</td>
-                      <td className={`${tdClass} font-medium text-on-background`}>{row.merchant_name}</td>
+                      <td className={tdClass}>
+                        <div className="font-medium text-on-background">{row.merchant_name}</div>
+                        {row.merchant_code && (
+                          <div className="font-mono text-xs text-on-surface-variant">{row.merchant_code}</div>
+                        )}
+                      </td>
                       <td className={tdClass}>
                         <div>{row.destination}</div>
                         <div className="text-xs text-on-surface-variant font-mono">

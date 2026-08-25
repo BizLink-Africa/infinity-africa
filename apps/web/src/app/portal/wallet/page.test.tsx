@@ -5,10 +5,12 @@ import type { WalletLedgerEntry } from "@/lib/portal/types";
 
 const getAvailableBalance = vi.fn();
 const listWalletLedger = vi.fn();
+const getMyMerchant = vi.fn();
 
 vi.mock("@/lib/portal/api", () => ({
   getAvailableBalance: (...args: unknown[]) => getAvailableBalance(...args),
   listWalletLedger: (...args: unknown[]) => listWalletLedger(...args),
+  getMyMerchant: (...args: unknown[]) => getMyMerchant(...args),
 }));
 
 function ledgerEntry(overrides: Partial<WalletLedgerEntry> = {}): WalletLedgerEntry {
@@ -29,6 +31,7 @@ describe("Merchant portal WalletPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAvailableBalance.mockResolvedValue("2470.00");
+    getMyMerchant.mockResolvedValue({ merchant_code: "27048391" });
   });
 
   it("renders the opening and closing balance columns for a ledger entry", async () => {
@@ -48,5 +51,13 @@ describe("Merchant portal WalletPage", () => {
     render(<WalletPage />);
 
     expect(await screen.findByText("No wallet activity yet.")).toBeInTheDocument();
+  });
+
+  it("shows the merchant's Merchant ID in the page header", async () => {
+    listWalletLedger.mockResolvedValue([]);
+    const { default: WalletPage } = await import("./page");
+    render(<WalletPage />);
+
+    expect(await screen.findByText("27048391")).toBeInTheDocument();
   });
 });
