@@ -48,33 +48,42 @@ export function ApiCredentialsTabs({ initialTab }: { initialTab?: string }) {
         description="Everything for integrating your website, mobile app, or backend with Infinity Africa — in one place."
       />
 
-      <div className="flex flex-nowrap gap-0.5 rounded-lg border border-surface-container-highest bg-surface-container-low p-1 overflow-x-auto md:overflow-visible">
-        {TABS.map((tab) => (
-          <button
-            key={tab.value}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.value}
-            onClick={() => selectTab(tab.value)}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
-              activeTab === tab.value
-                ? "bg-primary-container text-on-primary"
-                : "text-on-surface-variant hover:bg-surface-container-highest"
-            }`}
-          >
-            <Icon name={tab.icon} className="text-[16px]" />
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-6 items-start">
+        {/* Horizontal scroll row on mobile/tablet; a vertical, individually
+            bordered menu — Infinity green on the active item — from lg
+            upward, sized to its own 240px grid column. */}
+        <nav
+          role="tablist"
+          aria-label="API Credentials sections"
+          className="flex flex-nowrap gap-0.5 rounded-lg border border-surface-container-highest bg-surface-container-low p-1 overflow-x-auto lg:flex-col lg:gap-1.5 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
+        >
+          {TABS.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.value}
+              onClick={() => selectTab(tab.value)}
+              className={`flex items-center gap-1 lg:gap-2.5 px-2.5 py-1.5 lg:px-4 lg:py-2.5 rounded-md lg:rounded-lg text-sm font-medium whitespace-nowrap shrink-0 lg:w-full lg:border transition-colors ${
+                activeTab === tab.value
+                  ? "bg-primary-container text-on-primary lg:border-primary-container"
+                  : "text-on-surface-variant hover:bg-surface-container-highest lg:border-surface-container-highest lg:bg-surface"
+              }`}
+            >
+              <Icon name={tab.icon} className="text-[16px] lg:text-[18px] shrink-0" />
+              {tab.label}
+            </button>
+          ))}
+        </nav>
 
-      <div role="tabpanel">
-        {activeTab === "overview" && <ApiCredentialsOverview onSelectTab={selectTab} />}
-        {activeTab === "keys" && <ApiKeysView />}
-        {activeTab === "webhooks" && <WebhooksView />}
-        {activeTab === "ip-allowlist" && <IpAllowlistView />}
-        {activeTab === "logs" && <ApiLogsView />}
-        {activeTab === "docs" && <DeveloperDocsView />}
+        <div role="tabpanel" className="min-w-0">
+          {activeTab === "overview" && <ApiCredentialsOverview onSelectTab={selectTab} />}
+          {activeTab === "keys" && <ApiKeysView />}
+          {activeTab === "webhooks" && <WebhooksView />}
+          {activeTab === "ip-allowlist" && <IpAllowlistView />}
+          {activeTab === "logs" && <ApiLogsView />}
+          {activeTab === "docs" && <DeveloperDocsView />}
+        </div>
       </div>
     </div>
   );

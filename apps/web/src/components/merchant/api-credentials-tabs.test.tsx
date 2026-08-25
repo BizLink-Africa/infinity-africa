@@ -122,20 +122,70 @@ describe("ApiCredentialsTabs", () => {
     expect(screen.getByRole("tab", { name: /Overview/ }).closest(".overflow-x-auto")).toBeInTheDocument();
   });
 
-  it("disables the scroll container at desktop/laptop widths so no scrollbar shows there", async () => {
+  it("disables the horizontal scroll container from lg upward, so no scrollbar shows on desktop/laptop", async () => {
     const { ApiCredentialsTabs } = await import("./api-credentials-tabs");
     render(<ApiCredentialsTabs />);
 
-    const tabBar = screen.getByRole("tab", { name: /Overview/ }).closest(".overflow-x-auto");
-    expect(tabBar?.className).toContain("md:overflow-visible");
+    const tabList = screen.getByRole("tablist");
+    expect(tabList.className).toContain("overflow-x-auto");
+    expect(tabList.className).toContain("lg:overflow-visible");
   });
 
-  it("all six tabs sit in a single non-wrapping row so none of them (like Developer Docs) get pushed off-screen", async () => {
+  it("all six tabs sit in a single non-wrapping row on mobile so none of them (like Developer Docs) get pushed off-screen", async () => {
     const { ApiCredentialsTabs } = await import("./api-credentials-tabs");
     render(<ApiCredentialsTabs />);
 
-    const tabBar = screen.getByRole("tab", { name: /Overview/ }).closest(".overflow-x-auto");
-    expect(tabBar?.className).toContain("flex-nowrap");
+    const tabList = screen.getByRole("tablist");
+    expect(tabList.className).toContain("flex-nowrap");
     expect(screen.getByRole("tab", { name: /Developer Docs/ })).toBeInTheDocument();
+  });
+
+  it("switches the tab list to a vertical column from lg upward, sized to its own 240px grid track", async () => {
+    const { ApiCredentialsTabs } = await import("./api-credentials-tabs");
+    const { container } = render(<ApiCredentialsTabs />);
+
+    const tabList = screen.getByRole("tablist");
+    expect(tabList.className).toContain("lg:flex-col");
+
+    const grid = container.querySelector(".grid");
+    expect(grid?.className).toContain("lg:grid-cols-[240px_1fr]");
+    expect(grid?.contains(tabList)).toBe(true);
+  });
+
+  it("stacks the menu above the content in a single column by default (mobile), only splitting into two columns from lg", async () => {
+    const { ApiCredentialsTabs } = await import("./api-credentials-tabs");
+    const { container } = render(<ApiCredentialsTabs />);
+
+    const grid = container.querySelector(".grid");
+    expect(grid?.className).toContain("grid-cols-1");
+  });
+
+  it("gives the active tab the Infinity green background and white text, on both the horizontal and vertical layouts", async () => {
+    const { ApiCredentialsTabs } = await import("./api-credentials-tabs");
+    render(<ApiCredentialsTabs />);
+
+    const overviewTab = screen.getByRole("tab", { name: /Overview/ });
+    expect(overviewTab.className).toContain("bg-primary-container");
+    expect(overviewTab.className).toContain("text-on-primary");
+
+    fireEvent.click(screen.getByRole("tab", { name: /Webhooks/ }));
+    const webhooksTab = await screen.findByRole("tab", { name: /Webhooks/ });
+    expect(webhooksTab.className).toContain("bg-primary-container");
+    expect(overviewTab.className).not.toContain("bg-primary-container");
+  });
+
+  it("gives inactive vertical tabs a visible border instead of the active fill", async () => {
+    const { ApiCredentialsTabs } = await import("./api-credentials-tabs");
+    render(<ApiCredentialsTabs />);
+
+    const inactiveTab = screen.getByRole("tab", { name: /API Keys/ });
+    expect(inactiveTab.className).toContain("lg:border-surface-container-highest");
+  });
+
+  it("lets the content column shrink instead of forcing the page wider (guards against a wide table causing page-level horizontal scroll)", async () => {
+    const { ApiCredentialsTabs } = await import("./api-credentials-tabs");
+    render(<ApiCredentialsTabs />);
+
+    expect(screen.getByRole("tabpanel").className).toContain("min-w-0");
   });
 });
