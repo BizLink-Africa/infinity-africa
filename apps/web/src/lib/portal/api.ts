@@ -17,6 +17,7 @@ import { mockSupportTickets, MOCK_MERCHANT_ID } from "./mock-data";
 import type {
   ApiEnvelope,
   ApiKey,
+  ApiRequestLog,
   AppNotification,
   Collection,
   Customer,
@@ -29,6 +30,7 @@ import type {
   HostedCheckoutCollection,
   Invoice,
   InvoiceItem,
+  IpAllowlistEntry,
   MerchantProfile,
   MerchantUser,
   PaymentLink,
@@ -83,7 +85,7 @@ async function apiGet<T>(path: string): Promise<T | null> {
 
 async function apiWrite<T>(
   path: string,
-  method: "POST" | "PATCH",
+  method: "POST" | "PATCH" | "DELETE",
   input: unknown,
   { idempotent = false }: { idempotent?: boolean } = {},
 ): Promise<T> {
@@ -429,6 +431,31 @@ export async function rotateApiKey(apiKeyId: string): Promise<{ key: ApiKey; pla
   );
   const { plaintext_key, ...key } = created;
   return { key: key as ApiKey, plaintext_key };
+}
+
+// --- IP Allowlist (LIVE) -------------------------------------------------------
+
+export async function listIpAllowlist(): Promise<IpAllowlistEntry[]> {
+  return (await apiGet<IpAllowlistEntry[]>("/v1/merchant/ip-allowlist")) ?? [];
+}
+
+export async function createIpAllowlistEntry(input: {
+  environment: IpAllowlistEntry["environment"];
+  label: string;
+  ip_address_or_cidr: string;
+  notes?: string | null;
+}): Promise<IpAllowlistEntry> {
+  return apiWrite<IpAllowlistEntry>("/v1/merchant/ip-allowlist", "POST", input);
+}
+
+export async function deleteIpAllowlistEntry(entryId: string): Promise<void> {
+  await apiWrite(`/v1/merchant/ip-allowlist/${entryId}`, "DELETE", {});
+}
+
+// --- API Logs (LIVE) -----------------------------------------------------------
+
+export async function listApiLogs(): Promise<ApiRequestLog[]> {
+  return (await apiGet<ApiRequestLog[]>("/v1/merchant/api-logs")) ?? [];
 }
 
 // --- Overview (LIVE) ---------------------------------------------------------

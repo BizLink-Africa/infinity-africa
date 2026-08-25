@@ -38,8 +38,11 @@ from app.schemas.admin import (
     AdminWithdrawalResponse,
 )
 from app.schemas.api_keys import ApiKeyResponse
+from app.schemas.api_logs import AdminApiRequestLogResponse
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.common import APIResponse
+from app.schemas.ip_allowlist import AdminIpAllowlistResponse
+from app.schemas.webhook_config import WebhookConfigResponse
 from app.services.admin_customers import list_admin_customers
 from app.services.admin_directory import batch_merchant_names, batch_user_profiles
 from app.services.admin_overview import get_admin_overview
@@ -47,6 +50,7 @@ from app.services.audit import write_audit_log
 from app.services.checkout_reconciliation import refresh_checkout_collection_status
 from app.services.crud import get_by_id, update_row
 from app.services.ledger import get_wallet_balance
+from app.services.webhooks import last_webhook_delivery
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -111,6 +115,8 @@ def list_admin_merchants(
                 nature_of_business=submission["nature_of_business"] if submission else None,
                 physical_address=submission["physical_address"] if submission else None,
                 account_status=merchant["status"],
+                kyc_status=merchant["kyc_status"],
+                api_production_enabled=bool(merchant.get("api_production_enabled")),
                 available_balance=get_wallet_balance(
                     client, merchant_id=uuid.UUID(merchant["id"]), currency=merchant["currency"]
                 ),
@@ -158,12 +164,77 @@ def get_admin_merchant(
             nature_of_business=submission[0]["nature_of_business"] if submission else None,
             physical_address=submission[0]["physical_address"] if submission else None,
             account_status=merchant["status"],
+            kyc_status=merchant["kyc_status"],
+            api_production_enabled=bool(merchant.get("api_production_enabled")),
             available_balance=get_wallet_balance(
                 client, merchant_id=merchant_id, currency=merchant["currency"]
             ),
             created_at=merchant["created_at"],
         )
     )
+
+
+@router.post("/merchants/{merchant_id}/api-access/enable-production", response_model=APIResponse[AdminMerchantResponse])
+def enable_production_api_access(
+    merchant_id: uuid.UUID,
+    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    """The explicit fifth gate app/services/api_access.py checks before a
+    merchant may create/rotate a `live` API key — on top of, not instead
+    of, being KYC-approved (status='active', kyc_status='verified')."""
+    client = get_supabase_admin()
+    merchant = get_by_id(client, "merchants", merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
+    update_row(
+        client,
+        "merchants",
+        merchant_id,
+        {
+            "api_production_enabled": True,
+            "api_production_enabled_at": utc_now_iso(),
+            "api_production_enabled_by": str(admin.id),
+        },
+    )
+    write_audit_log(
+        client,
+        actor_id=admin.id,
+        actor_type="user",
+        merchant_id=merchant_id,
+        action="merchant.production_api_access_enabled",
+        resource_type="merchant",
+        resource_id=merchant_id,
+    )
+    return get_admin_merchant(merchant_id, admin)
+
+
+@router.post("/merchants/{merchant_id}/api-access/disable-production", response_model=APIResponse[AdminMerchantResponse])
+def disable_production_api_access(
+    merchant_id: uuid.UUID,
+    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    """Does not revoke any `live` key the merchant already created —
+    existing keys keep working (revoke those explicitly via
+    PATCH /v1/admin/api-keys/{id}/revoke if that's also intended). This
+    only blocks *new* live keys from being created/rotated from this
+    point on."""
+    client = get_supabase_admin()
+    merchant = get_by_id(client, "merchants", merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
+    update_row(client, "merchants", merchant_id, {"api_production_enabled": False})
+    write_audit_log(
+        client,
+        actor_id=admin.id,
+        actor_type="user",
+        merchant_id=merchant_id,
+        action="merchant.production_api_access_disabled",
+        resource_type="merchant",
+        resource_id=merchant_id,
+    )
+    return get_admin_merchant(merchant_id, admin)
 
 
 @router.get("/merchants/{merchant_id}/api-keys", response_model=APIResponse[list[ApiKeyResponse]])
@@ -218,6 +289,7 @@ def list_admin_api_keys(
             scopes=row["scopes"],
             status=row["status"],
             last_used_at=row.get("last_used_at"),
+            last_used_ip=row.get("last_used_ip"),
             revoked_at=row.get("revoked_at"),
             created_at=row["created_at"],
         )
@@ -266,6 +338,7 @@ def revoke_admin_api_key(
             scopes=result["scopes"],
             status=result["status"],
             last_used_at=result.get("last_used_at"),
+            last_used_ip=result.get("last_used_ip"),
             revoked_at=result.get("revoked_at"),
             created_at=result["created_at"],
         )
@@ -282,6 +355,28 @@ def list_admin_customers_route(
     data, total = list_admin_customers(client, merchant_id=merchant_id, pagination=pagination)
     return APIResponse(
         data=[AdminCustomerResponse(**row) for row in data], meta=build_page_meta(pagination, total)
+    )
+
+
+@router.get("/merchants/{merchant_id}/webhook-config", response_model=APIResponse[WebhookConfigResponse])
+def get_admin_merchant_webhook_config(
+    merchant_id: uuid.UUID,
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    """Read-only Super Admin view of a merchant's webhook config — same
+    shape as the merchant's own GET /v1/merchant/webhook-config, still
+    never exposing the actual signing secret (has_secret is a bool)."""
+    client = get_supabase_admin()
+    merchant = get_by_id(client, "merchants", merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+    return APIResponse(
+        data=WebhookConfigResponse(
+            webhook_url=merchant.get("webhook_url"),
+            subscribed_events=merchant.get("webhook_subscribed_events"),
+            has_secret=bool(merchant.get("webhook_secret")),
+            last_delivery=last_webhook_delivery(client, merchant_id),
+        )
     )
 
 
@@ -649,6 +744,97 @@ def list_admin_webhooks(
         )
         for row in (result.data or [])
     ]
+    return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
+
+
+# --- IP allowlist -------------------------------------------------------------
+
+
+@router.get("/ip-allowlist", response_model=APIResponse[list[AdminIpAllowlistResponse]])
+def list_admin_ip_allowlist(
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
+    environment: Annotated[str | None, Query()] = None,
+    status: Annotated[str | None, Query(description="pending | active | rejected")] = None,
+):
+    client = get_supabase_admin()
+    query = client.table("api_ip_allowlist").select("*", count="exact")
+    if merchant_id is not None:
+        query = query.eq("merchant_id", str(merchant_id))
+    if environment is not None:
+        query = query.eq("environment", environment)
+    if status is not None:
+        query = query.eq("status", status)
+    result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
+    rows = result.data or []
+    merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+
+    data = [AdminIpAllowlistResponse(**row, merchant_name=merchant_names.get(row["merchant_id"], "")) for row in rows]
+    return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
+
+
+def _review_ip_allowlist_entry(
+    entry_id: uuid.UUID, admin: AuthenticatedUser, new_status: str, action: str
+) -> AdminIpAllowlistResponse:
+    client = get_supabase_admin()
+    row = get_by_id(client, "api_ip_allowlist", entry_id)
+    if not row:
+        raise NotFoundError("IP allowlist entry not found")
+
+    updated = update_row(client, "api_ip_allowlist", entry_id, {"status": new_status, "approved_by": str(admin.id)})
+    merchant_id = uuid.UUID(row["merchant_id"])
+    write_audit_log(
+        client,
+        actor_id=admin.id,
+        actor_type="user",
+        merchant_id=merchant_id,
+        action=action,
+        resource_type="api_ip_allowlist",
+        resource_id=entry_id,
+    )
+    result = updated or row
+    merchant_names = batch_merchant_names(client, {result["merchant_id"]})
+    return AdminIpAllowlistResponse(**result, merchant_name=merchant_names.get(result["merchant_id"], ""))
+
+
+@router.post("/ip-allowlist/{entry_id}/approve", response_model=APIResponse[AdminIpAllowlistResponse])
+def approve_ip_allowlist_entry(
+    entry_id: uuid.UUID,
+    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    return APIResponse(data=_review_ip_allowlist_entry(entry_id, admin, "active", "ip_allowlist.approved"))
+
+
+@router.post("/ip-allowlist/{entry_id}/reject", response_model=APIResponse[AdminIpAllowlistResponse])
+def reject_ip_allowlist_entry(
+    entry_id: uuid.UUID,
+    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    return APIResponse(data=_review_ip_allowlist_entry(entry_id, admin, "rejected", "ip_allowlist.rejected"))
+
+
+# --- API logs -------------------------------------------------------------
+
+
+@router.get("/api-logs", response_model=APIResponse[list[AdminApiRequestLogResponse]])
+def list_admin_api_logs(
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
+    environment: Annotated[str | None, Query()] = None,
+):
+    client = get_supabase_admin()
+    query = client.table("api_request_logs").select("*", count="exact")
+    if merchant_id is not None:
+        query = query.eq("merchant_id", str(merchant_id))
+    if environment is not None:
+        query = query.eq("environment", environment)
+    result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
+    rows = result.data or []
+    merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+
+    data = [AdminApiRequestLogResponse(**row, merchant_name=merchant_names.get(row["merchant_id"], "")) for row in rows]
     return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
 
 

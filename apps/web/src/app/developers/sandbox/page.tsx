@@ -30,61 +30,60 @@ export default function SandboxPage() {
       </section>
 
       <section className="mb-12">
-        <h2 className="text-xl font-semibold text-on-surface mb-3">How the mock provider behaves</h2>
+        <h2 className="text-xl font-semibold text-on-surface mb-3">How sandbox collections behave</h2>
         <p className="text-sm text-on-surface-variant leading-relaxed mb-4">
-          A push or QR collection, and every disbursement, resolves with a configurable random failure rate — so your
-          error-handling code gets exercised, not just the happy path. There&apos;s no need to configure anything;
-          this is on by default in sandbox.
+          A sandbox key routes{" "}
+          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">
+            POST /v1/collections/{"{wallet-push,selcom-pesa,qr}"}
+          </code>{" "}
+          to a fully simulated flow — Selcom is never called, and nothing ever touches a real wallet balance. The
+          collection resolves to <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">successful</code> immediately
+          by default. Pass <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">simulate_status</code> to
+          test a different outcome:
         </p>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm border border-outline-variant/40 rounded-xl overflow-hidden">
             <thead className="bg-surface-container-low">
               <tr>
-                <th className="px-4 py-2.5 font-semibold text-on-surface-variant">Behavior</th>
-                <th className="px-4 py-2.5 font-semibold text-on-surface-variant">Default</th>
+                <th className="px-4 py-2.5 font-semibold text-on-surface-variant">simulate_status</th>
+                <th className="px-4 py-2.5 font-semibold text-on-surface-variant">Result</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/30">
               <tr>
-                <td className="px-4 py-2.5 text-on-surface">Random failure rate</td>
-                <td className="px-4 py-2.5 font-mono text-xs text-on-surface-variant">10%</td>
+                <td className="px-4 py-2.5 font-mono text-xs text-on-surface-variant">successful (default)</td>
+                <td className="px-4 py-2.5 text-on-surface">Collection resolves as paid</td>
               </tr>
               <tr>
-                <td className="px-4 py-2.5 text-on-surface">Simulated approval delay</td>
-                <td className="px-4 py-2.5 font-mono text-xs text-on-surface-variant">~0.3s</td>
+                <td className="px-4 py-2.5 font-mono text-xs text-on-surface-variant">failed</td>
+                <td className="px-4 py-2.5 text-on-surface">Collection resolves as failed</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2.5 font-mono text-xs text-on-surface-variant">pending_clearance</td>
+                <td className="px-4 py-2.5 text-on-surface">Held for manual clearance, same as a real self-payment/risk hold</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2.5 font-mono text-xs text-on-surface-variant">reversed</td>
+                <td className="px-4 py-2.5 text-on-surface">Resolves as a settled-then-reversed payment</td>
               </tr>
             </tbody>
           </table>
         </div>
-      </section>
-
-      <section className="mb-12">
-        <h2 className="text-xl font-semibold text-on-surface mb-3">Resolving a push/QR collection manually</h2>
-        <p className="text-sm text-on-surface-variant leading-relaxed mb-4">
-          Collections initiated via <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">/v1/collections/{"{method}"}</code> stay{" "}
-          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">processing</code> until a
-          provider callback resolves them — in sandbox, that&apos;s simulated by posting to the same webhook endpoint
-          a real Selcom callback would land on, signed with your merchant&apos;s webhook secret:
-        </p>
-        <CodeBlock language="bash">{`curl -X POST https://sandbox.infinityafrica.net/v1/webhooks/selcom \\
+        <CodeBlock language="bash">{`curl -X POST https://api.infinityafrica.net/v1/collections/wallet-push \\
+  -H "Authorization: Bearer $INFINITY_SANDBOX_KEY" \\
+  -H "Idempotency-Key: $(uuidgen)" \\
   -H "Content-Type: application/json" \\
-  -H "X-Selcom-Signature: $(echo -n '{"event_id":"evt_1","event_type":"collection.success","provider_reference":"MOCK-SELCOM-9F3A1C2B"}' \\
-      | openssl dgst -sha256 -hmac "$SELCOM_WEBHOOK_SECRET" | cut -d' ' -f2)" \\
-  -d '{"event_id":"evt_1","event_type":"collection.success","provider_reference":"MOCK-SELCOM-9F3A1C2B"}'`}</CodeBlock>
-        <p className="text-sm text-on-surface-variant leading-relaxed mt-3">
-          Use <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">provider_reference</code> from
-          the collection or disbursement you want to resolve, and{" "}
-          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">event_type</code> of{" "}
-          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">collection.success</code>,{" "}
-          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">collection.failed</code>,{" "}
-          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">disbursement.success</code>,
-          or <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">disbursement.failed</code>.
-        </p>
-        <Callout title="Public payment-link checkout resolves on its own">
-          The public <code className="font-mono text-xs">.../collect</code> endpoint (what a customer hits on your
-          checkout page) doesn&apos;t need this — it resolves synchronously in the same response, since the mock
-          provider is called and checked immediately within that request.
+  -d '{"merchant_id":"...","amount":1000,"phone":"255700000000","simulate_status":"failed"}'`}</CodeBlock>
+        <Callout title="simulate_status is sandbox-only">
+          Sending it with a <code className="font-mono text-xs">live</code> key is rejected outright (
+          <code className="font-mono text-xs">422</code>) — it never silently does nothing.
         </Callout>
+        <p className="text-sm text-on-surface-variant leading-relaxed mt-4">
+          One boundary worth knowing: this simulation only covers the three direct push/QR endpoints above — the
+          &quot;Infinity Payment Page&quot; flow (<code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">POST /v1/collections</code>,
+          the customer-facing checkout page) is not sandbox-aware yet and always runs the real flow regardless of
+          which key created it.
+        </p>
       </section>
 
       <section>

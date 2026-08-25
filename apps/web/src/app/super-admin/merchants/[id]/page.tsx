@@ -7,9 +7,16 @@ import { PageHeader } from "@/components/portal/page-header";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import {
+  disableProductionApiAccessAction,
+  enableProductionApiAccessAction,
+  approveIpAllowlistEntryAction,
+  rejectIpAllowlistEntryAction,
+} from "@/lib/admin/live-actions";
+import {
   getAdminMerchant,
   listAdminCollections,
   listAdminInvoices,
+  listAdminIpAllowlist,
   listAdminMerchantApiKeys,
   listAdminPaymentLinks,
   listAdminRiskAlerts,
@@ -49,16 +56,18 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
   const merchant = await getAdminMerchant(merchantId);
   if (!merchant) notFound();
 
-  const [collections, paymentLinks, invoices, apiKeys, withdrawals, pricingRules, kyc, riskAlerts] = await Promise.all([
-    listAdminCollections({ merchantId }),
-    listAdminPaymentLinks({ merchantId }),
-    listAdminInvoices({ merchantId }),
-    listAdminMerchantApiKeys(merchantId),
-    listAdminWithdrawals({ merchantId }),
-    listPricingRulesForMerchant(merchantId),
-    getOnboardingSubmission(merchantId),
-    listAdminRiskAlerts({ merchantId }),
-  ]);
+  const [collections, paymentLinks, invoices, apiKeys, withdrawals, pricingRules, kyc, riskAlerts, ipAllowlist] =
+    await Promise.all([
+      listAdminCollections({ merchantId }),
+      listAdminPaymentLinks({ merchantId }),
+      listAdminInvoices({ merchantId }),
+      listAdminMerchantApiKeys(merchantId),
+      listAdminWithdrawals({ merchantId }),
+      listPricingRulesForMerchant(merchantId),
+      getOnboardingSubmission(merchantId),
+      listAdminRiskAlerts({ merchantId }),
+      listAdminIpAllowlist({ merchantId }),
+    ]);
 
   const totalCollected = collections
     .filter((c) => c.status === "successful")
@@ -77,6 +86,46 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
         description={`${merchant.email}${merchant.contact_phone ? ` · ${merchant.contact_phone}` : ""}`}
         action={<StatusBadge {...badge} />}
       />
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-1.5">
+              Production API Access
+            </p>
+            <p className="text-sm text-on-surface-variant">
+              {merchant.api_production_enabled
+                ? "Enabled — this merchant can create and use live API keys."
+                : "Disabled — this merchant can only create sandbox API keys."}
+            </p>
+          </div>
+          {merchant.api_production_enabled ? (
+            <form action={disableProductionApiAccessAction.bind(null, merchantId)}>
+              <button
+                type="submit"
+                className="border border-error text-error text-sm font-medium py-2 px-4 rounded-lg hover:bg-error-container/10 transition-colors"
+              >
+                Disable Production Access
+              </button>
+            </form>
+          ) : (
+            <form action={enableProductionApiAccessAction.bind(null, merchantId)}>
+              <button
+                type="submit"
+                disabled={merchant.account_status !== "active" || merchant.kyc_status !== "verified"}
+                title={
+                  merchant.account_status !== "active" || merchant.kyc_status !== "verified"
+                    ? "This merchant must be approved and KYC-verified first"
+                    : undefined
+                }
+                className="bg-primary-container text-on-primary text-sm font-medium py-2 px-4 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-60"
+              >
+                Enable Production Access
+              </button>
+            </form>
+          )}
+        </div>
+      </Card>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
         <Card>
@@ -288,6 +337,52 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
                       <td className={`${tdClass} text-xs`}>{row.rule_code}</td>
                       <td className={tdClass}>{row.risk_level}</td>
                       <td className={tdClass}>{row.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
+        <SectionCard title="IP Allowlist">
+          {ipAllowlist.length === 0 ? (
+            <EmptyRow label="No IP addresses configured — production keys are unrestricted." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left min-w-[560px]">
+                <thead>
+                  <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
+                    <th className={thClass}>IP / CIDR</th>
+                    <th className={thClass}>Environment</th>
+                    <th className={thClass}>Status</th>
+                    <th className={`${thClass} text-right`}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {ipAllowlist.map((row) => (
+                    <tr key={row.id} className="border-t border-surface-container-highest">
+                      <td className={tdClass}>
+                        <div className="font-mono text-xs">{row.ip_address_or_cidr}</div>
+                        <div className="text-xs text-on-surface-variant">{row.label}</div>
+                      </td>
+                      <td className={`${tdClass} text-xs capitalize`}>{row.environment}</td>
+                      <td className={tdClass}>{row.status}</td>
+                      <td className={`${tdClass} text-right whitespace-nowrap`}>
+                        {row.status === "pending" && (
+                          <div className="flex items-center justify-end gap-1">
+                            <form action={approveIpAllowlistEntryAction.bind(null, row.id, merchantId)}>
+                              <button type="submit" className="p-1.5 text-on-surface-variant hover:text-primary" title="Approve">
+                                <Icon name="check_circle" className="text-[18px]" />
+                              </button>
+                            </form>
+                            <form action={rejectIpAllowlistEntryAction.bind(null, row.id, merchantId)}>
+                              <button type="submit" className="p-1.5 text-on-surface-variant hover:text-error" title="Reject">
+                                <Icon name="cancel" className="text-[18px]" />
+                              </button>
+                            </form>
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

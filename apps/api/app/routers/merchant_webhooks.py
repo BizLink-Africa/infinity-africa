@@ -34,7 +34,7 @@ from app.schemas.webhook_config import (
     WebhookTestResult,
 )
 from app.services.crud import get_by_id, list_for_merchant, update_row
-from app.services.webhooks import sign_outbound_payload
+from app.services.webhooks import last_webhook_delivery, sign_outbound_payload
 
 router = APIRouter(prefix="/merchant", tags=["merchant-webhooks"])
 
@@ -55,21 +55,6 @@ _SAMPLE_TEST_PAYLOAD = {
 }
 
 
-def _last_delivery(client, merchant_id: uuid.UUID) -> dict | None:
-    """Most recent webhook_events row for this merchant, or None if it's
-    never had one. Not .maybe_single() — that requires exactly 0 or 1 rows
-    match, but a merchant can have many; order + take the first instead,
-    same pattern as services/onboarding.py's list_onboarding_submissions."""
-    rows = (
-        client.table("webhook_events")
-        .select("event_name, status, created_at")
-        .eq("merchant_id", str(merchant_id))
-        .order("created_at", desc=True)
-        .execute()
-    ).data or []
-    return rows[0] if rows else None
-
-
 @router.get("/webhook-config", response_model=APIResponse[WebhookConfigResponse])
 def get_webhook_config(
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
@@ -81,7 +66,7 @@ def get_webhook_config(
             webhook_url=merchant.get("webhook_url") if merchant else None,
             subscribed_events=merchant.get("webhook_subscribed_events") if merchant else None,
             has_secret=bool(merchant and merchant.get("webhook_secret")),
-            last_delivery=_last_delivery(client, membership.merchant_id),
+            last_delivery=last_webhook_delivery(client, membership.merchant_id),
         )
     )
 
@@ -112,7 +97,7 @@ def update_webhook_config(
             webhook_url=merchant.get("webhook_url") if merchant else None,
             subscribed_events=merchant.get("webhook_subscribed_events") if merchant else None,
             has_secret=bool(merchant and merchant.get("webhook_secret")),
-            last_delivery=_last_delivery(client, membership.merchant_id),
+            last_delivery=last_webhook_delivery(client, membership.merchant_id),
             secret=new_secret,
         )
     )

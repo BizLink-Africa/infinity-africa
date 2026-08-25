@@ -20,6 +20,8 @@ export const PORTAL_NAV_ITEMS: PortalNavItem[] = [
   { label: "API Keys", href: "/merchant/api-keys", icon: "api" },
   { label: "Developer Docs", href: "/merchant/developer-docs", icon: "menu_book" },
   { label: "Webhooks", href: "/portal/webhooks", icon: "webhook" },
+  { label: "IP Allowlist", href: "/portal/ip-allowlist", icon: "shield_lock" },
+  { label: "API Logs", href: "/portal/api-logs", icon: "history_toggle_off" },
   { label: "Reports", href: "/portal/reports", icon: "bar_chart" },
   { label: "Settings", href: "/merchant/settings", icon: "settings" },
   { label: "Support", href: "/portal/support", icon: "help" },

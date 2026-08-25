@@ -56,6 +56,17 @@ class WithdrawalRestrictedError(ConflictError):
     code = "withdrawal_restricted"
 
 
+class ProductionAccessRestrictedError(APIError):
+    """A merchant tried to create/rotate a `live` API key before Super
+    Admin enabled production API access for them (on top of already being
+    KYC-approved) — see app/services/api_access.py. 403, not 409: this
+    isn't a conflict with existing data, it's a permission the merchant
+    doesn't have yet."""
+
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "production_access_restricted"
+
+
 class SelcomAPIError(APIError):
     """Selcom returned a non-2xx response, an unparseable body, or the
     request failed outright (timeout/connection error). 502, not 409/500 —

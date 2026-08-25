@@ -32,6 +32,8 @@ export const ROLE_ALLOWED_PATHS: Record<UserRole, string[] | "*"> = {
     "/merchant/api-keys",
     "/merchant/developer-docs",
     "/portal/webhooks",
+    "/portal/ip-allowlist",
+    "/portal/api-logs",
     "/merchant/profile",
     "/merchant/settings",
   ],

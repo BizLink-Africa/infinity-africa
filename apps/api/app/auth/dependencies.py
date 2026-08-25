@@ -25,11 +25,12 @@ meant to be treated as an authorization source of truth.
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth.hashing import hash_api_key
 from app.auth.jwt import InvalidTokenError, decode_access_token
+from app.core.request_ip import client_ip
 from app.core.time import utc_now_iso
 from app.database.session import get_supabase_admin
 from app.schemas.auth import (
@@ -41,6 +42,7 @@ from app.schemas.auth import (
 )
 from app.schemas.enums import UserRole
 from app.services.crud import execute_maybe_single
+from app.services.ip_allowlist import is_ip_allowed
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -141,12 +143,19 @@ def require_super_admin(
 
 
 def verify_api_key(
+    request: Request,
     raw_key: Annotated[str | None, Depends(_api_key_header)],
 ) -> ApiKeyContext:
     """Verify the `X-API-Key` header for merchant-to-Infinity Africa server integrations.
 
     A separate credential from Supabase Auth — used by a merchant's own
     backend calling the Infinity Africa API directly, not by apps/web.
+
+    Also enforces the merchant's IP allowlist (live environment only —
+    see app/services/ip_allowlist.py) and records last_used_at/
+    last_used_ip on the key. A rejected-for-IP attempt still writes an
+    api_request_logs row before raising, so it shows up as a rejected
+    attempt in the merchant/Super Admin API Logs views, not silently.
     """
     if not raw_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing API key")
@@ -163,12 +172,72 @@ def verify_api_key(
     if not data:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked API key")
 
+    ip = client_ip(request)
+
+    if data["environment"] == "live" and not is_ip_allowed(
+        supabase, merchant_id=uuid.UUID(data["merchant_id"]), environment="live", ip=ip
+    ):
+        _log_api_request(
+            supabase,
+            merchant_id=data["merchant_id"],
+            api_key_id=data["id"],
+            environment=data["environment"],
+            request=request,
+            status_code=status.HTTP_403_FORBIDDEN,
+            ip=ip,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Request rejected: this IP address is not on the merchant's approved allowlist",
+        )
+
     try:
-        supabase.table("api_keys").update({"last_used_at": utc_now_iso()}).eq("id", data["id"]).execute()
+        supabase.table("api_keys").update({"last_used_at": utc_now_iso(), "last_used_ip": ip}).eq(
+            "id", data["id"]
+        ).execute()
     except Exception:  # noqa: BLE001, S110 — never let usage tracking fail the request
         pass
 
-    return ApiKeyContext(**data)
+    context = ApiKeyContext(**data)
+    # Picked up by ApiRequestLogMiddleware (app/middleware/api_request_log.py)
+    # after the response completes — this dependency itself only handles
+    # the IP-allowlist-rejection log (see _log_api_request above), since
+    # that happens before a response exists to log the status of.
+    request.state.api_key_context = context
+    request.state.client_ip = ip
+    return context
+
+
+def _log_api_request(
+    supabase,
+    *,
+    merchant_id: str,
+    api_key_id: str,
+    environment: str,
+    request: Request,
+    status_code: int,
+    ip: str | None,
+) -> None:
+    """Best-effort — a logging failure must never break the actual
+    request. The success-path equivalent (every request, not just
+    rejections) is ApiRequestLogMiddleware; this one call site exists
+    because an IP-allowlist rejection happens inside this dependency,
+    before the middleware's own after-response hook would otherwise see
+    which merchant/key it was for."""
+    try:
+        supabase.table("api_request_logs").insert(
+            {
+                "merchant_id": merchant_id,
+                "api_key_id": api_key_id,
+                "environment": environment,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": status_code,
+                "ip_address": ip,
+            }
+        ).execute()
+    except Exception:  # noqa: BLE001, S110
+        pass
 
 
 def _coalesce_api_key(
@@ -217,13 +286,14 @@ def get_merchant_actor(*allowed_roles: UserRole):
     """
 
     def _dependency(
+        request: Request,
         merchant_id: uuid.UUID,
         api_key: Annotated[str | None, Depends(_api_key_header)] = None,
         credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)] = None,
     ) -> MerchantActor:
         resolved_api_key = _coalesce_api_key(api_key, credentials)
         if resolved_api_key:
-            key_context = verify_api_key(resolved_api_key)
+            key_context = verify_api_key(request, resolved_api_key)
             if key_context.merchant_id != merchant_id:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN, detail="API key does not belong to this merchant"
@@ -310,6 +380,7 @@ def require_own_merchant_role(*allowed_roles: UserRole):
 
 
 def get_authenticated_caller(
+    request: Request,
     api_key: Annotated[str | None, Depends(_api_key_header)] = None,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)] = None,
 ) -> AuthenticatedCaller:
@@ -320,12 +391,13 @@ def get_authenticated_caller(
     """
     resolved_api_key = _coalesce_api_key(api_key, credentials)
     if resolved_api_key:
-        key_context = verify_api_key(resolved_api_key)
+        key_context = verify_api_key(request, resolved_api_key)
         return AuthenticatedCaller(
             actor_type="api_key",
             actor_id=key_context.id,
             merchant_id=key_context.merchant_id,
             scopes=key_context.scopes,
+            environment=key_context.environment,
         )
 
     if credentials:

@@ -5,12 +5,16 @@ import { revalidatePath } from "next/cache";
 import {
   addRiskAlertNote,
   approveDocumentRequest,
+  approveIpAllowlistEntry,
   approveMerchantOnboarding,
   approveWithdrawal,
   createMerchantPricingRule,
   createPlatformFallbackPricingRule,
   deactivatePricingRule,
+  disableProductionApiAccess,
+  enableProductionApiAccess,
   rejectDocumentRequest,
+  rejectIpAllowlistEntry,
   rejectWithdrawal,
   reconcilePendingWithdrawals,
   refreshWithdrawalStatus,
@@ -40,6 +44,26 @@ export async function setMerchantStatusAction(merchantId: string, status: Mercha
 export async function revokeAdminApiKeyAction(apiKeyId: string) {
   await revokeAdminApiKey(apiKeyId);
   revalidatePath("/super-admin/api-keys");
+}
+
+export async function enableProductionApiAccessAction(merchantId: string) {
+  await enableProductionApiAccess(merchantId);
+  revalidatePath(`/super-admin/merchants/${merchantId}`);
+}
+
+export async function disableProductionApiAccessAction(merchantId: string) {
+  await disableProductionApiAccess(merchantId);
+  revalidatePath(`/super-admin/merchants/${merchantId}`);
+}
+
+export async function approveIpAllowlistEntryAction(entryId: string, merchantId: string) {
+  await approveIpAllowlistEntry(entryId);
+  revalidatePath(`/super-admin/merchants/${merchantId}`);
+}
+
+export async function rejectIpAllowlistEntryAction(entryId: string, merchantId: string) {
+  await rejectIpAllowlistEntry(entryId);
+  revalidatePath(`/super-admin/merchants/${merchantId}`);
 }
 
 export async function approveWithdrawalAction(withdrawalId: string) {

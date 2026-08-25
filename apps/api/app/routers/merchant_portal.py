@@ -30,6 +30,7 @@ from app.core.pagination import PaginationParams, build_page_meta, pagination_pa
 from app.core.references import generate_reference
 from app.database.session import get_supabase_admin
 from app.schemas.api_keys import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyResponse
+from app.schemas.api_logs import ApiRequestLogResponse
 from app.schemas.auth import MerchantMembership
 from app.schemas.checkout_orders import CheckoutOrderResponse
 from app.schemas.collections import (
@@ -48,6 +49,7 @@ from app.schemas.document_requests import DocumentRequestResponse
 from app.schemas.enums import CollectionMethod, UserRole
 from app.schemas.fraud import FraudAlertResponse
 from app.schemas.invoices import InvoiceItemResponse, InvoiceResponse, InvoiceUpdate
+from app.schemas.ip_allowlist import IpAllowlistCreate, IpAllowlistResponse
 from app.schemas.merchant_portal import (
     CreateOrderMinimalRequest,
     MerchantDynamicQrCollectionRequest,
@@ -71,6 +73,7 @@ from app.schemas.transactions import TransactionResponse
 from app.schemas.withdrawals import FeeBreakdown, WithdrawalQuoteRequest
 from app.services import disputes_service, document_requests_service
 from app.services.admin_directory import batch_user_profiles, best_effort_user_profile
+from app.services.api_access import check_production_api_access
 from app.services.audit import write_audit_log
 from app.services.checkout_orders import create_checkout_order_minimal
 from app.services.checkout_reconciliation import refresh_checkout_collection_status
@@ -1031,8 +1034,12 @@ def create_my_api_key(
     payload: ApiKeyCreate,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
 ):
-    plaintext, prefix = _generate_api_key(payload.environment)
     client = get_supabase_admin()
+    if payload.environment == "live":
+        merchant = get_by_id(client, "merchants", membership.merchant_id)
+        check_production_api_access(merchant or {})
+
+    plaintext, prefix = _generate_api_key(payload.environment)
 
     row = insert_row(
         client,
@@ -1119,6 +1126,9 @@ def rotate_my_api_key(
         raise NotFoundError("API key not found")
     if old_row["status"] == "revoked":
         raise ConflictError("This key was already revoked")
+    if old_row["environment"] == "live":
+        merchant = get_by_id(client, "merchants", membership.merchant_id)
+        check_production_api_access(merchant or {})
 
     update_row(
         client,
@@ -1164,6 +1174,99 @@ def rotate_my_api_key(
             created_at=new_row["created_at"],
         )
     )
+
+
+# --- IP allowlist -------------------------------------------------------------
+# Merchant-provided server IPs — Infinity never generates these. Only ever
+# enforced for `live` traffic, and only once at least one `active` row
+# exists (see app/services/ip_allowlist.py). New rows start `pending`
+# until a Super Admin approves them (PATCH /v1/admin/ip-allowlist/*).
+
+
+@router.get("/ip-allowlist", response_model=APIResponse[list[IpAllowlistResponse]])
+def list_my_ip_allowlist(
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+):
+    client = get_supabase_admin()
+    rows, total = list_for_merchant(client, "api_ip_allowlist", merchant_id=membership.merchant_id, pagination=pagination)
+    data = [IpAllowlistResponse(**row) for row in rows]
+    return APIResponse(data=data, meta=build_page_meta(pagination, total))
+
+
+@router.post("/ip-allowlist", response_model=APIResponse[IpAllowlistResponse], status_code=status.HTTP_201_CREATED)
+def create_my_ip_allowlist_entry(
+    payload: IpAllowlistCreate,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
+):
+    client = get_supabase_admin()
+    if payload.api_key_id is not None:
+        key = get_by_id(client, "api_keys", payload.api_key_id)
+        if not key or uuid.UUID(key["merchant_id"]) != membership.merchant_id:
+            raise NotFoundError("API key not found")
+
+    row = insert_row(
+        client,
+        "api_ip_allowlist",
+        {
+            "merchant_id": str(membership.merchant_id),
+            "api_key_id": str(payload.api_key_id) if payload.api_key_id else None,
+            "environment": payload.environment,
+            "label": payload.label,
+            "ip_address_or_cidr": payload.ip_address_or_cidr,
+            "notes": payload.notes,
+            "status": "pending",
+            "created_by": str(membership.user_id),
+        },
+    )
+    write_audit_log(
+        client,
+        actor_id=membership.user_id,
+        actor_type="user",
+        merchant_id=membership.merchant_id,
+        action="ip_allowlist.created",
+        resource_type="api_ip_allowlist",
+        resource_id=uuid.UUID(row["id"]),
+        metadata={"environment": payload.environment, "ip_address_or_cidr": payload.ip_address_or_cidr},
+    )
+    return APIResponse(data=IpAllowlistResponse(**row))
+
+
+@router.delete("/ip-allowlist/{entry_id}", response_model=APIResponse[dict])
+def delete_my_ip_allowlist_entry(
+    entry_id: uuid.UUID,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
+):
+    client = get_supabase_admin()
+    row = get_by_id(client, "api_ip_allowlist", entry_id)
+    if not row or uuid.UUID(row["merchant_id"]) != membership.merchant_id:
+        raise NotFoundError("IP allowlist entry not found")
+
+    client.table("api_ip_allowlist").delete().eq("id", str(entry_id)).execute()
+    write_audit_log(
+        client,
+        actor_id=membership.user_id,
+        actor_type="user",
+        merchant_id=membership.merchant_id,
+        action="ip_allowlist.deleted",
+        resource_type="api_ip_allowlist",
+        resource_id=entry_id,
+    )
+    return APIResponse(data={"deleted": True})
+
+
+# --- API logs -------------------------------------------------------------
+
+
+@router.get("/api-logs", response_model=APIResponse[list[ApiRequestLogResponse]])
+def list_my_api_logs(
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+):
+    client = get_supabase_admin()
+    rows, total = list_for_merchant(client, "api_request_logs", merchant_id=membership.merchant_id, pagination=pagination)
+    data = [ApiRequestLogResponse(**row) for row in rows]
+    return APIResponse(data=data, meta=build_page_meta(pagination, total))
 
 
 # --- Risk monitoring ---------------------------------------------------------

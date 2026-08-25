@@ -53,6 +53,7 @@ class AdminApiKeyResponse(BaseModel):
     scopes: list[str]
     status: str
     last_used_at: datetime | None = None
+    last_used_ip: str | None = None
     revoked_at: datetime | None = None
     created_at: datetime
 
@@ -66,6 +67,8 @@ class AdminMerchantResponse(BaseModel):
     nature_of_business: str | None = None
     physical_address: str | None = None
     account_status: str
+    kyc_status: str
+    api_production_enabled: bool
     available_balance: Decimal
     created_at: datetime
 

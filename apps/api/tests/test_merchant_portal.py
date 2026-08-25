@@ -388,7 +388,7 @@ def test_revoke_api_key_keeps_scopes_and_marks_revoked(fake_client):
 
 
 def test_rotate_api_key_revokes_old_and_creates_new_with_same_settings(fake_client):
-    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER", api_production_enabled=True)
     created = client.post(
         "/v1/merchant/api-keys",
         headers=auth_headers(user_id),

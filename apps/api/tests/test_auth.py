@@ -1,5 +1,6 @@
 import time
 import uuid
+from types import SimpleNamespace
 
 import jwt
 import pytest
@@ -68,6 +69,19 @@ class _FakeClient:
 
     def table(self, name: str):
         return _FakeQuery(self._table_data.get(name))
+
+
+class _FakeRequest:
+    """Just enough of a Starlette Request for verify_api_key's IP lookup
+    (client_ip()) and its post-auth `request.state.api_key_context`
+    stash — real request/response plumbing is exercised end-to-end via
+    TestClient elsewhere (tests/test_ip_allowlist.py), this is only for
+    unit-testing verify_api_key's own logic in isolation."""
+
+    def __init__(self):
+        self.headers: dict = {}
+        self.client = None
+        self.state = SimpleNamespace()
 
 
 # --- decode_access_token / get_current_user -------------------------------
@@ -151,7 +165,7 @@ def test_verify_api_key_accepts_active_key(monkeypatch):
         ),
     )
 
-    context = deps.verify_api_key("ik_live_abc123")
+    context = deps.verify_api_key(_FakeRequest(), "ik_live_abc123")
 
     assert context.id == key_id
     assert context.merchant_id == merchant_id
@@ -162,14 +176,14 @@ def test_verify_api_key_rejects_unknown_or_revoked_key(monkeypatch):
     monkeypatch.setattr(deps, "get_supabase_admin", lambda: _FakeClient({"api_keys": None}))
 
     with pytest.raises(HTTPException) as exc_info:
-        deps.verify_api_key("ik_live_doesnotexist")
+        deps.verify_api_key(_FakeRequest(), "ik_live_doesnotexist")
 
     assert exc_info.value.status_code == 401
 
 
 def test_verify_api_key_rejects_missing_header():
     with pytest.raises(HTTPException) as exc_info:
-        deps.verify_api_key(None)
+        deps.verify_api_key(_FakeRequest(), None)
 
     assert exc_info.value.status_code == 401
 

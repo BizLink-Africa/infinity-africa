@@ -53,3 +53,4 @@ class AuthenticatedCaller(BaseModel):
     merchant_id: uuid.UUID | None = None  # known immediately for api_key callers
     user: AuthenticatedUser | None = None  # set for user callers, for the membership check
     scopes: list[str] = []  # only meaningful for actor_type == "api_key"
+    environment: str | None = None  # "sandbox" | "live" — only set for actor_type == "api_key"

@@ -11,6 +11,7 @@ import type {
   AdminDocumentRequestRow,
   AdminFraudAlertRow,
   AdminInvoiceRow,
+  AdminIpAllowlistRow,
   AdminNotificationRow,
   AdminOverview,
   AdminPaymentLinkRow,
@@ -119,6 +120,28 @@ export async function getAdminMerchant(merchantId: string): Promise<Merchant | n
 
 export async function listAdminMerchantApiKeys(merchantId: string): Promise<AdminApiKeyRow[]> {
   return apiList<AdminApiKeyRow>(`/v1/admin/merchants/${merchantId}/api-keys`);
+}
+
+export async function enableProductionApiAccess(merchantId: string): Promise<void> {
+  await apiWrite(`/v1/admin/merchants/${merchantId}/api-access/enable-production`, "POST");
+}
+
+export async function disableProductionApiAccess(merchantId: string): Promise<void> {
+  await apiWrite(`/v1/admin/merchants/${merchantId}/api-access/disable-production`, "POST");
+}
+
+export async function listAdminIpAllowlist(filters?: { merchantId?: string }): Promise<AdminIpAllowlistRow[]> {
+  const params = new URLSearchParams(LIST_ALL_PARAMS);
+  if (filters?.merchantId) params.set("merchant_id", filters.merchantId);
+  return apiList<AdminIpAllowlistRow>(`/v1/admin/ip-allowlist?${params.toString()}`);
+}
+
+export async function approveIpAllowlistEntry(entryId: string): Promise<void> {
+  await apiWrite(`/v1/admin/ip-allowlist/${entryId}/approve`, "POST");
+}
+
+export async function rejectIpAllowlistEntry(entryId: string): Promise<void> {
+  await apiWrite(`/v1/admin/ip-allowlist/${entryId}/reject`, "POST");
 }
 
 export async function listAdminApiKeys(filters?: {

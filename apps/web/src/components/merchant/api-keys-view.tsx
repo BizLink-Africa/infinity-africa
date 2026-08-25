@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/portal/page-header";
 import { SegmentedControl } from "@/components/portal/segmented-control";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatDateTime } from "@/lib/format";
-import { createApiKey, listApiKeys, revokeApiKey, rotateApiKey } from "@/lib/portal/api";
+import { createApiKey, getMyMerchant, listApiKeys, revokeApiKey, rotateApiKey } from "@/lib/portal/api";
 import { API_KEY_SCOPES, type ApiKey, type ApiKeyScope } from "@/lib/portal/types";
 
 const SCOPE_LABELS: Record<ApiKeyScope, string> = {
@@ -40,11 +40,20 @@ export function ApiKeysView() {
   const [formOpen, setFormOpen] = useState(false);
   const [keyName, setKeyName] = useState("");
   const [scopes, setScopes] = useState<ApiKeyScope[]>([]);
+  const [productionEnabled, setProductionEnabled] = useState<boolean | null>(null);
+  const [kycVerified, setKycVerified] = useState(true);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   const visibleKeys = keys.filter((key) => key.environment === environment);
+  const liveBlocked = environment === "live" && productionEnabled === false;
 
   useEffect(() => {
     listApiKeys().then(setKeys);
+    getMyMerchant().then((merchant) => {
+      if (!merchant) return;
+      setKycVerified(merchant.status === "active" && merchant.kyc_status === "verified");
+      setProductionEnabled(merchant.api_production_enabled);
+    });
   }, []);
 
   function toggleScope(scope: ApiKeyScope) {
@@ -56,6 +65,7 @@ export function ApiKeysView() {
     if (!keyName.trim() || scopes.length === 0) return;
 
     setGenerating(true);
+    setGenerateError(null);
     try {
       const { key, plaintext_key } = await createApiKey({ name: keyName.trim(), environment, scopes });
       setKeys((prev) => [key, ...prev]);
@@ -64,6 +74,8 @@ export function ApiKeysView() {
       setFormOpen(false);
       setKeyName("");
       setScopes([]);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : "Couldn't generate this API key.");
     } finally {
       setGenerating(false);
     }
@@ -127,6 +139,19 @@ export function ApiKeysView() {
         </p>
       </div>
 
+      {liveBlocked && (
+        <div className="flex items-start gap-3 rounded-lg border border-outline-variant bg-surface-container-low px-4 py-3.5">
+          <Icon name="lock" className="text-[20px] text-on-surface-variant shrink-0 mt-0.5" />
+          <p className="text-sm text-on-surface-variant">
+            <span className="font-semibold text-on-background">Production API access isn&rsquo;t enabled yet.</span>{" "}
+            {kycVerified
+              ? "Your account is verified, but Infinity Africa hasn't enabled live API access for you yet — contact us to request it."
+              : "Complete onboarding verification first, then contact Infinity Africa to request live API access."}{" "}
+            You can still create and use Sandbox keys in the meantime.
+          </p>
+        </div>
+      )}
+
       {revealed && (
         <Card className="border-primary">
           <div className="flex items-start justify-between gap-4">
@@ -186,10 +211,12 @@ export function ApiKeysView() {
                 ))}
               </div>
             </div>
+            {generateError && <p className="text-sm text-error">{generateError}</p>}
             <div className="flex items-center gap-3">
               <button
                 type="submit"
-                disabled={generating || !keyName.trim() || scopes.length === 0}
+                disabled={generating || !keyName.trim() || scopes.length === 0 || liveBlocked}
+                title={liveBlocked ? "Production API access isn't enabled for this account yet" : undefined}
                 className="bg-primary-container text-on-primary text-sm font-medium py-2.5 px-5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-60"
               >
                 {generating ? "Generating…" : "Generate API Key"}

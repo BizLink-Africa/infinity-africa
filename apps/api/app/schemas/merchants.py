@@ -39,6 +39,7 @@ class MerchantResponse(BaseModel):
     contact_phone: str | None = None
     status: str
     kyc_status: str
+    api_production_enabled: bool = False
     webhook_url: str | None = None
     created_at: datetime
     updated_at: datetime

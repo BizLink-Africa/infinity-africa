@@ -37,6 +37,8 @@ export interface Merchant {
   nature_of_business: string | null;
   physical_address: string | null;
   account_status: MerchantAccountStatus;
+  kyc_status: string;
+  api_production_enabled: boolean;
   available_balance: string;
   created_at: string;
 }
@@ -196,6 +198,22 @@ export interface AdminApiKeyRow {
   status: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminIpAllowlistRow {
+  id: string;
+  merchant_id: string;
+  merchant_name: string;
+  api_key_id: string | null;
+  environment: "sandbox" | "live";
+  label: string;
+  ip_address_or_cidr: string;
+  status: "pending" | "active" | "rejected";
+  notes: string | null;
+  created_by: string | null;
+  approved_by: string | null;
   created_at: string;
   updated_at: string;
 }

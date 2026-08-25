@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.core.errors import register_exception_handlers
+from app.middleware.api_request_log import ApiRequestLogMiddleware
 from app.routers import (
     admin,
     admin_disputes,
@@ -42,6 +43,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ApiRequestLogMiddleware)
 
 register_exception_handlers(app)
 

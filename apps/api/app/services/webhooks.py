@@ -19,6 +19,23 @@ from supabase import Client
 from app.services.crud import execute_maybe_single, get_by_id, insert_row
 
 
+def last_webhook_delivery(client: Client, merchant_id: uuid.UUID) -> dict | None:
+    """Most recent webhook_events row for this merchant, or None if it's
+    never had one. Not .maybe_single() — that requires exactly 0 or 1 rows
+    match, but a merchant can have many; order + take the first instead,
+    same pattern as services/onboarding.py's list_onboarding_submissions.
+    Shared by the merchant's own GET /v1/merchant/webhook-config and the
+    Super Admin GET /v1/admin/merchants/{id}/webhook-config."""
+    rows = (
+        client.table("webhook_events")
+        .select("event_name, status, created_at")
+        .eq("merchant_id", str(merchant_id))
+        .order("created_at", desc=True)
+        .execute()
+    ).data or []
+    return rows[0] if rows else None
+
+
 def sign_outbound_payload(*, raw_body: bytes, secret: str) -> str:
     """HMAC-SHA256 over the raw JSON body, using the merchant's own
     webhook_secret — the signature a merchant's receiving endpoint should

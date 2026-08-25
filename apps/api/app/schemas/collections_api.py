@@ -75,6 +75,9 @@ class CollectionCreateResponse(BaseModel):
     payment_url: str
 
 
+SimulatedCollectionStatus = Literal["successful", "failed", "pending_clearance", "reversed"]
+
+
 class CollectionPushCreateRequest(BaseModel):
     """Shared shape for POST /v1/collections/wallet-push and
     POST /v1/collections/selcom-pesa — a phone number is required, a
@@ -87,6 +90,10 @@ class CollectionPushCreateRequest(BaseModel):
     customer_name: str | None = None
     reference: str | None = Field(default=None, max_length=100)
     description: str | None = None
+    # Sandbox-only — picks the outcome to simulate instead of a real
+    # Selcom call. Rejected (not silently ignored) for a live key; see
+    # app/services/sandbox_collections.py.
+    simulate_status: SimulatedCollectionStatus | None = None
 
     @field_validator("phone")
     @classmethod
@@ -113,6 +120,7 @@ class CollectionQrCreateRequest(BaseModel):
     customer_phone: str | None = None
     reference: str | None = Field(default=None, max_length=100)
     description: str | None = None
+    simulate_status: SimulatedCollectionStatus | None = None
 
     @field_validator("customer_phone")
     @classmethod

@@ -12,6 +12,7 @@ const key: ApiKey = {
   scopes: ["collections:write", "collections:read"],
   status: "active",
   last_used_at: null,
+  last_used_ip: null,
   revoked_at: null,
   created_at: "2026-08-01T10:00:00Z",
   updated_at: "2026-08-01T10:00:00Z",
@@ -21,18 +22,25 @@ const listApiKeys = vi.fn();
 const createApiKey = vi.fn();
 const revokeApiKey = vi.fn();
 const rotateApiKey = vi.fn();
+const getMyMerchant = vi.fn();
 
 vi.mock("@/lib/portal/api", () => ({
   listApiKeys: (...args: unknown[]) => listApiKeys(...args),
   createApiKey: (...args: unknown[]) => createApiKey(...args),
   revokeApiKey: (...args: unknown[]) => revokeApiKey(...args),
   rotateApiKey: (...args: unknown[]) => rotateApiKey(...args),
+  getMyMerchant: (...args: unknown[]) => getMyMerchant(...args),
 }));
 
 describe("ApiKeysView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     listApiKeys.mockResolvedValue([key]);
+    getMyMerchant.mockResolvedValue({
+      status: "active",
+      kyc_status: "verified",
+      api_production_enabled: true,
+    });
   });
 
   it("always shows the never-expose-secrets warning", async () => {
@@ -66,6 +74,27 @@ describe("ApiKeysView", () => {
     await waitFor(() => expect(rotateApiKey).toHaveBeenCalledWith("key-1"));
     expect(await screen.findByText("inf_sandbox_newkey123")).toBeInTheDocument();
     expect(screen.getByText("Copy this key now. You will not be able to view it again.")).toBeInTheDocument();
+  });
+
+  it("blocks generating a Live key and explains why when production access isn't enabled", async () => {
+    getMyMerchant.mockResolvedValue({
+      status: "active",
+      kyc_status: "verified",
+      api_production_enabled: false,
+    });
+    const { ApiKeysView } = await import("./api-keys-view");
+    render(<ApiKeysView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Live" }));
+    await screen.findByText(/Production API access isn.t enabled yet/);
+
+    const triggerButtons = screen.getAllByRole("button", { name: "Generate API Key" });
+    fireEvent.click(triggerButtons[0]);
+
+    const submitButton = (await screen.findAllByRole("button", { name: "Generate API Key" })).find(
+      (button) => button.getAttribute("type") === "submit",
+    );
+    expect(submitButton).toBeDisabled();
   });
 
   it("does not show Rotate/Revoke for an already-revoked key", async () => {

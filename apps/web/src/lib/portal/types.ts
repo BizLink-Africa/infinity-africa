@@ -221,9 +221,35 @@ export interface ApiKey {
   scopes: string[];
   status: "active" | "revoked";
   last_used_at: string | null;
+  last_used_ip: string | null;
   revoked_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface IpAllowlistEntry {
+  id: string;
+  merchant_id: string;
+  api_key_id: string | null;
+  environment: "sandbox" | "live";
+  label: string;
+  ip_address_or_cidr: string;
+  status: "pending" | "active" | "rejected";
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiRequestLog {
+  id: string;
+  api_key_id: string | null;
+  environment: "sandbox" | "live";
+  method: string;
+  path: string;
+  status_code: number;
+  ip_address: string | null;
+  duration_ms: number | null;
+  created_at: string;
 }
 
 /** The 8 scopes a merchant can grant an API key — mirrors
@@ -277,6 +303,7 @@ export interface MerchantProfile {
   contact_phone: string | null;
   status: string;
   kyc_status: string;
+  api_production_enabled: boolean;
   webhook_url: string | null;
   created_at: string;
   updated_at: string;

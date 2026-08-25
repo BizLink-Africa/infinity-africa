@@ -11,7 +11,12 @@ from app.config import get_settings
 from app.main import app
 from app.services.audit import write_audit_log
 from app.services.webhooks import store_incoming_selcom_event
-from tests.factories import TEST_JWT_SECRET, auth_headers, make_super_admin
+from tests.factories import (
+    TEST_JWT_SECRET,
+    auth_headers,
+    create_merchant,
+    make_super_admin,
+)
 
 client = TestClient(app)
 
@@ -111,3 +116,21 @@ def test_list_admin_audit_logs_actor_null_for_system_actions(fake_client):
     assert response.status_code == 200
     row = response.json()["data"][0]
     assert row["actor"] is None
+
+
+def test_admin_can_view_but_never_the_secret_of_a_merchants_webhook_config(fake_client):
+    merchant = create_merchant(
+        fake_client,
+        webhook_url="https://merchant.example.com/webhooks",
+        webhook_secret="super-secret-value",
+        webhook_subscribed_events=["collection.successful"],
+    )
+    _, headers = _admin_headers(fake_client)
+
+    response = client.get(f"/v1/admin/merchants/{merchant['id']}/webhook-config", headers=headers)
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["webhook_url"] == "https://merchant.example.com/webhooks"
+    assert data["subscribed_events"] == ["collection.successful"]
+    assert data["has_secret"] is True
+    assert "super-secret-value" not in response.text

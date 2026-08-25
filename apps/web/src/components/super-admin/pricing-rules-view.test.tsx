@@ -23,6 +23,8 @@ const merchant: Merchant = {
   nature_of_business: null,
   physical_address: null,
   account_status: "active",
+  kyc_status: "verified",
+  api_production_enabled: false,
   available_balance: "0",
   created_at: "2026-08-01T00:00:00Z",
 };

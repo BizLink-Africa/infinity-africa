@@ -29,7 +29,7 @@ from app.auth import (
     get_authenticated_caller,
     require_api_key_scope,
 )
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
 from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedCaller
 from app.schemas.collections_api import (
@@ -54,12 +54,39 @@ from app.services.crud import insert_row
 from app.services.dynamic_qr import execute_qr_collection
 from app.services.idempotency import run_idempotent
 from app.services.payment_links import build_public_url, generate_public_slug
+from app.services.sandbox_collections import execute_sandbox_collection
 from app.services.selcompesa_push import execute_selcompesa_push_collection
 from app.services.wallet_push import execute_wallet_push_collection
 
 router = APIRouter(prefix="/collections", tags=["collections-api"])
 
 _DASHBOARD_ROLES = (UserRole.MERCHANT_ADMIN, UserRole.MERCHANT_STAFF)
+
+
+def _is_sandbox_key(caller: AuthenticatedCaller) -> bool:
+    return caller.actor_type == "api_key" and caller.environment == "sandbox"
+
+
+def _reject_simulate_status_outside_sandbox(caller: AuthenticatedCaller, simulate_status: str | None) -> None:
+    if simulate_status is not None and not _is_sandbox_key(caller):
+        raise ValidationAPIError("simulate_status is only accepted from a sandbox API key")
+
+
+def _push_message(collection: dict, *, pending_message: str) -> str:
+    """A real (non-sandbox) push always acks "processing" here — never
+    synchronously "successful"/"reversed"/"pending_review" — so those
+    three branches only ever apply to a sandbox collection's simulated
+    final status."""
+    status_value = collection["status"]
+    if status_value == "failed":
+        return collection.get("failure_reason") or "This payment attempt failed."
+    if status_value == "successful":
+        return "Payment completed (sandbox simulation)."
+    if status_value == "reversed":
+        return "Payment reversed (sandbox simulation)."
+    if status_value == "pending_review":
+        return "Payment pending clearance (sandbox simulation)."
+    return pending_message
 
 
 def _status_response(row: dict) -> CollectionStatusResponse:
@@ -159,26 +186,39 @@ async def create_wallet_push_collection(
     `collection.successful` webhook."""
     authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
     require_api_key_scope(caller, "collections:write")
+    _reject_simulate_status_outside_sandbox(caller, payload.simulate_status)
     client = get_supabase_admin()
 
     async def _handler() -> tuple[int, dict]:
-        collection = await execute_wallet_push_collection(
-            client,
-            merchant_id=payload.merchant_id,
-            amount=payload.amount,
-            currency=payload.currency,
-            customer_phone=payload.phone,
-            customer_name=payload.customer_name,
-            merchant_reference=payload.reference,
-            description=payload.description,
-            source="API_WALLET_PUSH",
-            api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
-        )
-        message = (
-            collection.get("failure_reason") or "This payment attempt failed."
-            if collection["status"] == "failed"
-            else "Payment prompt sent. Please approve on your phone."
-        )
+        if _is_sandbox_key(caller):
+            collection = execute_sandbox_collection(
+                client,
+                merchant_id=payload.merchant_id,
+                external_method="wallet_push",
+                amount=payload.amount,
+                currency=payload.currency,
+                customer_phone=payload.phone,
+                customer_name=payload.customer_name,
+                merchant_reference=payload.reference,
+                description=payload.description,
+                source="API_WALLET_PUSH",
+                api_key_id=caller.actor_id,
+                simulate_status=payload.simulate_status,
+            )
+        else:
+            collection = await execute_wallet_push_collection(
+                client,
+                merchant_id=payload.merchant_id,
+                amount=payload.amount,
+                currency=payload.currency,
+                customer_phone=payload.phone,
+                customer_name=payload.customer_name,
+                merchant_reference=payload.reference,
+                description=payload.description,
+                source="API_WALLET_PUSH",
+                api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
+            )
+        message = _push_message(collection, pending_message="Payment prompt sent. Please approve on your phone.")
         body = {
             "collection_id": collection["id"],
             "reference": collection.get("merchant_reference"),
@@ -211,25 +251,40 @@ async def create_selcom_pesa_collection(
     payment succeeded."""
     authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
     require_api_key_scope(caller, "collections:write")
+    _reject_simulate_status_outside_sandbox(caller, payload.simulate_status)
     client = get_supabase_admin()
 
     async def _handler() -> tuple[int, dict]:
-        collection = await execute_selcompesa_push_collection(
-            client,
-            merchant_id=payload.merchant_id,
-            amount=payload.amount,
-            currency=payload.currency,
-            customer_phone=payload.phone,
-            customer_name=payload.customer_name,
-            merchant_reference=payload.reference,
-            description=payload.description,
-            source="API_SELCOM_PESA",
-            api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
-        )
-        message = (
-            collection.get("failure_reason") or "This payment attempt failed."
-            if collection["status"] == "failed"
-            else "Selcom Pesa prompt sent. Please approve in your Selcom Pesa app."
+        if _is_sandbox_key(caller):
+            collection = execute_sandbox_collection(
+                client,
+                merchant_id=payload.merchant_id,
+                external_method="selcom_pesa",
+                amount=payload.amount,
+                currency=payload.currency,
+                customer_phone=payload.phone,
+                customer_name=payload.customer_name,
+                merchant_reference=payload.reference,
+                description=payload.description,
+                source="API_SELCOM_PESA",
+                api_key_id=caller.actor_id,
+                simulate_status=payload.simulate_status,
+            )
+        else:
+            collection = await execute_selcompesa_push_collection(
+                client,
+                merchant_id=payload.merchant_id,
+                amount=payload.amount,
+                currency=payload.currency,
+                customer_phone=payload.phone,
+                customer_name=payload.customer_name,
+                merchant_reference=payload.reference,
+                description=payload.description,
+                source="API_SELCOM_PESA",
+                api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
+            )
+        message = _push_message(
+            collection, pending_message="Selcom Pesa prompt sent. Please approve in your Selcom Pesa app."
         )
         body = {
             "collection_id": collection["id"],
@@ -263,21 +318,38 @@ async def create_qr_collection(
     mark an order paid from this response."""
     authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
     require_api_key_scope(caller, "collections:write")
+    _reject_simulate_status_outside_sandbox(caller, payload.simulate_status)
     client = get_supabase_admin()
 
     async def _handler() -> tuple[int, dict]:
-        collection = await execute_qr_collection(
-            client,
-            merchant_id=payload.merchant_id,
-            amount=payload.amount,
-            currency=payload.currency,
-            customer_phone=payload.customer_phone,
-            customer_name=payload.customer_name,
-            merchant_reference=payload.reference,
-            description=payload.description,
-            source="API_TANQR",
-            api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
-        )
+        if _is_sandbox_key(caller):
+            collection = execute_sandbox_collection(
+                client,
+                merchant_id=payload.merchant_id,
+                external_method="qr",
+                amount=payload.amount,
+                currency=payload.currency,
+                customer_phone=payload.customer_phone,
+                customer_name=payload.customer_name,
+                merchant_reference=payload.reference,
+                description=payload.description,
+                source="API_TANQR",
+                api_key_id=caller.actor_id,
+                simulate_status=payload.simulate_status,
+            )
+        else:
+            collection = await execute_qr_collection(
+                client,
+                merchant_id=payload.merchant_id,
+                amount=payload.amount,
+                currency=payload.currency,
+                customer_phone=payload.customer_phone,
+                customer_name=payload.customer_name,
+                merchant_reference=payload.reference,
+                description=payload.description,
+                source="API_TANQR",
+                api_key_id=caller.actor_id if caller.actor_type == "api_key" else None,
+            )
         body = {
             "collection_id": collection["id"],
             "reference": collection.get("merchant_reference"),
@@ -316,6 +388,12 @@ def get_collection_status(
 
     row = find_collection_by_external_id(client, merchant_id=merchant_id, external_id=collection_id)
     if not row:
+        raise NotFoundError("Collection not found")
+    if caller.actor_type == "api_key" and row.get("environment", "live") != caller.environment:
+        # Sandbox and live are isolated data-wise, not just at creation
+        # time — a live key can't be used to snoop on sandbox test data
+        # or vice versa. Treated as not-found, same as a cross-merchant
+        # lookup, rather than 403 (never confirm the id exists at all).
         raise NotFoundError("Collection not found")
     return APIResponse(data=_status_response(row))
 
