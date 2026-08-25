@@ -304,24 +304,31 @@ class FakeSupabaseClient:
         return _FakeRpcCall(self, fn_name, params or {})
 
     def _post_ledger_entries(self, entries: list[dict]) -> _Result:
-        """Mirrors supabase/migrations/20260814130002_post_ledger_entries_function.sql
-        and 20260814140001_post_ledger_entries_balance_check.sql: inserts
-        each entry and updates its account's cached balance, using the same
-        asset/expense-vs-liability/equity/revenue sign convention, and
-        rejects the *whole* batch — nothing inserted, nothing updated — if
-        it would take a merchant_wallet balance negative.
+        """Mirrors supabase/migrations/20260814130002_post_ledger_entries_function.sql,
+        20260814140001_post_ledger_entries_balance_check.sql, and
+        20260828020000_post_ledger_entries_balance_snapshot.sql: inserts
+        each entry (with its own balance_before/after snapshot) and updates
+        its account's cached balance, using the same asset/expense-vs-
+        liability/equity/revenue sign convention, and rejects the *whole*
+        batch — nothing inserted, nothing updated — if it would take a
+        merchant_wallet balance negative.
 
-        Two-phase (validate every resulting balance before mutating
-        anything) to mirror the real function's atomicity: a Postgres
-        exception partway through rolls back the entire transaction, not
-        just the entry that tripped it.
+        Two-phase (validate every resulting balance, and capture each
+        entry's before/after snapshot, before mutating anything) to mirror
+        the real function's atomicity: a Postgres exception partway through
+        rolls back the entire transaction, not just the entry that tripped
+        it. Entries are walked in order so an account touched twice in the
+        same batch sees the first entry's effect reflected in the second's
+        balance_before — exactly like the real function's sequential loop.
         """
         accounts_table = self.table("ledger_accounts")._table
 
         running_balances: dict[str, Decimal] = {}
+        snapshots: list[tuple[Decimal | None, Decimal | None]] = []
         for entry in entries:
             account = next((a for a in accounts_table.rows if a["id"] == entry["ledger_account_id"]), None)
             if account is None:
+                snapshots.append((None, None))
                 continue
             account_id = account["id"]
             current = running_balances.get(account_id, Decimal(str(account.get("balance") or "0")))
@@ -336,11 +343,15 @@ class FakeSupabaseClient:
                     f"cannot cover a {entry['direction']} of {amount} (would be {new_balance})"
                 )
             running_balances[account_id] = new_balance
+            snapshots.append((current, new_balance))
 
         entries_table = self.table("ledger_entries")._table
         inserted = []
-        for entry in entries:
-            row = entries_table.insert(dict(entry))
+        for entry, (balance_before, balance_after) in zip(entries, snapshots, strict=True):
+            payload = dict(entry)
+            payload["balance_before"] = str(balance_before) if balance_before is not None else None
+            payload["balance_after"] = str(balance_after) if balance_after is not None else None
+            row = entries_table.insert(payload)
             account = next((a for a in accounts_table.rows if a["id"] == entry["ledger_account_id"]), None)
             if account is not None and account["id"] in running_balances:
                 account["balance"] = str(running_balances[account["id"]])

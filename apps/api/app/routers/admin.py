@@ -696,15 +696,31 @@ def list_admin_withdrawals(
 def list_admin_transactions(
     _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
     pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
+    type: Annotated[str | None, Query(description="collection | disbursement | fee | refund | reversal | adjustment")] = None,
+    status: Annotated[str | None, Query()] = None,
+    provider_reference: Annotated[str | None, Query()] = None,
+    transaction_id: Annotated[uuid.UUID | None, Query(description="Exact transactions.id")] = None,
+    date_from: Annotated[str | None, Query(description="ISO timestamp, inclusive")] = None,
+    date_to: Annotated[str | None, Query(description="ISO timestamp, inclusive")] = None,
 ):
     client = get_supabase_admin()
-    result = (
-        client.table("transactions")
-        .select("*", count="exact")
-        .order("created_at", desc=True)
-        .range(pagination.start, pagination.end)
-        .execute()
-    )
+    query = client.table("transactions").select("*", count="exact")
+    if merchant_id is not None:
+        query = query.eq("merchant_id", str(merchant_id))
+    if type is not None:
+        query = query.eq("type", type)
+    if status is not None:
+        query = query.eq("status", status)
+    if provider_reference is not None:
+        query = query.eq("provider_reference", provider_reference)
+    if transaction_id is not None:
+        query = query.eq("id", str(transaction_id))
+    if date_from is not None:
+        query = query.gte("created_at", date_from)
+    if date_to is not None:
+        query = query.lte("created_at", date_to)
+    result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
 
@@ -714,6 +730,7 @@ def list_admin_transactions(
             merchant_id=row["merchant_id"],
             merchant_name=merchant_names.get(row["merchant_id"], ""),
             reference=row["reference"],
+            provider_reference=row.get("provider_reference"),
             type=row["type"],
             method=row["method"],
             gross_amount=row["gross_amount"],
@@ -721,6 +738,9 @@ def list_admin_transactions(
             net_amount=row["net_amount"],
             currency=row["currency"],
             status=row["status"],
+            balance_before=row.get("balance_before"),
+            balance_after=row.get("balance_after"),
+            direction=row.get("direction"),
             created_at=row["created_at"],
         )
         for row in rows

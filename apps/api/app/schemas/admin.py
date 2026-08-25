@@ -173,6 +173,7 @@ class AdminTransactionResponse(BaseModel):
     merchant_id: uuid.UUID
     merchant_name: str
     reference: str
+    provider_reference: str | None = None
     type: str
     method: str
     gross_amount: Decimal
@@ -180,6 +181,9 @@ class AdminTransactionResponse(BaseModel):
     net_amount: Decimal
     currency: str
     status: str
+    balance_before: Decimal | None = None
+    balance_after: Decimal | None = None
+    direction: str | None = None
     created_at: datetime
 
 

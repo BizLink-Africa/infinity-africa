@@ -1,0 +1,114 @@
+"use client";
+
+import { Card, tdClass, thClass } from "@/components/portal/card";
+import { StatusBadge } from "@/components/portal/status-badge";
+import { formatCurrency, formatDateTime } from "@/lib/format";
+import type { BadgeProps } from "@/lib/portal/status-tones";
+import { transactionStatusBadge } from "@/lib/portal/status-tones";
+import type { AdminTransactionRow } from "@/lib/admin/types";
+
+function typeBadge(type: AdminTransactionRow["type"]): BadgeProps {
+  switch (type) {
+    case "collection":
+      return { label: "Collection", tone: "positive", dot: true };
+    case "disbursement":
+      return { label: "Withdrawal", tone: "info" };
+    case "refund":
+      return { label: "Refund", tone: "negative" };
+    case "reversal":
+      return { label: "Reversal", tone: "negative" };
+    case "adjustment":
+      return { label: "Adjustment", tone: "neutral" };
+    case "fee":
+      return { label: "Fee", tone: "neutral" };
+  }
+}
+
+function money(value: string | null, currency: string): string {
+  return value === null ? "Not available" : formatCurrency(value, currency);
+}
+
+export function TransactionsTable({ transactions }: { transactions: AdminTransactionRow[] }) {
+  return (
+    <Card padded={false}>
+      <div className="p-5 pb-3">
+        <h3 className="text-2xl font-semibold text-on-background">All Transactions</h3>
+      </div>
+      {transactions.length === 0 ? (
+        <p className="p-6 text-sm text-on-surface-variant">No transactions match these filters.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left min-w-[1600px]">
+            <thead>
+              <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
+                <th className={thClass}>Date</th>
+                <th className={thClass}>Merchant</th>
+                <th className={thClass}>Type</th>
+                <th className={thClass}>Transaction ID</th>
+                <th className={thClass}>Reference</th>
+                <th className={thClass}>Provider Reference</th>
+                <th className={thClass}>Method</th>
+                <th className={thClass}>Opening Balance</th>
+                <th className={thClass}>Amount</th>
+                <th className={thClass}>Charge</th>
+                <th className={thClass}>Net</th>
+                <th className={thClass}>Closing Balance</th>
+                <th className={thClass}>Direction</th>
+                <th className={thClass}>Status</th>
+              </tr>
+            </thead>
+            <tbody className="text-sm">
+              {transactions.map((transaction) => (
+                <tr key={transaction.transaction_id} className="border-t border-surface-container-highest">
+                  <td className={`${tdClass} text-on-surface-variant text-xs whitespace-nowrap`}>
+                    {formatDateTime(transaction.created_at)}
+                  </td>
+                  <td className={`${tdClass} font-medium text-on-background`}>{transaction.merchant_name}</td>
+                  <td className={tdClass}>
+                    <StatusBadge {...typeBadge(transaction.type)} />
+                  </td>
+                  <td className={`${tdClass} font-mono text-xs text-on-surface-variant`}>
+                    {transaction.transaction_id.slice(0, 8)}
+                  </td>
+                  <td className={`${tdClass} font-mono text-sm text-on-background`}>{transaction.reference}</td>
+                  <td className={`${tdClass} font-mono text-xs text-on-surface-variant`}>
+                    {transaction.provider_reference ?? "—"}
+                  </td>
+                  <td className={`${tdClass} text-on-surface-variant whitespace-nowrap`}>{transaction.method}</td>
+                  <td className={`${tdClass} text-on-surface-variant whitespace-nowrap`}>
+                    {money(transaction.balance_before, transaction.currency)}
+                  </td>
+                  <td className={`${tdClass} font-semibold text-on-background whitespace-nowrap`}>
+                    {formatCurrency(transaction.gross_amount, transaction.currency)}
+                  </td>
+                  <td className={`${tdClass} text-on-surface-variant whitespace-nowrap`}>
+                    {formatCurrency(transaction.fee_amount, transaction.currency)}
+                  </td>
+                  <td className={`${tdClass} whitespace-nowrap`}>
+                    {formatCurrency(transaction.net_amount, transaction.currency)}
+                  </td>
+                  <td className={`${tdClass} font-semibold text-on-background whitespace-nowrap`}>
+                    {money(transaction.balance_after, transaction.currency)}
+                  </td>
+                  <td className={tdClass}>
+                    {transaction.direction ? (
+                      <StatusBadge
+                        label={transaction.direction === "credit" ? "Credit" : "Debit"}
+                        tone={transaction.direction === "credit" ? "positive" : "neutral"}
+                      />
+                    ) : (
+                      <span className="text-on-surface-variant text-xs">—</span>
+                    )}
+                  </td>
+                  <td className={tdClass}>
+                    <StatusBadge {...transactionStatusBadge(transaction.status)} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}

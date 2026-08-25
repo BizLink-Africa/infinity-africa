@@ -309,8 +309,24 @@ export async function deactivatePricingRule(ruleId: string): Promise<PricingRule
 
 // --- Transactions / Webhooks / Audit Logs (read-only) ----------------------
 
-export async function listAdminTransactions(): Promise<AdminTransactionRow[]> {
-  return apiList<AdminTransactionRow>(`/v1/admin/transactions?${LIST_ALL_PARAMS}`);
+export async function listAdminTransactions(filters?: {
+  merchantId?: string;
+  type?: string;
+  status?: string;
+  providerReference?: string;
+  transactionId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}): Promise<AdminTransactionRow[]> {
+  const params = new URLSearchParams(LIST_ALL_PARAMS);
+  if (filters?.merchantId) params.set("merchant_id", filters.merchantId);
+  if (filters?.type) params.set("type", filters.type);
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.providerReference) params.set("provider_reference", filters.providerReference);
+  if (filters?.transactionId) params.set("transaction_id", filters.transactionId);
+  if (filters?.dateFrom) params.set("date_from", filters.dateFrom);
+  if (filters?.dateTo) params.set("date_to", filters.dateTo);
+  return apiList<AdminTransactionRow>(`/v1/admin/transactions?${params.toString()}`);
 }
 
 export async function listAdminWebhookEvents(): Promise<AdminWebhookEventRow[]> {

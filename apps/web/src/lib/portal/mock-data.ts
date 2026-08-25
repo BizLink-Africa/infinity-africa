@@ -237,6 +237,9 @@ export function mockTransactions(): Transaction[] {
     net_amount: gross_amount,
     currency: "TZS",
     status,
+    balance_before: null,
+    balance_after: null,
+    direction: null,
     created_at,
   }));
 }

@@ -63,7 +63,7 @@ def _account_name(purpose: str, merchant_id: uuid.UUID | None) -> str:
     return f"{label} ({merchant_id})" if merchant_id else f"{label} (Platform)"
 
 
-def _post_entries(client: Client, entries: list[dict]) -> None:
+def _post_entries(client: Client, entries: list[dict]) -> list[dict]:
     """Posts a batch of ledger_entries and updates each account's cached
     balance atomically, via the post_ledger_entries Postgres function —
     supabase-py can't wrap multiple inserts/updates in one client-side
@@ -72,15 +72,56 @@ def _post_entries(client: Client, entries: list[dict]) -> None:
     function also rejects the whole batch, atomically, if it would take a
     merchant_wallet balance negative — see
     supabase/migrations/20260814140001_post_ledger_entries_balance_check.sql.
+
+    Returns the inserted rows exactly as the database wrote them — each one
+    carries its own balance_before/balance_after snapshot (see
+    supabase/migrations/20260828020000_post_ledger_entries_balance_snapshot.sql),
+    captured atomically under the same row lock used for the balance-check
+    above, not re-derived here. Callers use this to denormalize the
+    merchant-wallet leg's snapshot onto the transactions row — see
+    _record_wallet_snapshot below.
     """
     try:
-        client.rpc("post_ledger_entries", {"p_entries": entries}).execute()
+        result = client.rpc("post_ledger_entries", {"p_entries": entries}).execute()
     except InsufficientBalanceError:
         raise
     except Exception as exc:
         if "INSUFFICIENT_BALANCE" in str(exc):
             raise InsufficientBalanceError("Insufficient balance for this operation") from exc
         raise
+    return result.data or []
+
+
+def _record_wallet_snapshot(
+    client: Client,
+    *,
+    transaction_id: uuid.UUID,
+    wallet_account_id: uuid.UUID,
+    posted_entries: list[dict],
+) -> None:
+    """Denormalizes the merchant-wallet leg's balance_before/after/direction
+    (captured atomically by _post_entries, above) onto the transactions row,
+    so the merchant/admin Transactions views can display it without an
+    extra join per row. Best-effort by design: if this update fails for any
+    reason, the authoritative snapshot still exists on the ledger_entries
+    row itself (immutable, already committed) — a transactions row simply
+    falls back to showing "not available" for these three fields rather
+    than blocking the financial posting that already succeeded."""
+    wallet_entry = next(
+        (e for e in posted_entries if e.get("ledger_account_id") == str(wallet_account_id)), None
+    )
+    if not wallet_entry:
+        return
+    try:
+        client.table("transactions").update(
+            {
+                "balance_before": wallet_entry.get("balance_before"),
+                "balance_after": wallet_entry.get("balance_after"),
+                "direction": wallet_entry.get("direction"),
+            }
+        ).eq("id", str(transaction_id)).execute()
+    except Exception:  # noqa: BLE001, S110 — display-only denormalization, never blocks a posting
+        pass
 
 
 def get_wallet_balance(client: Client, *, merchant_id: uuid.UUID, currency: str) -> Decimal:
@@ -130,15 +171,26 @@ def list_wallet_ledger(
     enriched = []
     for entry in entries:
         amount = Decimal(str(entry["amount"]))
+        opening = running
         running += amount if entry["direction"] == "credit" else -amount
+        # Newer rows already carry their own balance_before/after, captured
+        # atomically at posting time (see
+        # supabase/migrations/20260828020000_post_ledger_entries_balance_snapshot.sql)
+        # — prefer those; older rows (posted before that column existed)
+        # fall back to this replay, which is exactly as reliable since
+        # ledger_entries is immutable and this scans the complete history.
+        balance_before = entry.get("balance_before")
+        balance_after = entry.get("balance_after")
         enriched.append(
             {
                 "id": entry["id"],
+                "transaction_id": entry.get("transaction_id"),
                 "date": entry["created_at"],
                 "description": entry.get("description"),
                 "direction": entry["direction"],
                 "amount": str(amount),
-                "balance_after": str(running),
+                "balance_before": str(balance_before) if balance_before is not None else str(opening),
+                "balance_after": str(balance_after) if balance_after is not None else str(running),
             }
         )
     enriched.reverse()  # newest first, matching every other list endpoint's convention
@@ -207,7 +259,10 @@ def post_collection_entries(
             }
         )
 
-    _post_entries(client, entries)
+    posted = _post_entries(client, entries)
+    _record_wallet_snapshot(
+        client, transaction_id=transaction_id, wallet_account_id=wallet_account_id, posted_entries=posted
+    )
 
 
 def post_disbursement_entries(
@@ -270,7 +325,10 @@ def post_disbursement_entries(
             }
         )
 
-    _post_entries(client, entries)
+    posted = _post_entries(client, entries)
+    _record_wallet_snapshot(
+        client, transaction_id=transaction_id, wallet_account_id=wallet_account_id, posted_entries=posted
+    )
 
 
 def post_refund_entry(
@@ -317,7 +375,10 @@ def post_refund_entry(
         },
     ]
 
-    _post_entries(client, entries)
+    posted = _post_entries(client, entries)
+    _record_wallet_snapshot(
+        client, transaction_id=transaction_id, wallet_account_id=wallet_account_id, posted_entries=posted
+    )
 
 
 def reverse_collection_entries(
@@ -384,7 +445,10 @@ def reverse_collection_entries(
             }
         )
 
-    _post_entries(client, entries)
+    posted = _post_entries(client, entries)
+    _record_wallet_snapshot(
+        client, transaction_id=transaction_id, wallet_account_id=wallet_account_id, posted_entries=posted
+    )
 
 
 def reverse_disbursement_entries(
@@ -447,4 +511,7 @@ def reverse_disbursement_entries(
             }
         )
 
-    _post_entries(client, entries)
+    posted = _post_entries(client, entries)
+    _record_wallet_snapshot(
+        client, transaction_id=transaction_id, wallet_account_id=wallet_account_id, posted_entries=posted
+    )

@@ -6,6 +6,7 @@ import { Card, tdClass, thClass } from "@/components/portal/card";
 import { Icon } from "@/components/portal/icon";
 import { PageHeader } from "@/components/portal/page-header";
 import { StatusBadge } from "@/components/portal/status-badge";
+import { TransactionDetailDrawer } from "@/components/merchant/transaction-detail-drawer";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { listMyRiskAlerts, listTransactions } from "@/lib/portal/api";
 import { transactionStatusBadge, transactionTypeBadge } from "@/lib/portal/status-tones";
@@ -13,7 +14,22 @@ import type { Transaction } from "@/lib/portal/types";
 
 const OPEN_ALERT_STATUSES = new Set(["OPEN", "UNDER_REVIEW", "DOCUMENTS_REQUESTED", "ESCALATED"]);
 
-const CSV_HEADER = ["Date", "Type", "Reference", "Channel", "Amount", "Currency", "Status"];
+const CSV_HEADER = [
+  "Date",
+  "Type",
+  "Transaction ID",
+  "Reference",
+  "Provider Reference",
+  "Channel",
+  "Opening Balance",
+  "Amount",
+  "Charge",
+  "Net",
+  "Closing Balance",
+  "Currency",
+  "Direction",
+  "Status",
+];
 
 function csvCell(value: string): string {
   // Quote every cell and escape embedded quotes — simplest way to stay
@@ -28,10 +44,17 @@ function transactionsToCsv(transactions: Transaction[]): string {
     return [
       formatDateTime(transaction.created_at),
       transaction.type,
+      transaction.id,
       transaction.reference,
+      transaction.provider_reference ?? "",
       transaction.method,
+      transaction.balance_before ?? "",
       amount,
+      transaction.fee_amount,
+      transaction.net_amount,
+      transaction.balance_after ?? "",
       transaction.currency,
+      transaction.direction ?? "",
       transaction.status,
     ]
       .map(csvCell)
@@ -40,9 +63,14 @@ function transactionsToCsv(transactions: Transaction[]): string {
   return [CSV_HEADER.map(csvCell).join(","), ...rows].join("\r\n");
 }
 
+function money(value: string | null, currency: string): string {
+  return value === null ? "Not available" : formatCurrency(value, currency);
+}
+
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [flaggedTransactionIds, setFlaggedTransactionIds] = useState<Set<string>>(new Set());
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
   useEffect(() => {
     listTransactions().then(setTransactions);
@@ -137,14 +165,20 @@ export default function TransactionsPage() {
           <h3 className="text-2xl font-semibold text-on-background">All Transactions</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[880px]">
+          <table className="w-full text-left min-w-[1440px]">
             <thead>
               <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
                 <th className={thClass}>Date</th>
                 <th className={thClass}>Type</th>
+                <th className={thClass}>Transaction ID</th>
                 <th className={thClass}>Reference</th>
-                <th className={thClass}>Channel</th>
+                <th className={thClass}>Provider Reference</th>
+                <th className={thClass}>Method</th>
+                <th className={thClass}>Opening Balance</th>
                 <th className={thClass}>Amount</th>
+                <th className={thClass}>Charge</th>
+                <th className={thClass}>Net</th>
+                <th className={thClass}>Closing Balance</th>
                 <th className={thClass}>Status</th>
               </tr>
             </thead>
@@ -154,21 +188,37 @@ export default function TransactionsPage() {
                 const statusBadge = transactionStatusBadge(transaction.status);
                 const positive = transaction.type === "collection";
                 return (
-                  <tr key={transaction.id} className="border-t border-surface-container-highest">
-                    <td className={`${tdClass} text-on-surface-variant text-xs`}>{formatDateTime(transaction.created_at)}</td>
+                  <tr
+                    key={transaction.id}
+                    onClick={() => setSelectedTransaction(transaction)}
+                    className="border-t border-surface-container-highest cursor-pointer hover:bg-surface-container-low transition-colors"
+                  >
+                    <td className={`${tdClass} text-on-surface-variant text-xs whitespace-nowrap`}>{formatDateTime(transaction.created_at)}</td>
                     <td className={tdClass}>
                       <StatusBadge {...typeBadge} />
                     </td>
+                    <td className={`${tdClass} font-mono text-xs text-on-surface-variant`}>{transaction.id.slice(0, 8)}</td>
                     <td className={`${tdClass} font-mono text-sm text-on-background`}>
                       {transaction.reference}
                       {flaggedTransactionIds.has(transaction.id) && (
                         <Icon name="gpp_maybe" className="text-error text-[16px] ml-1.5 align-text-bottom" />
                       )}
                     </td>
-                    <td className={`${tdClass} text-on-surface-variant`}>{transaction.method}</td>
-                    <td className={`${tdClass} font-semibold ${positive ? "text-primary" : "text-on-background"}`}>
+                    <td className={`${tdClass} font-mono text-xs text-on-surface-variant`}>{transaction.provider_reference ?? "—"}</td>
+                    <td className={`${tdClass} text-on-surface-variant whitespace-nowrap`}>{transaction.method}</td>
+                    <td className={`${tdClass} text-on-surface-variant whitespace-nowrap`}>
+                      {money(transaction.balance_before, transaction.currency)}
+                    </td>
+                    <td className={`${tdClass} font-semibold ${positive ? "text-primary" : "text-on-background"} whitespace-nowrap`}>
                       {positive ? "+" : "-"}
                       {formatCurrency(transaction.gross_amount, transaction.currency)}
+                    </td>
+                    <td className={`${tdClass} text-on-surface-variant whitespace-nowrap`}>
+                      {formatCurrency(transaction.fee_amount, transaction.currency)}
+                    </td>
+                    <td className={`${tdClass} whitespace-nowrap`}>{formatCurrency(transaction.net_amount, transaction.currency)}</td>
+                    <td className={`${tdClass} font-semibold text-on-background whitespace-nowrap`}>
+                      {money(transaction.balance_after, transaction.currency)}
                     </td>
                     <td className={tdClass}>
                       <StatusBadge {...statusBadge} />
@@ -180,6 +230,8 @@ export default function TransactionsPage() {
           </table>
         </div>
       </Card>
+
+      <TransactionDetailDrawer transaction={selectedTransaction} onClose={() => setSelectedTransaction(null)} />
     </div>
   );
 }

@@ -43,27 +43,32 @@ export default function WalletPage() {
           <h3 className="text-2xl font-semibold text-on-background">Wallet Ledger</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[760px]">
+          <table className="w-full text-left min-w-[1020px]">
             <thead>
               <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
                 <th className={thClass}>Date</th>
+                <th className={thClass}>Transaction ID</th>
                 <th className={thClass}>Description</th>
                 <th className={thClass}>Type</th>
+                <th className={thClass}>Opening Balance</th>
                 <th className={thClass}>Amount</th>
-                <th className={thClass}>Balance After</th>
+                <th className={thClass}>Closing Balance</th>
               </tr>
             </thead>
             <tbody className="text-sm">
               {ledger.length === 0 ? (
                 <tr>
-                  <td className={`${tdClass} text-on-surface-variant`} colSpan={5}>
+                  <td className={`${tdClass} text-on-surface-variant`} colSpan={7}>
                     No wallet activity yet.
                   </td>
                 </tr>
               ) : (
                 ledger.map((entry) => (
                   <tr key={entry.id} className="border-t border-surface-container-highest">
-                    <td className={`${tdClass} text-on-surface-variant text-xs`}>{formatDateTime(entry.date)}</td>
+                    <td className={`${tdClass} text-on-surface-variant text-xs whitespace-nowrap`}>{formatDateTime(entry.date)}</td>
+                    <td className={`${tdClass} font-mono text-xs text-on-surface-variant`}>
+                      {entry.transaction_id ? entry.transaction_id.slice(0, 8) : "—"}
+                    </td>
                     <td className={tdClass}>{entry.description}</td>
                     <td className={tdClass}>
                       {entry.direction === "credit" ? (
@@ -72,11 +77,14 @@ export default function WalletPage() {
                         <StatusBadge label="Debit" tone="neutral" />
                       )}
                     </td>
-                    <td className={`${tdClass} font-semibold ${entry.direction === "credit" ? "text-primary" : "text-on-background"}`}>
+                    <td className={`${tdClass} text-on-surface-variant whitespace-nowrap`}>
+                      {formatCurrency(entry.balance_before, "TZS")}
+                    </td>
+                    <td className={`${tdClass} font-semibold ${entry.direction === "credit" ? "text-primary" : "text-on-background"} whitespace-nowrap`}>
                       {entry.direction === "credit" ? "+" : "-"}
                       {formatCurrency(entry.amount, "TZS")}
                     </td>
-                    <td className={`${tdClass} font-semibold`}>{formatCurrency(entry.balance_after, "TZS")}</td>
+                    <td className={`${tdClass} font-semibold whitespace-nowrap`}>{formatCurrency(entry.balance_after, "TZS")}</td>
                   </tr>
                 ))
               )}

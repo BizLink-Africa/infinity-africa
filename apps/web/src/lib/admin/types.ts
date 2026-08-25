@@ -250,14 +250,21 @@ export interface AdminTransactionRow {
   transaction_id: string;
   merchant_id: string;
   merchant_name: string;
-  type: "collection" | "disbursement" | "fee";
+  type: "collection" | "disbursement" | "fee" | "refund" | "reversal" | "adjustment";
   reference: string;
+  provider_reference: string | null;
   method: string;
   gross_amount: string;
   fee_amount: string;
   net_amount: string;
   currency: string;
   status: "successful" | "pending" | "processing" | "failed" | "reversed" | "cancelled";
+  /** Merchant-wallet balance snapshot around this transaction's most recent
+   * ledger posting. Null for rows created before this was captured, or with
+   * no wallet-affecting leg — render as "Not available", never computed. */
+  balance_before: string | null;
+  balance_after: string | null;
+  direction: "debit" | "credit" | null;
   created_at: string;
 }
 

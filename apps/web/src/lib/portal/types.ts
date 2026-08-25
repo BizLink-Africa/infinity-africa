@@ -197,6 +197,12 @@ export interface Transaction {
   net_amount: string;
   currency: string;
   status: TransactionStatus;
+  /** Wallet balance snapshot around this transaction's most recent ledger
+   * posting. Null for transactions from before this was captured, or with
+   * no wallet-affecting leg — render as "Not available", never computed. */
+  balance_before: string | null;
+  balance_after: string | null;
+  direction: "debit" | "credit" | null;
   created_at: string;
 }
 
@@ -279,10 +285,12 @@ export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
 export interface WalletLedgerEntry {
   id: string;
+  transaction_id: string | null;
   date: string;
   description: string;
   direction: "credit" | "debit";
   amount: string;
+  balance_before: string;
   balance_after: string;
 }
 

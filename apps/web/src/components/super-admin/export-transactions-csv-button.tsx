@@ -4,7 +4,23 @@ import { Icon } from "@/components/portal/icon";
 import { formatDateTime } from "@/lib/format";
 import type { AdminTransactionRow } from "@/lib/admin/types";
 
-const CSV_HEADER = ["Date", "Merchant", "Type", "Reference", "Method", "Amount", "Currency", "Status"];
+const CSV_HEADER = [
+  "Date",
+  "Merchant",
+  "Type",
+  "Transaction ID",
+  "Reference",
+  "Provider Reference",
+  "Method",
+  "Opening Balance",
+  "Amount",
+  "Charge",
+  "Net",
+  "Closing Balance",
+  "Currency",
+  "Direction",
+  "Status",
+];
 
 function csvCell(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
@@ -18,10 +34,17 @@ function transactionsToCsv(transactions: AdminTransactionRow[]): string {
       formatDateTime(transaction.created_at),
       transaction.merchant_name,
       transaction.type,
+      transaction.transaction_id,
       transaction.reference,
+      transaction.provider_reference ?? "",
       transaction.method,
+      transaction.balance_before ?? "",
       amount,
+      transaction.fee_amount,
+      transaction.net_amount,
+      transaction.balance_after ?? "",
       transaction.currency,
+      transaction.direction ?? "",
       transaction.status,
     ]
       .map(csvCell)

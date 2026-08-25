@@ -46,10 +46,12 @@ class MerchantOverviewResponse(BaseModel):
 
 class WalletLedgerEntryResponse(BaseModel):
     id: uuid.UUID
+    transaction_id: uuid.UUID | None = None
     date: datetime
     description: str | None = None
     direction: Literal["credit", "debit"]
     amount: Decimal
+    balance_before: Decimal
     balance_after: Decimal
 
 

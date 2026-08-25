@@ -223,6 +223,7 @@ def test_list_admin_transactions(fake_client):
         {
             "merchant_id": merchant["id"],
             "reference": "TXN-1",
+            "provider_reference": "SELCOM-REF-1",
             "type": "collection",
             "method": "USSD_PUSH",
             "gross_amount": "10000",
@@ -230,6 +231,9 @@ def test_list_admin_transactions(fake_client):
             "net_amount": "9800",
             "currency": "TZS",
             "status": "successful",
+            "balance_before": "0",
+            "balance_after": "9800",
+            "direction": "credit",
             "metadata": {},
         },
     )
@@ -239,3 +243,86 @@ def test_list_admin_transactions(fake_client):
     assert row["merchant_name"] == "Kilimanjaro Cafe"
     assert row["reference"] == "TXN-1"
     assert row["net_amount"] == "9800"
+    # Audit fields: transaction ID (id), provider reference, and the
+    # opening/closing balance snapshot must all be visible to Super Admin.
+    assert row["transaction_id"]
+    assert row["provider_reference"] == "SELCOM-REF-1"
+    assert row["balance_before"] == "0"
+    assert row["balance_after"] == "9800"
+    assert row["direction"] == "credit"
+
+
+def test_list_admin_transactions_old_row_without_balance_snapshot_shows_null_not_a_fake_number(fake_client):
+    merchant = create_merchant(fake_client, business_name="Legacy Merchant")
+    fake_client.seed(
+        "transactions",
+        {
+            "merchant_id": merchant["id"],
+            "reference": "TXN-OLD",
+            "type": "collection",
+            "method": "USSD_PUSH",
+            "gross_amount": "5000",
+            "fee_amount": "0",
+            "net_amount": "5000",
+            "currency": "TZS",
+            "status": "successful",
+            "metadata": {},
+            # No balance_before/balance_after/direction — simulates a row
+            # created before this migration.
+        },
+    )
+    response = client.get("/v1/admin/transactions", headers=_admin_headers(fake_client))
+    assert response.status_code == 200
+    row = response.json()["data"][0]
+    assert row["balance_before"] is None
+    assert row["balance_after"] is None
+    assert row["direction"] is None
+
+
+def test_list_admin_transactions_filters(fake_client):
+    merchant_a = create_merchant(fake_client, business_name="Merchant A")
+    merchant_b = create_merchant(fake_client, business_name="Merchant B")
+
+    def _seed(merchant_id, **overrides):
+        base = {
+            "merchant_id": merchant_id,
+            "reference": f"TXN-{uuid.uuid4().hex[:8]}",
+            "provider_reference": None,
+            "type": "collection",
+            "method": "USSD_PUSH",
+            "gross_amount": "1000",
+            "fee_amount": "0",
+            "net_amount": "1000",
+            "currency": "TZS",
+            "status": "successful",
+            "metadata": {},
+        }
+        base.update(overrides)
+        return fake_client.seed("transactions", base)
+
+    txn_a = _seed(merchant_a["id"], type="collection", status="successful", provider_reference="PROV-A")
+    _seed(merchant_a["id"], type="disbursement", status="successful", method="SELCOM_PESA")
+    _seed(merchant_b["id"], type="collection", status="failed")
+
+    headers = _admin_headers(fake_client)
+
+    by_merchant = client.get(f"/v1/admin/transactions?merchant_id={merchant_a['id']}", headers=headers)
+    assert len(by_merchant.json()["data"]) == 2
+
+    by_type = client.get("/v1/admin/transactions?type=disbursement", headers=headers)
+    rows = by_type.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["type"] == "disbursement"
+
+    by_status = client.get("/v1/admin/transactions?status=failed", headers=headers)
+    assert len(by_status.json()["data"]) == 1
+
+    by_provider_reference = client.get("/v1/admin/transactions?provider_reference=PROV-A", headers=headers)
+    rows = by_provider_reference.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["reference"] == txn_a["reference"]
+
+    by_transaction_id = client.get(f"/v1/admin/transactions?transaction_id={txn_a['id']}", headers=headers)
+    rows = by_transaction_id.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["transaction_id"] == txn_a["id"]

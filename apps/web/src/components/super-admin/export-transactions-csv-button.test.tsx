@@ -12,12 +12,16 @@ function transaction(overrides: Partial<AdminTransactionRow> = {}): AdminTransac
     merchant_name: "Juma Traders Ltd",
     type: "collection",
     reference: "TXN-20260822-E7803AE4",
+    provider_reference: "SELCOM-REF-1",
     method: "DYNAMIC_QR",
     gross_amount: "2000.00",
     fee_amount: "30.00",
     net_amount: "1970.00",
     currency: "TZS",
     status: "pending",
+    balance_before: "500.00",
+    balance_after: "2470.00",
+    direction: "credit",
     created_at: "2026-08-23T01:37:00Z",
     ...overrides,
   };
@@ -54,9 +58,14 @@ describe("ExportTransactionsCsvButton", () => {
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
     const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
     const text = await blob.text();
-    expect(text).toContain('"Date","Merchant","Type","Reference","Method","Amount","Currency","Status"');
+    expect(text).toContain(
+      '"Date","Merchant","Type","Transaction ID","Reference","Provider Reference","Method","Opening Balance","Amount","Charge","Net","Closing Balance","Currency","Direction","Status"',
+    );
     expect(text).toContain("Juma Traders Ltd");
     expect(text).toContain("TXN-20260822-E7803AE4");
+    expect(text).toContain("SELCOM-REF-1");
+    expect(text).toContain("500.00");
+    expect(text).toContain("2470.00");
     expect(clickSpy).toHaveBeenCalledTimes(1);
 
     createElementSpy.mockRestore();
