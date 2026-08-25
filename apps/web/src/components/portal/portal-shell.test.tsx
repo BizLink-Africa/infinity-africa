@@ -1,8 +1,10 @@
 import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+let currentPathname = "/portal/wallet";
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/portal/api-credentials",
+  usePathname: () => currentPathname,
   useRouter: () => ({ push: vi.fn() }),
 }));
 
@@ -15,6 +17,10 @@ vi.mock("./sidebar", () => ({ Sidebar: () => null }));
 vi.mock("./topbar", () => ({ Topbar: () => null }));
 
 describe("PortalShell", () => {
+  beforeEach(() => {
+    currentPathname = "/portal/wallet";
+  });
+
   it("caps content width at 1280px and centers it by default, for the same left-aligned layout every other page uses", async () => {
     const { PortalShell } = await import("./portal-shell");
     const { container } = render(<PortalShell>content</PortalShell>);
@@ -25,19 +31,27 @@ describe("PortalShell", () => {
     expect(main?.className).toContain("md:ml-64");
   });
 
-  it("removes both the width cap AND mx-auto when fullWidth is set, without changing the left offset/top spacing", async () => {
+  it("removes both the width cap AND mx-auto on the API Credentials page specifically, without changing the left offset/top spacing", async () => {
     // No mx-auto here at all — not even alongside max-w-none — since an
     // auto margin paired with a fixed md:ml-64 margin on the same side is
     // exactly the kind of conflict whose winner depends on utility-class
     // build order rather than anything visible in this file; removing the
     // class outright removes the ambiguity, not just one symptom of it.
+    currentPathname = "/portal/api-credentials";
     const { PortalShell } = await import("./portal-shell");
-    const { container } = render(<PortalShell fullWidth>content</PortalShell>);
+    const { container } = render(<PortalShell>content</PortalShell>);
 
     const main = container.querySelector("main");
     expect(main?.className).not.toContain("max-w-[1280px]");
     expect(main?.className).not.toContain("mx-auto");
     expect(main?.className).toContain("md:ml-64");
     expect(main?.className).toContain("pt-20");
+  });
+
+  it("only one PortalShell (one sidebar, one topbar, one main) ever renders for a given page", async () => {
+    const { PortalShell } = await import("./portal-shell");
+    const { container } = render(<PortalShell>content</PortalShell>);
+
+    expect(container.querySelectorAll("main")).toHaveLength(1);
   });
 });

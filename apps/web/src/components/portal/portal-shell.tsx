@@ -30,20 +30,19 @@ function RoleGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export function PortalShell({
-  children,
-  banner,
-  fullWidth,
-}: {
-  children: React.ReactNode;
-  banner?: React.ReactNode;
-  /** Skips the default 1280px content cap — for pages (like API Credentials'
-   * tab bar) that need the full available dashboard width instead of being
-   * centered in a narrower column. Left edge/top spacing stay identical to
-   * every other portal page; only the right-side cap is relaxed. */
-  fullWidth?: boolean;
-}) {
+// Pages that need the full available dashboard width instead of the default
+// 1280px-capped, centered column — e.g. API Credentials' side-by-side
+// vertical-menu-plus-content layout. Decided here (by pathname) rather than
+// via a prop threaded from each page, since every /portal/* page is already
+// wrapped in exactly one PortalShell by app/portal/layout.tsx — a page
+// rendering its own second PortalShell (as this one briefly did) double-
+// nests the whole shell, sidebar, topbar, and auth checks included.
+const FULL_WIDTH_PATHS = ["/portal/api-credentials"];
+
+export function PortalShell({ children, banner }: { children: React.ReactNode; banner?: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
+  const fullWidth = FULL_WIDTH_PATHS.some((path) => pathname.startsWith(path));
 
   // Two complete, separately-written class strings rather than splicing one
   // conflicting token (e.g. mx-auto vs. a fixed margin) into a shared
