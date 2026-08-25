@@ -45,14 +45,20 @@ export function PortalShell({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Two complete, separately-written class strings rather than splicing one
+  // conflicting token (e.g. mx-auto vs. a fixed margin) into a shared
+  // template — that ordering depends on how the CSS build happens to sort
+  // utilities, which is exactly the kind of thing that silently breaks.
+  const mainClassName = fullWidth
+    ? "pt-20 md:pt-24 pb-16 px-4 md:px-8 md:ml-64 space-y-8"
+    : "pt-20 md:pt-24 pb-16 px-4 md:px-8 md:ml-64 max-w-[1280px] mx-auto space-y-8";
+
   return (
     <RoleProvider>
       <div className="portal-shell-scope min-h-screen bg-background text-on-background">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <Topbar onOpenSidebar={() => setSidebarOpen(true)} />
-        <main
-          className={`pt-20 md:pt-24 pb-16 px-4 md:px-8 md:ml-64 mx-auto space-y-8 ${fullWidth ? "max-w-none" : "max-w-[1280px]"}`}
-        >
+        <main className={mainClassName}>
           {banner}
           <RoleGuard>{children}</RoleGuard>
         </main>
