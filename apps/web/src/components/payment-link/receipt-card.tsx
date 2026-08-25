@@ -1,5 +1,6 @@
 "use client";
 
+import { Icon } from "@/components/portal/icon";
 import { formatCurrency, formatDateTime, maskAccountIdentifier } from "@/lib/format";
 import type { PublicCollectionReceipt } from "@/lib/payment-links";
 
@@ -18,8 +19,9 @@ import type { PublicCollectionReceipt } from "@/lib/payment-links";
  */
 /** A short, friendly receipt number derived from the collection id — the
  * backend has no separate receipt-number field, so this is presentation
- * only; the full id is still shown on its own row below for anyone who
- * needs the exact record. */
+ * only. The raw collection/transaction ids are deliberately not shown on
+ * the customer-facing receipt (internal record-keeping detail, not
+ * something a customer needs). */
 function receiptNumber(collectionId: string): string {
   return `RCPT-${collectionId.replace(/-/g, "").slice(-8).toUpperCase()}`;
 }
@@ -33,8 +35,11 @@ export function ReceiptCard({ receipt, slug }: { receipt: PublicCollectionReceip
       >
         <div className="-mx-6 -mt-6 flex items-center justify-between rounded-t-lg border-b border-dashed border-primary/20 bg-accent px-6 py-5 sm:-mx-8 sm:-mt-8 sm:px-8 print:rounded-none">
           <div>
-            <p className="text-lg font-bold tracking-tight text-primary">Infinity Africa</p>
-            <p className="text-xs text-primary/70">Payment Receipt</p>
+            <span className="flex items-center gap-1.5">
+              <Icon name="all_inclusive" className="text-primary text-[20px]" />
+              <span className="text-lg font-bold tracking-tight text-primary">Infinity Africa</span>
+            </span>
+            <p className="mt-0.5 text-xs text-primary/70">Payment Receipt</p>
           </div>
           <CheckBadge />
         </div>
@@ -60,16 +65,12 @@ export function ReceiptCard({ receipt, slug }: { receipt: PublicCollectionReceip
           )}
           <Row label="Payment method" value={receipt.method} />
           {receipt.channel && <Row label="Channel" value={receipt.channel} />}
-          {receipt.merchant_reference && <Row label="Merchant reference" value={receipt.merchant_reference} mono />}
           {receipt.provider_reference && <Row label="Selcom reference" value={receipt.provider_reference} mono />}
-          {receipt.transaction_id && <Row label="Transaction ID" value={receipt.transaction_id} mono />}
-          {receipt.provider_transid && <Row label="Provider Transaction ID" value={receipt.provider_transid} mono />}
           {receipt.completed_at && <Row label="Date" value={formatDateTime(receipt.completed_at)} />}
-          <Row label="Collection ID" value={receipt.collection_id} mono />
         </dl>
 
         <p className="mt-6 border-t border-dashed border-outline-variant pt-4 text-center text-xs text-on-surface-variant">
-          This receipt reflects a payment confirmed by Selcom. Powered by Infinity Africa.
+          Powered by Infinity Africa.
         </p>
       </div>
 

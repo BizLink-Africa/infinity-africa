@@ -24,7 +24,7 @@ const receipt: PublicCollectionReceipt = {
 };
 
 describe("ReceiptCard", () => {
-  it("shows only Selcom-confirmed values, never generated ones", () => {
+  it("shows the confirmed payment values", () => {
     render(<ReceiptCard receipt={receipt} slug="test-slug" />);
 
     expect(screen.getByText("TZS 2,500.00")).toBeInTheDocument();
@@ -33,9 +33,27 @@ describe("ReceiptCard", () => {
     expect(screen.getByText("Mobile Money Push")).toBeInTheDocument();
     expect(screen.getByText("TIGOPESA")).toBeInTheDocument();
     expect(screen.getByText("S20690471578")).toBeInTheDocument();
-    expect(screen.getByText("TXN-ABC123")).toBeInTheDocument();
-    expect(screen.getByText("INV-2026-0042")).toBeInTheDocument();
-    expect(screen.getByText(receipt.collection_id)).toBeInTheDocument();
+  });
+
+  it("shows the Infinity Africa logo mark (icon + wordmark), not plain text alone", () => {
+    render(<ReceiptCard receipt={receipt} slug="test-slug" />);
+
+    expect(screen.getByText("all_inclusive")).toBeInTheDocument();
+    expect(screen.getByText("Infinity Africa")).toBeInTheDocument();
+  });
+
+  it("does not show internal record IDs or the processor's name — customer-facing only", () => {
+    render(<ReceiptCard receipt={receipt} slug="test-slug" />);
+
+    expect(screen.queryByText(receipt.collection_id)).not.toBeInTheDocument();
+    expect(screen.queryByText(receipt.transaction_id as string)).not.toBeInTheDocument();
+    expect(screen.queryByText("TXN-ABC123")).not.toBeInTheDocument();
+    expect(screen.queryByText("INV-2026-0042")).not.toBeInTheDocument();
+    expect(screen.queryByText("Collection ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Transaction ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Provider Transaction ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Merchant reference")).not.toBeInTheDocument();
+    expect(screen.queryByText(/confirmed by Selcom/i)).not.toBeInTheDocument();
   });
 
   it("shows a Successful status row and a friendly receipt number", () => {
@@ -63,30 +81,20 @@ describe("ReceiptCard", () => {
   it("omits optional rows entirely when the backend didn't return them", () => {
     render(
       <ReceiptCard
-        receipt={{
-          ...receipt,
-          description: null,
-          channel: null,
-          transaction_id: null,
-          provider_transid: null,
-          merchant_reference: null,
-        }}
+        receipt={{ ...receipt, description: null, channel: null, merchant_code: null }}
         slug="test-slug"
       />,
     );
 
     expect(screen.queryByText("Order #482")).not.toBeInTheDocument();
     expect(screen.queryByText("Channel")).not.toBeInTheDocument();
-    expect(screen.queryByText("Transaction ID")).not.toBeInTheDocument();
-    expect(screen.queryByText("Provider Transaction ID")).not.toBeInTheDocument();
-    expect(screen.queryByText("Merchant reference")).not.toBeInTheDocument();
+    expect(screen.queryByText("Merchant ID")).not.toBeInTheDocument();
   });
 
-  it("shows the Merchant ID and Transaction ID rows when the backend returns them", () => {
+  it("shows the Merchant ID row when the backend returns one", () => {
     render(<ReceiptCard receipt={receipt} slug="test-slug" />);
 
     expect(screen.getByText("27048391")).toBeInTheDocument();
-    expect(screen.getByText("22222222-2222-2222-2222-222222222222")).toBeInTheDocument();
   });
 
   it("the Download Receipt PDF and Print Receipt buttons both trigger the browser print dialog", () => {
