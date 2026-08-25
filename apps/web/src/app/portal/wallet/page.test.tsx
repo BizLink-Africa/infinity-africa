@@ -60,4 +60,53 @@ describe("Merchant portal WalletPage", () => {
 
     expect(await screen.findByText("27048391")).toBeInTheDocument();
   });
+
+  it("does not show the untracked Pending Clearance / Reserved Funds placeholder cards", async () => {
+    listWalletLedger.mockResolvedValue([]);
+    const { default: WalletPage } = await import("./page");
+    render(<WalletPage />);
+
+    await waitFor(() => expect(getAvailableBalance).toHaveBeenCalled());
+    expect(screen.queryByText("Pending Clearance")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reserved Funds")).not.toBeInTheDocument();
+    expect(screen.queryByText("Not tracked yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ready to withdraw")).not.toBeInTheDocument();
+  });
+
+  it("exports the wallet ledger to a downloadable CSV (Excel-openable)", async () => {
+    if (!URL.createObjectURL) URL.createObjectURL = vi.fn();
+    if (!URL.revokeObjectURL) URL.revokeObjectURL = vi.fn();
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    listWalletLedger.mockResolvedValue([ledgerEntry()]);
+    const { default: WalletPage } = await import("./page");
+    render(<WalletPage />);
+
+    const button = await screen.findByRole("button", { name: /Export to Excel/ });
+    expect(button).not.toBeDisabled();
+
+    const clickSpy = vi.fn();
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = originalCreateElement(tag);
+      if (tag === "a") el.click = clickSpy;
+      return el;
+    });
+
+    button.click();
+
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+    const text = await blob.text();
+    expect(text).toContain(
+      '"Date","Transaction ID","Description","Direction","Opening Balance","Amount","Closing Balance"',
+    );
+    expect(text).toContain("txn-1");
+    expect(text).toContain("500.00");
+    expect(text).toContain("2470.00");
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    createElementSpy.mockRestore();
+  });
 });
