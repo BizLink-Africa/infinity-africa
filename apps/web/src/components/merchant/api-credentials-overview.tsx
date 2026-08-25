@@ -14,7 +14,7 @@ import type { ApiCredentialsTab } from "./api-credentials-tabs";
 
 interface ChecklistItem {
   label: string;
-  description: string;
+  icon: string;
   done: boolean;
   tab: ApiCredentialsTab;
 }
@@ -38,7 +38,6 @@ export function ApiCredentialsOverview({ onSelectTab }: { onSelectTab: (tab: Api
   const activeKeys = keys?.filter((k) => k.status === "active") ?? [];
   const sandboxCount = activeKeys.filter((k) => k.environment === "sandbox").length;
   const productionCount = activeKeys.filter((k) => k.environment === "live").length;
-  const anyIpWhitelistEnabled = activeKeys.some((k) => k.ip_whitelist_enabled);
   const anySandboxUsed = activeKeys.some((k) => k.environment === "sandbox" && k.last_used_at);
   const anyLiveKey = productionCount > 0;
   const lastRequest = logs[0] ?? null;
@@ -51,45 +50,27 @@ export function ApiCredentialsOverview({ onSelectTab }: { onSelectTab: (tab: Api
         ? { label: "Sandbox only", tone: "pending" as const }
         : { label: "Not started", tone: "neutral" as const };
 
+  const summary = loading
+    ? "Loading your integration status…"
+    : productionCount > 0
+      ? `You have ${sandboxCount} sandbox and ${productionCount} production key${productionCount === 1 ? "" : "s"} active, with ${ipEntries.length} IP${ipEntries.length === 1 ? "" : "s"} on the allowlist. ${webhookConfig?.webhook_url ? "Webhooks are configured." : "No webhook URL configured yet."}`
+      : sandboxCount > 0
+        ? `You have ${sandboxCount} sandbox key${sandboxCount === 1 ? "" : "s"} active. Create a production key once your account is approved to go live.`
+        : "You haven't created an API key yet — generate a sandbox key below to start building your integration.";
+
   const checklist: ChecklistItem[] = [
-    {
-      label: "Create API key",
-      description: "Generate a sandbox key to start building, or a live key once approved.",
-      done: (keys?.length ?? 0) > 0,
-      tab: "keys",
-    },
-    {
-      label: "Add webhook URL",
-      description: "Tell Infinity Africa where to send payment and payout events.",
-      done: Boolean(webhookConfig?.webhook_url),
-      tab: "webhooks",
-    },
+    { label: "Create API key", icon: "vpn_key", done: (keys?.length ?? 0) > 0, tab: "keys" },
+    { label: "Add webhook URL", icon: "webhook", done: Boolean(webhookConfig?.webhook_url), tab: "webhooks" },
     {
       label: "Add IP allowlist or continue without whitelist",
-      description: "Restrict which server IPs can use a key, or explicitly allow any IP.",
+      icon: "shield_lock",
       done: (keys?.length ?? 0) > 0,
       tab: "ip-allowlist",
     },
-    {
-      label: "Read developer docs",
-      description: "Authentication, endpoints, webhooks, and idempotency in one place.",
-      done: docsVisited,
-      tab: "docs",
-    },
-    {
-      label: "Test sandbox integration",
-      description: "Make at least one real request with a sandbox key.",
-      done: anySandboxUsed,
-      tab: "keys",
-    },
-    {
-      label: "Go live",
-      description: "Create a production key once your account is approved.",
-      done: anyLiveKey,
-      tab: "keys",
-    },
+    { label: "Read developer docs", icon: "menu_book", done: docsVisited, tab: "docs" },
+    { label: "Test sandbox integration", icon: "science", done: anySandboxUsed, tab: "keys" },
+    { label: "Go live", icon: "rocket_launch", done: anyLiveKey, tab: "keys" },
   ];
-  const completedCount = checklist.filter((item) => item.done).length;
 
   return (
     <div className="space-y-8">
@@ -98,102 +79,49 @@ export function ApiCredentialsOverview({ onSelectTab }: { onSelectTab: (tab: Api
         description="Your API integration at a glance — keys, webhooks, IP protection, and what's left to set up."
       />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-1.5">
-            Integration Status
-          </p>
-          {integrationStatus ? (
-            <StatusBadge label={integrationStatus.label} tone={integrationStatus.tone} dot />
-          ) : (
-            <p className="text-sm text-on-surface-variant">Loading…</p>
-          )}
-        </Card>
-        <Card>
-          <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-1.5">Sandbox Keys</p>
-          <p className="text-2xl font-bold text-on-background">{loading ? "—" : sandboxCount}</p>
-        </Card>
-        <Card>
-          <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-1.5">
-            Production Keys
-          </p>
-          <p className="text-2xl font-bold text-on-background">{loading ? "—" : productionCount}</p>
-        </Card>
-        <Card>
-          <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-1.5">
-            Webhook Status
-          </p>
-          <StatusBadge
-            label={webhookConfig?.webhook_url ? "Configured" : "Not set up"}
-            tone={webhookConfig?.webhook_url ? "positive" : "neutral"}
-            dot
-          />
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Card>
-          <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-1.5">
-            IP Whitelist Status
-          </p>
-          <StatusBadge
-            label={anyIpWhitelistEnabled ? "Enabled on at least one key" : "Continue without IP whitelisting"}
-            tone={anyIpWhitelistEnabled ? "positive" : "neutral"}
-            dot
-          />
-          <p className="text-xs text-on-surface-variant mt-2">
-            {ipEntries.length} IP{ipEntries.length === 1 ? "" : "s"} configured across all keys.
-          </p>
-        </Card>
-        <Card>
-          <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-1.5">
-            Last API Request
-          </p>
+      <Card>
+        <div className="flex items-start gap-4">
+          {integrationStatus && <StatusBadge label={integrationStatus.label} tone={integrationStatus.tone} dot />}
+        </div>
+        <p className="mt-4 text-sm text-on-surface-variant leading-relaxed">{summary}</p>
+        <p className="mt-2 text-xs text-on-surface-variant">
+          Last API request:{" "}
           {lastRequest ? (
             <>
-              <p className="text-sm font-mono text-on-background">
+              <span className="font-mono">
                 {lastRequest.method} {lastRequest.path}
-              </p>
-              <p className="text-xs text-on-surface-variant mt-1">{formatDateTime(lastRequest.created_at)}</p>
+              </span>{" "}
+              — {formatDateTime(lastRequest.created_at)}
             </>
           ) : (
-            <p className="text-sm text-on-surface-variant">No API requests yet.</p>
+            "none yet"
           )}
-        </Card>
-      </div>
+        </p>
+      </Card>
 
       <Card>
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-2xl font-semibold text-on-background">Quick Setup Checklist</h3>
-          <span className="text-sm text-on-surface-variant">
-            {completedCount} of {checklist.length} complete
-          </span>
-        </div>
-        <div className="space-y-2.5">
-          {checklist.map((item, index) => (
-            <button
-              key={item.label}
-              type="button"
-              onClick={() => {
-                if (item.tab === "docs") setDocsVisited(true);
-                onSelectTab(item.tab);
-              }}
-              className="w-full flex items-start gap-3.5 px-4 py-3.5 bg-surface-container-low border border-surface-container-highest rounded-lg text-left hover:border-primary transition-colors"
-            >
-              <div
-                className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
-                  item.done ? "bg-primary-container text-on-primary" : "bg-surface-container-highest text-on-surface-variant"
-                }`}
+        <h3 className="text-lg font-semibold text-on-surface mb-4">Quick Setup Checklist</h3>
+        <ul className="space-y-1">
+          {checklist.map((item) => (
+            <li key={item.label}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (item.tab === "docs") setDocsVisited(true);
+                  onSelectTab(item.tab);
+                }}
+                className="w-full flex items-center gap-3 rounded-lg px-3 py-3 text-sm text-on-surface hover:bg-surface-container transition-colors text-left"
               >
-                {item.done ? <Icon name="check" className="text-[16px]" /> : <span className="text-xs font-semibold">{index + 1}</span>}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-on-background">{item.label}</p>
-                <p className="text-xs text-on-surface-variant mt-0.5">{item.description}</p>
-              </div>
-            </button>
+                <Icon
+                  name={item.done ? "check_circle" : item.icon}
+                  className={`text-[20px] ${item.done ? "text-primary" : "text-primary-container"}`}
+                />
+                {item.label}
+                <Icon name="arrow_forward" className="ml-auto text-[16px] text-outline shrink-0" />
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
       </Card>
     </div>
   );
