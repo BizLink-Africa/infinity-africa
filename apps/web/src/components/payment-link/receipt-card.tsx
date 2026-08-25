@@ -31,10 +31,10 @@ export function ReceiptCard({ receipt, slug }: { receipt: PublicCollectionReceip
         id="receipt"
         className="rounded-lg border border-outline-variant bg-surface p-6 shadow-sm print:rounded-none print:border-0 print:shadow-none sm:p-8"
       >
-        <div className="flex items-center justify-between border-b border-dashed border-outline-variant pb-5">
+        <div className="-mx-6 -mt-6 flex items-center justify-between rounded-t-lg border-b border-dashed border-primary/20 bg-accent px-6 py-5 sm:-mx-8 sm:-mt-8 sm:px-8 print:rounded-none">
           <div>
             <p className="text-lg font-bold tracking-tight text-primary">Infinity Africa</p>
-            <p className="text-xs text-on-surface-variant">Payment Receipt</p>
+            <p className="text-xs text-primary/70">Payment Receipt</p>
           </div>
           <CheckBadge />
         </div>
@@ -110,7 +110,7 @@ function Row({ label, value, mono = false }: { label: string; value: string; mon
 
 function CheckBadge() {
   return (
-    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-fixed text-primary">
       <svg viewBox="0 0 24 24" fill="none" strokeWidth={2.5} stroke="currentColor" className="h-5 w-5">
         <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
       </svg>
