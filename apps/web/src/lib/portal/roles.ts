@@ -29,11 +29,7 @@ export const ROLE_ALLOWED_PATHS: Record<UserRole, string[] | "*"> = {
   [UserRole.DEVELOPER]: [
     "/merchant/overview",
     "/portal",
-    "/merchant/api-keys",
-    "/merchant/developer-docs",
-    "/portal/webhooks",
-    "/portal/ip-allowlist",
-    "/portal/api-logs",
+    "/portal/api-credentials",
     "/merchant/profile",
     "/merchant/settings",
   ],

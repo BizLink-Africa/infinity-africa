@@ -20,4 +20,23 @@ describe("Sidebar", () => {
 
     expect(screen.getByRole("link", { name: /Team/i })).toHaveAttribute("href", "/merchant/users");
   });
+
+  it("shows a single API Credentials nav item linking to /portal/api-credentials", async () => {
+    const { Sidebar } = await import("./sidebar");
+    render(<Sidebar open onClose={() => {}} />);
+
+    expect(screen.getByRole("link", { name: /API Credentials/i })).toHaveAttribute(
+      "href",
+      "/portal/api-credentials",
+    );
+  });
+
+  it("no longer shows API Keys, Developer Docs, Webhooks, IP Allowlist, or API Logs as separate nav items", async () => {
+    const { Sidebar } = await import("./sidebar");
+    render(<Sidebar open onClose={() => {}} />);
+
+    for (const label of ["API Keys", "Developer Docs", "Webhooks", "IP Allowlist", "API Logs"]) {
+      expect(screen.queryByRole("link", { name: label })).not.toBeInTheDocument();
+    }
+  });
 });
