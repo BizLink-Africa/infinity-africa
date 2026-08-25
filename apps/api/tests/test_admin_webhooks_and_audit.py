@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
+from app.core.secret_box import encrypt_secret
 from app.main import app
 from app.services.audit import write_audit_log
 from app.services.webhooks import store_incoming_selcom_event
@@ -122,7 +123,7 @@ def test_admin_can_view_but_never_the_secret_of_a_merchants_webhook_config(fake_
     merchant = create_merchant(
         fake_client,
         webhook_url="https://merchant.example.com/webhooks",
-        webhook_secret="super-secret-value",
+        webhook_secret_encrypted=encrypt_secret("super-secret-value"),
         webhook_subscribed_events=["collection.successful"],
     )
     _, headers = _admin_headers(fake_client)

@@ -151,11 +151,13 @@ def verify_api_key(
     A separate credential from Supabase Auth — used by a merchant's own
     backend calling the Infinity Africa API directly, not by apps/web.
 
-    Also enforces the merchant's IP allowlist (live environment only —
-    see app/services/ip_allowlist.py) and records last_used_at/
-    last_used_ip on the key. A rejected-for-IP attempt still writes an
-    api_request_logs row before raising, so it shows up as a rejected
-    attempt in the merchant/Super Admin API Logs views, not silently.
+    Also enforces the merchant's suspended-API-access kill switch and (for
+    `live` keys with ip_whitelist_enabled=true) IP allowlist — see
+    app/services/api_access.py and app/services/ip_allowlist.py — and
+    records last_used_at/last_used_ip on the key. A rejection still writes
+    an api_request_logs row and an audit_logs entry before raising, so it
+    shows up in the merchant/Super Admin API Logs and audit trail, not
+    silently.
     """
     if not raw_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing API key")
@@ -163,19 +165,49 @@ def verify_api_key(
     supabase = get_supabase_admin()
     data = execute_maybe_single(
         supabase.table("api_keys")
-        .select("id, merchant_id, environment, status, scopes")
+        .select("id, merchant_id, environment, status, scopes, ip_whitelist_enabled")
         .eq("hashed_key", hash_api_key(raw_key))
         .eq("status", "active")
         .maybe_single()
     )
-
-    if not data:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked API key")
-
     ip = client_ip(request)
 
+    if not data:
+        _write_auth_audit_log(supabase, request=request, ip=ip, action="api_key.auth_failed")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked API key")
+
+    merchant = execute_maybe_single(
+        supabase.table("merchants")
+        .select("api_access_suspended")
+        .eq("id", data["merchant_id"])
+        .maybe_single()
+    )
+    if merchant and merchant.get("api_access_suspended"):
+        _log_api_request(
+            supabase,
+            merchant_id=data["merchant_id"],
+            api_key_id=data["id"],
+            environment=data["environment"],
+            request=request,
+            status_code=status.HTTP_403_FORBIDDEN,
+            ip=ip,
+        )
+        _write_auth_audit_log(
+            supabase,
+            request=request,
+            ip=ip,
+            action="api_key.auth_failed_suspended",
+            merchant_id=data["merchant_id"],
+            api_key_id=data["id"],
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This merchant's API access has been suspended")
+
     if data["environment"] == "live" and not is_ip_allowed(
-        supabase, merchant_id=uuid.UUID(data["merchant_id"]), environment="live", ip=ip
+        supabase,
+        merchant_id=uuid.UUID(data["merchant_id"]),
+        environment="live",
+        ip=ip,
+        ip_whitelist_enabled=bool(data.get("ip_whitelist_enabled")),
     ):
         _log_api_request(
             supabase,
@@ -185,6 +217,14 @@ def verify_api_key(
             request=request,
             status_code=status.HTTP_403_FORBIDDEN,
             ip=ip,
+        )
+        _write_auth_audit_log(
+            supabase,
+            request=request,
+            ip=ip,
+            action="ip_allowlist.rejected",
+            merchant_id=data["merchant_id"],
+            api_key_id=data["id"],
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -198,11 +238,11 @@ def verify_api_key(
     except Exception:  # noqa: BLE001, S110 — never let usage tracking fail the request
         pass
 
-    context = ApiKeyContext(**data)
+    context = ApiKeyContext(**{k: v for k, v in data.items() if k != "ip_whitelist_enabled"})
     # Picked up by ApiRequestLogMiddleware (app/middleware/api_request_log.py)
     # after the response completes — this dependency itself only handles
-    # the IP-allowlist-rejection log (see _log_api_request above), since
-    # that happens before a response exists to log the status of.
+    # the rejection-path logs above, since those happen before a response
+    # exists to log the status of.
     request.state.api_key_context = context
     request.state.client_ip = ip
     return context
@@ -221,9 +261,9 @@ def _log_api_request(
     """Best-effort — a logging failure must never break the actual
     request. The success-path equivalent (every request, not just
     rejections) is ApiRequestLogMiddleware; this one call site exists
-    because an IP-allowlist rejection happens inside this dependency,
-    before the middleware's own after-response hook would otherwise see
-    which merchant/key it was for."""
+    because a rejection happens inside this dependency, before the
+    middleware's own after-response hook would otherwise see which
+    merchant/key it was for."""
     try:
         supabase.table("api_request_logs").insert(
             {
@@ -234,6 +274,36 @@ def _log_api_request(
                 "path": request.url.path,
                 "status_code": status_code,
                 "ip_address": ip,
+            }
+        ).execute()
+    except Exception:  # noqa: BLE001, S110
+        pass
+
+
+def _write_auth_audit_log(
+    supabase,
+    *,
+    request: Request,
+    ip: str | None,
+    action: str,
+    merchant_id: str | None = None,
+    api_key_id: str | None = None,
+) -> None:
+    """Best-effort audit trail entry for an API-key auth event (failed
+    authentication, a suspended-merchant attempt, or a rejected IP) —
+    separate from _log_api_request (api_request_logs, the per-request usage
+    log): this is the compliance-facing audit_logs table, keyed by
+    action/actor rather than by request."""
+    try:
+        supabase.table("audit_logs").insert(
+            {
+                "actor_type": "api_key",
+                "merchant_id": merchant_id,
+                "action": action,
+                "resource_type": "api_key",
+                "resource_id": api_key_id,
+                "ip_address": ip,
+                "user_agent": request.headers.get("user-agent"),
             }
         ).execute()
     except Exception:  # noqa: BLE001, S110

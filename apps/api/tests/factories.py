@@ -122,7 +122,12 @@ def create_transaction(fake_client, merchant_id: uuid.UUID, **overrides) -> dict
 
 
 def make_api_key(
-    fake_client, merchant_id: uuid.UUID, *, environment: str = "live", scopes: list[str] | None = None
+    fake_client,
+    merchant_id: uuid.UUID,
+    *,
+    environment: str = "live",
+    scopes: list[str] | None = None,
+    ip_whitelist_enabled: bool = False,
 ) -> tuple[str, dict]:
     """Seeds an active api_keys row and returns (raw_key, row) — the raw key
     is what a test sends as X-API-Key; only its hash is ever stored, exactly
@@ -130,7 +135,11 @@ def make_api_key(
 
     Defaults to every scope (API_KEY_SCOPES) so existing tests that aren't
     specifically about scope enforcement don't need to know the scope list —
-    pass an explicit, narrower `scopes` to test scope restriction itself."""
+    pass an explicit, narrower `scopes` to test scope restriction itself.
+
+    ip_whitelist_enabled defaults to False (the merchant's "continue without
+    IP whitelisting" default) — pass True for tests exercising allowlist
+    enforcement (app.services.ip_allowlist.is_ip_allowed)."""
     from app.auth import hash_api_key
     from app.schemas.api_keys import API_KEY_SCOPES
 
@@ -142,9 +151,12 @@ def make_api_key(
             "name": "Test key",
             "environment": environment,
             "key_prefix": raw_key[:16],
+            "key_last4": raw_key[-4:],
             "hashed_key": hash_api_key(raw_key),
             "scopes": list(API_KEY_SCOPES) if scopes is None else scopes,
             "status": "active",
+            "ip_whitelist_enabled": ip_whitelist_enabled,
+            "continue_without_ip_whitelist": not ip_whitelist_enabled,
         },
     )
     return raw_key, row

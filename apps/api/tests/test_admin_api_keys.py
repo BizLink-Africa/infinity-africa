@@ -99,3 +99,21 @@ def test_revoke_404s_for_unknown_key(fake_client):
     make_super_admin(fake_client, admin_id)
     response = client.patch(f"/v1/admin/api-keys/{uuid.uuid4()}/revoke", headers=auth_headers(admin_id))
     assert response.status_code == 404
+
+
+def test_super_admin_never_sees_the_full_secret_only_prefix_and_last4(fake_client):
+    merchant = create_merchant(fake_client)
+    raw_key, key_row = make_api_key(fake_client, uuid.UUID(merchant["id"]), ip_whitelist_enabled=True)
+
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+    response = client.get("/v1/admin/api-keys", headers=auth_headers(admin_id))
+
+    assert response.status_code == 200, response.text
+    row = next(r for r in response.json()["data"] if r["id"] == key_row["id"])
+    assert raw_key not in response.text
+    assert "plaintext_key" not in row
+    assert "hashed_key" not in row
+    assert row["key_prefix"] == key_row["key_prefix"]
+    assert row["key_last4"] == raw_key[-4:]
+    assert row["ip_whitelist_enabled"] is True

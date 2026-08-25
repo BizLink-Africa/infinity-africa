@@ -21,15 +21,21 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Header, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, Request, UploadFile, status
 
 from app.auth import hash_api_key, require_own_merchant_role
 from app.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
 from app.core.references import generate_reference
+from app.core.request_ip import client_ip
 from app.database.session import get_supabase_admin
-from app.schemas.api_keys import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyResponse
+from app.schemas.api_keys import (
+    ApiKeyCreate,
+    ApiKeyCreateResponse,
+    ApiKeyRename,
+    ApiKeyResponse,
+)
 from app.schemas.api_logs import ApiRequestLogResponse
 from app.schemas.auth import MerchantMembership
 from app.schemas.checkout_orders import CheckoutOrderResponse
@@ -73,7 +79,10 @@ from app.schemas.transactions import TransactionResponse
 from app.schemas.withdrawals import FeeBreakdown, WithdrawalQuoteRequest
 from app.services import disputes_service, document_requests_service
 from app.services.admin_directory import batch_user_profiles, best_effort_user_profile
-from app.services.api_access import check_production_api_access
+from app.services.api_access import (
+    check_production_api_access,
+    check_sandbox_api_access,
+)
 from app.services.audit import write_audit_log
 from app.services.checkout_orders import create_checkout_order_minimal
 from app.services.checkout_reconciliation import refresh_checkout_collection_status
@@ -1011,11 +1020,12 @@ def get_my_transaction_by_reference(
 # --- API keys ---------------------------------------------------------------
 
 
-def _generate_api_key(environment: str) -> tuple[str, str]:
+def _generate_api_key(environment: str) -> tuple[str, str, str]:
     token = secrets.token_urlsafe(24)
     plaintext = f"inf_{environment}_{token}"
     prefix = plaintext[: len(f"inf_{environment}_") + 6]
-    return plaintext, prefix
+    last4 = plaintext[-4:]
+    return plaintext, prefix, last4
 
 
 @router.get("/api-keys", response_model=APIResponse[list[ApiKeyResponse]])
@@ -1033,13 +1043,20 @@ def list_my_api_keys(
 def create_my_api_key(
     payload: ApiKeyCreate,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
+    request: Request,
 ):
+    """Sandbox keys are self-service for any non-suspended merchant.
+    Production (`live`) keys are ALSO self-service — no per-key Super Admin
+    approval — but only once the merchant is approved/verified/priced (see
+    app.services.api_access.check_production_api_access)."""
     client = get_supabase_admin()
+    merchant = get_by_id(client, "merchants", membership.merchant_id) or {}
     if payload.environment == "live":
-        merchant = get_by_id(client, "merchants", membership.merchant_id)
-        check_production_api_access(merchant or {})
+        check_production_api_access(client, merchant)
+    else:
+        check_sandbox_api_access(merchant)
 
-    plaintext, prefix = _generate_api_key(payload.environment)
+    plaintext, prefix, last4 = _generate_api_key(payload.environment)
 
     row = insert_row(
         client,
@@ -1049,9 +1066,12 @@ def create_my_api_key(
             "name": payload.name,
             "environment": payload.environment,
             "key_prefix": prefix,
+            "key_last4": last4,
             "hashed_key": hash_api_key(plaintext),
             "scopes": payload.scopes,
             "status": "active",
+            "ip_whitelist_enabled": payload.ip_whitelist_enabled,
+            "continue_without_ip_whitelist": payload.continue_without_ip_whitelist,
             "created_by": str(membership.user_id),
         },
     )
@@ -1063,7 +1083,13 @@ def create_my_api_key(
         action="api_key.created",
         resource_type="api_key",
         resource_id=uuid.UUID(row["id"]),
-        metadata={"environment": payload.environment, "scopes": payload.scopes},
+        metadata={
+            "environment": payload.environment,
+            "scopes": payload.scopes,
+            "ip_whitelist_enabled": payload.ip_whitelist_enabled,
+        },
+        ip_address=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
     )
     return APIResponse(
         data=ApiKeyCreateResponse(
@@ -1071,18 +1097,50 @@ def create_my_api_key(
             name=row["name"],
             environment=row["environment"],
             key_prefix=row["key_prefix"],
+            key_last4=row["key_last4"],
             scopes=row["scopes"],
+            ip_whitelist_enabled=row["ip_whitelist_enabled"],
+            continue_without_ip_whitelist=row["continue_without_ip_whitelist"],
             plaintext_key=plaintext,
             created_at=row["created_at"],
         )
     )
 
 
+@router.patch("/api-keys/{api_key_id}", response_model=APIResponse[ApiKeyResponse])
+def rename_my_api_key(
+    api_key_id: uuid.UUID,
+    payload: ApiKeyRename,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
+):
+    client = get_supabase_admin()
+    row = update_row(client, "api_keys", api_key_id, {"name": payload.name}, merchant_id=membership.merchant_id)
+    if not row:
+        raise NotFoundError("API key not found")
+
+    write_audit_log(
+        client,
+        actor_id=membership.user_id,
+        actor_type="user",
+        merchant_id=membership.merchant_id,
+        action="api_key.renamed",
+        resource_type="api_key",
+        resource_id=api_key_id,
+        metadata={"name": payload.name},
+    )
+    return APIResponse(data=ApiKeyResponse(**row))
+
+
 @router.patch("/api-keys/{api_key_id}/revoke", response_model=APIResponse[ApiKeyResponse])
 def revoke_my_api_key(
     api_key_id: uuid.UUID,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
+    request: Request,
 ):
+    """A revoked key can never authenticate again (app.auth.dependencies.
+    verify_api_key only matches status='active'). This is also the only
+    recovery path if a merchant loses their secret — there's no reveal, so
+    "I lost it" means revoke (or rotate) it, never retrieve it."""
     client = get_supabase_admin()
     row = update_row(
         client,
@@ -1102,6 +1160,8 @@ def revoke_my_api_key(
         action="api_key.revoked",
         resource_type="api_key",
         resource_id=api_key_id,
+        ip_address=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
     )
     return APIResponse(data=ApiKeyResponse(**row))
 
@@ -1112,23 +1172,27 @@ def revoke_my_api_key(
 def rotate_my_api_key(
     api_key_id: uuid.UUID,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
+    request: Request,
 ):
     """Revokes the named key and creates a fresh one with the same
-    name/environment/scopes in a single action — the "rotate" a
-    developer reaches for on a schedule or after a suspected leak,
-    without hand-copying the old key's settings into a new "Generate
-    key" form. The new key's plaintext is returned exactly once, same
-    rule as create_my_api_key — copy it now, it can never be retrieved
-    again."""
+    name/environment/scopes/IP-whitelist choice in a single action — the
+    "rotate" a developer reaches for on a schedule, after a suspected leak,
+    or simply because they lost the secret (there's no reveal — rotating is
+    the only way to get a usable key back). The new key's plaintext is
+    returned exactly once, same rule as create_my_api_key — copy it now, it
+    can never be retrieved again."""
     client = get_supabase_admin()
     old_row = get_by_id(client, "api_keys", api_key_id)
     if not old_row or uuid.UUID(old_row["merchant_id"]) != membership.merchant_id:
         raise NotFoundError("API key not found")
     if old_row["status"] == "revoked":
         raise ConflictError("This key was already revoked")
+
+    merchant = get_by_id(client, "merchants", membership.merchant_id) or {}
     if old_row["environment"] == "live":
-        merchant = get_by_id(client, "merchants", membership.merchant_id)
-        check_production_api_access(merchant or {})
+        check_production_api_access(client, merchant)
+    else:
+        check_sandbox_api_access(merchant)
 
     update_row(
         client,
@@ -1138,7 +1202,7 @@ def rotate_my_api_key(
         merchant_id=membership.merchant_id,
     )
 
-    plaintext, prefix = _generate_api_key(old_row["environment"])
+    plaintext, prefix, last4 = _generate_api_key(old_row["environment"])
     new_row = insert_row(
         client,
         "api_keys",
@@ -1147,9 +1211,12 @@ def rotate_my_api_key(
             "name": old_row["name"],
             "environment": old_row["environment"],
             "key_prefix": prefix,
+            "key_last4": last4,
             "hashed_key": hash_api_key(plaintext),
             "scopes": old_row["scopes"],
             "status": "active",
+            "ip_whitelist_enabled": old_row.get("ip_whitelist_enabled", False),
+            "continue_without_ip_whitelist": old_row.get("continue_without_ip_whitelist", True),
             "created_by": str(membership.user_id),
         },
     )
@@ -1162,6 +1229,8 @@ def rotate_my_api_key(
         resource_type="api_key",
         resource_id=uuid.UUID(new_row["id"]),
         metadata={"replaced_api_key_id": str(api_key_id)},
+        ip_address=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
     )
     return APIResponse(
         data=ApiKeyCreateResponse(
@@ -1169,7 +1238,10 @@ def rotate_my_api_key(
             name=new_row["name"],
             environment=new_row["environment"],
             key_prefix=new_row["key_prefix"],
+            key_last4=new_row["key_last4"],
             scopes=new_row["scopes"],
+            ip_whitelist_enabled=new_row["ip_whitelist_enabled"],
+            continue_without_ip_whitelist=new_row["continue_without_ip_whitelist"],
             plaintext_key=plaintext,
             created_at=new_row["created_at"],
         )

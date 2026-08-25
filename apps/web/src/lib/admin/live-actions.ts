@@ -11,8 +11,7 @@ import {
   createMerchantPricingRule,
   createPlatformFallbackPricingRule,
   deactivatePricingRule,
-  disableProductionApiAccess,
-  enableProductionApiAccess,
+  reinstateMerchantApiAccess,
   rejectDocumentRequest,
   rejectIpAllowlistEntry,
   rejectWithdrawal,
@@ -22,6 +21,7 @@ import {
   requestInfoWithdrawal,
   requestRefundForDispute,
   revokeAdminApiKey,
+  suspendMerchantApiAccess,
   updateDisputeStatus,
   updateMerchantStatus,
   updatePricingRule,
@@ -46,13 +46,13 @@ export async function revokeAdminApiKeyAction(apiKeyId: string) {
   revalidatePath("/super-admin/api-keys");
 }
 
-export async function enableProductionApiAccessAction(merchantId: string) {
-  await enableProductionApiAccess(merchantId);
+export async function suspendMerchantApiAccessAction(merchantId: string) {
+  await suspendMerchantApiAccess(merchantId);
   revalidatePath(`/super-admin/merchants/${merchantId}`);
 }
 
-export async function disableProductionApiAccessAction(merchantId: string) {
-  await disableProductionApiAccess(merchantId);
+export async function reinstateMerchantApiAccessAction(merchantId: string) {
+  await reinstateMerchantApiAccess(merchantId);
   revalidatePath(`/super-admin/merchants/${merchantId}`);
 }
 

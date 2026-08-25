@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
+from app.core.secret_box import decrypt_secret
 from app.main import app
 from app.routers import merchant_webhooks
 from tests.factories import (
@@ -69,6 +70,23 @@ def test_patch_webhook_config_sets_url_and_regenerates_secret_once(fake_client):
     assert follow_up.json()["data"]["has_secret"] is True
     assert "secret" not in follow_up.json()["data"]
     assert secret_shown_once  # sanity — was non-empty
+
+
+def test_webhook_secret_is_stored_encrypted_never_plaintext(fake_client):
+    merchant_id, user_id = _merchant_and_member(fake_client)
+
+    response = client.patch(
+        "/v1/merchant/webhook-config",
+        headers=auth_headers(user_id),
+        json={"webhook_url": "https://example.com/hooks/infinity", "regenerate_secret": True},
+    )
+    shown_secret = response.json()["data"]["secret"]
+
+    row = fake_client.table("merchants").select("*").eq("id", str(merchant_id)).maybe_single().execute().data
+    assert row.get("webhook_secret") is None  # legacy plaintext column is never written to
+    stored = row["webhook_secret_encrypted"]
+    assert stored != shown_secret  # not stored as plaintext
+    assert decrypt_secret(stored) == shown_secret  # but recoverable under the encryption key, for signing
 
 
 def test_staff_can_view_but_not_update_webhook_config(fake_client):

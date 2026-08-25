@@ -22,6 +22,7 @@ export function ApiKeysTable({ rows }: { rows: AdminApiKeyPlatformRow[] }) {
                 <th className={thClass}>Name</th>
                 <th className={thClass}>Key</th>
                 <th className={thClass}>Environment</th>
+                <th className={thClass}>IP Whitelist</th>
                 <th className={thClass}>Status</th>
                 <th className={thClass}>Last Used</th>
                 <th className={thClass}>Created</th>
@@ -33,11 +34,19 @@ export function ApiKeysTable({ rows }: { rows: AdminApiKeyPlatformRow[] }) {
                 <tr key={row.id} className="border-t border-surface-container-highest">
                   <td className={`${tdClass} text-on-background font-medium`}>{row.merchant_name}</td>
                   <td className={tdClass}>{row.name}</td>
-                  <td className={`${tdClass} text-on-surface-variant text-xs font-mono`}>{row.key_prefix}…</td>
+                  <td className={`${tdClass} text-on-surface-variant text-xs font-mono`}>
+                    {row.key_prefix}••••{row.key_last4 ?? ""}
+                  </td>
                   <td className={tdClass}>
                     <StatusBadge
                       label={row.environment === "live" ? "Live" : "Sandbox"}
                       tone={row.environment === "live" ? "positive" : "neutral"}
+                    />
+                  </td>
+                  <td className={tdClass}>
+                    <StatusBadge
+                      label={row.ip_whitelist_enabled ? "Enabled" : "Any IP"}
+                      tone={row.ip_whitelist_enabled ? "positive" : "neutral"}
                     />
                   </td>
                   <td className={tdClass}>

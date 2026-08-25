@@ -50,8 +50,10 @@ class AdminApiKeyResponse(BaseModel):
     name: str
     environment: str
     key_prefix: str
+    key_last4: str | None = None
     scopes: list[str]
     status: str
+    ip_whitelist_enabled: bool = False
     last_used_at: datetime | None = None
     last_used_ip: str | None = None
     revoked_at: datetime | None = None
@@ -68,7 +70,8 @@ class AdminMerchantResponse(BaseModel):
     physical_address: str | None = None
     account_status: str
     kyc_status: str
-    api_production_enabled: bool
+    api_access_suspended: bool
+    production_api_eligible: bool
     available_balance: Decimal
     created_at: datetime
 

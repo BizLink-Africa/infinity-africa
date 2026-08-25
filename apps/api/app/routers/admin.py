@@ -46,6 +46,7 @@ from app.schemas.webhook_config import WebhookConfigResponse
 from app.services.admin_customers import list_admin_customers
 from app.services.admin_directory import batch_merchant_names, batch_user_profiles
 from app.services.admin_overview import get_admin_overview
+from app.services.api_access import is_production_api_access_allowed
 from app.services.audit import write_audit_log
 from app.services.checkout_reconciliation import refresh_checkout_collection_status
 from app.services.crud import get_by_id, update_row
@@ -116,7 +117,8 @@ def list_admin_merchants(
                 physical_address=submission["physical_address"] if submission else None,
                 account_status=merchant["status"],
                 kyc_status=merchant["kyc_status"],
-                api_production_enabled=bool(merchant.get("api_production_enabled")),
+                api_access_suspended=bool(merchant.get("api_access_suspended")),
+                production_api_eligible=is_production_api_access_allowed(client, merchant),
                 available_balance=get_wallet_balance(
                     client, merchant_id=uuid.UUID(merchant["id"]), currency=merchant["currency"]
                 ),
@@ -165,7 +167,8 @@ def get_admin_merchant(
             physical_address=submission[0]["physical_address"] if submission else None,
             account_status=merchant["status"],
             kyc_status=merchant["kyc_status"],
-            api_production_enabled=bool(merchant.get("api_production_enabled")),
+            api_access_suspended=bool(merchant.get("api_access_suspended")),
+            production_api_eligible=is_production_api_access_allowed(client, merchant),
             available_balance=get_wallet_balance(
                 client, merchant_id=merchant_id, currency=merchant["currency"]
             ),
@@ -174,14 +177,17 @@ def get_admin_merchant(
     )
 
 
-@router.post("/merchants/{merchant_id}/api-access/enable-production", response_model=APIResponse[AdminMerchantResponse])
-def enable_production_api_access(
+@router.post("/merchants/{merchant_id}/api-access/suspend", response_model=APIResponse[AdminMerchantResponse])
+def suspend_merchant_api_access(
     merchant_id: uuid.UUID,
     admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
 ):
-    """The explicit fifth gate app/services/api_access.py checks before a
-    merchant may create/rotate a `live` API key — on top of, not instead
-    of, being KYC-approved (status='active', kyc_status='verified')."""
+    """Abuse/fraud kill switch — blocks ALL API key authentication for this
+    merchant (sandbox and live both, see app.auth.dependencies.verify_api_key)
+    regardless of approval status. Does not revoke any existing key
+    (revoke those explicitly via PATCH /v1/admin/api-keys/{id}/revoke if
+    that's also intended) — it blocks *authentication*, so a suspended
+    merchant's keys simply stop working until reinstated."""
     client = get_supabase_admin()
     merchant = get_by_id(client, "merchants", merchant_id)
     if not merchant:
@@ -192,9 +198,9 @@ def enable_production_api_access(
         "merchants",
         merchant_id,
         {
-            "api_production_enabled": True,
-            "api_production_enabled_at": utc_now_iso(),
-            "api_production_enabled_by": str(admin.id),
+            "api_access_suspended": True,
+            "api_access_suspended_at": utc_now_iso(),
+            "api_access_suspended_by": str(admin.id),
         },
     )
     write_audit_log(
@@ -202,35 +208,34 @@ def enable_production_api_access(
         actor_id=admin.id,
         actor_type="user",
         merchant_id=merchant_id,
-        action="merchant.production_api_access_enabled",
+        action="merchant.api_access_suspended",
         resource_type="merchant",
         resource_id=merchant_id,
     )
     return get_admin_merchant(merchant_id, admin)
 
 
-@router.post("/merchants/{merchant_id}/api-access/disable-production", response_model=APIResponse[AdminMerchantResponse])
-def disable_production_api_access(
+@router.post("/merchants/{merchant_id}/api-access/reinstate", response_model=APIResponse[AdminMerchantResponse])
+def reinstate_merchant_api_access(
     merchant_id: uuid.UUID,
     admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
 ):
-    """Does not revoke any `live` key the merchant already created —
-    existing keys keep working (revoke those explicitly via
-    PATCH /v1/admin/api-keys/{id}/revoke if that's also intended). This
-    only blocks *new* live keys from being created/rotated from this
-    point on."""
+    """Lifts a suspension. Production self-service eligibility still
+    depends on the merchant's own approval/KYC/pricing state — this only
+    clears the Super Admin override, it doesn't itself grant production
+    access to a merchant who wasn't otherwise eligible."""
     client = get_supabase_admin()
     merchant = get_by_id(client, "merchants", merchant_id)
     if not merchant:
         raise NotFoundError("Merchant not found")
 
-    update_row(client, "merchants", merchant_id, {"api_production_enabled": False})
+    update_row(client, "merchants", merchant_id, {"api_access_suspended": False})
     write_audit_log(
         client,
         actor_id=admin.id,
         actor_type="user",
         merchant_id=merchant_id,
-        action="merchant.production_api_access_disabled",
+        action="merchant.api_access_reinstated",
         resource_type="merchant",
         resource_id=merchant_id,
     )
@@ -286,8 +291,10 @@ def list_admin_api_keys(
             name=row["name"],
             environment=row["environment"],
             key_prefix=row["key_prefix"],
+            key_last4=row.get("key_last4"),
             scopes=row["scopes"],
             status=row["status"],
+            ip_whitelist_enabled=bool(row.get("ip_whitelist_enabled")),
             last_used_at=row.get("last_used_at"),
             last_used_ip=row.get("last_used_ip"),
             revoked_at=row.get("revoked_at"),
@@ -335,8 +342,10 @@ def revoke_admin_api_key(
             name=result["name"],
             environment=result["environment"],
             key_prefix=result["key_prefix"],
+            key_last4=result.get("key_last4"),
             scopes=result["scopes"],
             status=result["status"],
+            ip_whitelist_enabled=bool(result.get("ip_whitelist_enabled")),
             last_used_at=result.get("last_used_at"),
             last_used_ip=result.get("last_used_ip"),
             revoked_at=result.get("revoked_at"),
@@ -374,7 +383,7 @@ def get_admin_merchant_webhook_config(
         data=WebhookConfigResponse(
             webhook_url=merchant.get("webhook_url"),
             subscribed_events=merchant.get("webhook_subscribed_events"),
-            has_secret=bool(merchant.get("webhook_secret")),
+            has_secret=bool(merchant.get("webhook_secret_encrypted")),
             last_delivery=last_webhook_delivery(client, merchant_id),
         )
     )

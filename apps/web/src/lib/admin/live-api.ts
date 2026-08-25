@@ -122,12 +122,12 @@ export async function listAdminMerchantApiKeys(merchantId: string): Promise<Admi
   return apiList<AdminApiKeyRow>(`/v1/admin/merchants/${merchantId}/api-keys`);
 }
 
-export async function enableProductionApiAccess(merchantId: string): Promise<void> {
-  await apiWrite(`/v1/admin/merchants/${merchantId}/api-access/enable-production`, "POST");
+export async function suspendMerchantApiAccess(merchantId: string): Promise<void> {
+  await apiWrite(`/v1/admin/merchants/${merchantId}/api-access/suspend`, "POST");
 }
 
-export async function disableProductionApiAccess(merchantId: string): Promise<void> {
-  await apiWrite(`/v1/admin/merchants/${merchantId}/api-access/disable-production`, "POST");
+export async function reinstateMerchantApiAccess(merchantId: string): Promise<void> {
+  await apiWrite(`/v1/admin/merchants/${merchantId}/api-access/reinstate`, "POST");
 }
 
 export async function listAdminIpAllowlist(filters?: { merchantId?: string }): Promise<AdminIpAllowlistRow[]> {

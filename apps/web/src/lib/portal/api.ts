@@ -410,10 +410,19 @@ export async function createApiKey(input: {
   name: string;
   environment: ApiKey["environment"];
   scopes: string[];
+  // Part 6's per-key choice: enable IP whitelisting (merchant will add
+  // approved IPs separately), or explicitly continue without it. Exactly
+  // one is true — the backend reconciles this if both/neither are sent.
+  ip_whitelist_enabled?: boolean;
+  continue_without_ip_whitelist?: boolean;
 }): Promise<{ key: ApiKey; plaintext_key: string }> {
   const created = await apiWrite<ApiKey & { plaintext_key: string }>("/v1/merchant/api-keys", "POST", input);
   const { plaintext_key, ...key } = created;
   return { key: key as ApiKey, plaintext_key };
+}
+
+export async function renameApiKey(apiKeyId: string, name: string): Promise<ApiKey> {
+  return apiWrite<ApiKey>(`/v1/merchant/api-keys/${apiKeyId}`, "PATCH", { name });
 }
 
 export async function revokeApiKey(apiKeyId: string): Promise<ApiKey> {

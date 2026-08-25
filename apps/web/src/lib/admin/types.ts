@@ -38,7 +38,11 @@ export interface Merchant {
   physical_address: string | null;
   account_status: MerchantAccountStatus;
   kyc_status: string;
-  api_production_enabled: boolean;
+  api_access_suspended: boolean;
+  /** Read-only: computed self-service eligibility (approved + verified +
+   * a pricing rule resolves + not suspended) — there's no per-merchant
+   * "enable production" switch anymore; production keys are self-service. */
+  production_api_eligible: boolean;
   available_balance: string;
   created_at: string;
 }
@@ -194,9 +198,12 @@ export interface AdminApiKeyRow {
   name: string;
   environment: string;
   key_prefix: string;
+  key_last4: string | null;
   scopes: string[];
   status: string;
+  ip_whitelist_enabled: boolean;
   last_used_at: string | null;
+  last_used_ip: string | null;
   revoked_at: string | null;
   created_at: string;
   updated_at: string;
@@ -228,9 +235,12 @@ export interface AdminApiKeyPlatformRow {
   name: string;
   environment: string;
   key_prefix: string;
+  key_last4: string | null;
   scopes: string[];
   status: string;
+  ip_whitelist_enabled: boolean;
   last_used_at: string | null;
+  last_used_ip: string | null;
   revoked_at: string | null;
   created_at: string;
 }

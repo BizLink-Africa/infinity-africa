@@ -1,51 +1,69 @@
-"""Gates whether a merchant may create/rotate a `live` API key.
+"""Gates whether a merchant may create/rotate a `live` API key, and whether
+a merchant may authenticate with an API key at all (any environment).
 
-Five conditions from the task brief, three of them already implied by
-existing state rather than needing their own new checks:
-  - KYC approved            -> merchants.kyc_status == 'verified'
-  - merchant status APPROVED -> merchants.status == 'active'
-  - wallet created           -> already lazily created the moment a
-                                 merchant is approved (see
-                                 onboarding.py::approve_onboarding_submission
-                                 -> get_wallet_balance) — nothing new to
-                                 check here, it always exists by the time
-                                 status/kyc_status reach the values above.
-  - pricing rule assigned    -> the existing 6-tier precedence resolver
-                                 (app/services/withdrawals/fee_calculator.py)
-                                 always resolves *something* once a
-                                 platform fallback rule exists, same as
-                                 for every other merchant — not a
-                                 merchant-specific gate.
-  - Super Admin enables production API access -> merchants.api_production_enabled,
-                                 the one genuinely new, explicit flag.
+Business decision (amended 2026-08-26): production API keys are
+self-service — once a merchant is approved, they create their own `live`
+keys with no per-key or per-merchant Super Admin approval step. The gate is
+purely automatic eligibility:
+  - merchant status == 'active'        (Super Admin approved onboarding)
+  - kyc_status == 'verified'
+  - a pricing rule resolves for them    (their own, or the platform fallback)
+  - api_access_suspended is false       (Super Admin abuse/fraud kill switch)
 
-So the real gate is just: status == 'active' AND kyc_status == 'verified'
-AND api_production_enabled is true. Sandbox keys are never gated — every
-merchant, regardless of approval state, can always create/use a sandbox
-key (that's the whole point of a sandbox).
+"Wallet exists" from the task brief isn't a separate check: this codebase
+has no standalone wallet-creation record — get_wallet_balance derives the
+balance from the transactions ledger, which is always queryable (0 for a
+merchant with no transactions yet), so a wallet effectively always "exists"
+the moment a merchant row does.
+
+Sandbox keys are gated only on api_access_suspended — every non-suspended
+merchant, regardless of approval state, can always create/use a sandbox key
+(that's the whole point of a sandbox letting integrators build ahead of
+approval).
 """
 
+import uuid
+
+from supabase import Client
+
 from app.core.errors import ProductionAccessRestrictedError
+from app.services.withdrawals.fee_calculator import find_pricing_rule
 
 
-def is_production_api_access_allowed(merchant: dict) -> bool:
-    return (
-        merchant.get("status") == "active"
-        and merchant.get("kyc_status") == "verified"
-        and bool(merchant.get("api_production_enabled"))
-    )
+def is_merchant_api_access_suspended(merchant: dict) -> bool:
+    return bool(merchant.get("api_access_suspended"))
 
 
-def check_production_api_access(merchant: dict) -> None:
-    if is_production_api_access_allowed(merchant):
-        return
+def has_resolvable_pricing_rule(client: Client, merchant_id: uuid.UUID) -> bool:
+    return find_pricing_rule(client, merchant_id=merchant_id, channel=None, destination_code=None) is not None
 
+
+def is_production_api_access_allowed(client: Client, merchant: dict) -> bool:
+    if is_merchant_api_access_suspended(merchant):
+        return False
+    if merchant.get("status") != "active" or merchant.get("kyc_status") != "verified":
+        return False
+    return has_resolvable_pricing_rule(client, uuid.UUID(merchant["id"]))
+
+
+def check_production_api_access(client: Client, merchant: dict) -> None:
+    if is_merchant_api_access_suspended(merchant):
+        raise ProductionAccessRestrictedError(
+            "This merchant's API access has been suspended. Contact Infinity Africa support."
+        )
     if merchant.get("status") != "active" or merchant.get("kyc_status") != "verified":
         raise ProductionAccessRestrictedError(
-            "Production API access requires an approved, KYC-verified merchant account. "
-            "Complete onboarding verification first."
+            "Production API keys are available after your business account is approved."
         )
-    raise ProductionAccessRestrictedError(
-        "Production API access has not been enabled for this account yet. "
-        "Contact Infinity Africa to request live API access."
-    )
+    if not has_resolvable_pricing_rule(client, uuid.UUID(merchant["id"])):
+        raise ProductionAccessRestrictedError(
+            "Production API access isn't available yet — no pricing has been assigned to your account. "
+            "Contact Infinity Africa support."
+        )
+
+
+def check_sandbox_api_access(merchant: dict) -> None:
+    if is_merchant_api_access_suspended(merchant):
+        raise ProductionAccessRestrictedError(
+            "This merchant's API access has been suspended. Contact Infinity Africa support."
+        )

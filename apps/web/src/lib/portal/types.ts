@@ -218,8 +218,11 @@ export interface ApiKey {
   name: string;
   environment: "sandbox" | "live";
   key_prefix: string;
+  key_last4: string | null;
   scopes: string[];
   status: "active" | "revoked";
+  ip_whitelist_enabled: boolean;
+  continue_without_ip_whitelist: boolean;
   last_used_at: string | null;
   last_used_ip: string | null;
   revoked_at: string | null;
@@ -303,7 +306,7 @@ export interface MerchantProfile {
   contact_phone: string | null;
   status: string;
   kyc_status: string;
-  api_production_enabled: boolean;
+  api_access_suspended: boolean;
   webhook_url: string | null;
   created_at: string;
   updated_at: string;

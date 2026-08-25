@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/portal/page-header";
 import { SegmentedControl } from "@/components/portal/segmented-control";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatDateTime } from "@/lib/format";
-import { createApiKey, getMyMerchant, listApiKeys, revokeApiKey, rotateApiKey } from "@/lib/portal/api";
+import { createApiKey, getMyMerchant, listApiKeys, renameApiKey, revokeApiKey, rotateApiKey } from "@/lib/portal/api";
 import { API_KEY_SCOPES, type ApiKey, type ApiKeyScope } from "@/lib/portal/types";
 
 const SCOPE_LABELS: Record<ApiKeyScope, string> = {
@@ -40,19 +40,27 @@ export function ApiKeysView() {
   const [formOpen, setFormOpen] = useState(false);
   const [keyName, setKeyName] = useState("");
   const [scopes, setScopes] = useState<ApiKeyScope[]>([]);
-  const [productionEnabled, setProductionEnabled] = useState<boolean | null>(null);
-  const [kycVerified, setKycVerified] = useState(true);
+  const [ipWhitelistChoice, setIpWhitelistChoice] = useState<"enabled" | "continue_without">("continue_without");
+  const [merchantApproved, setMerchantApproved] = useState<boolean | null>(null);
+  const [apiSuspended, setApiSuspended] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const visibleKeys = keys.filter((key) => key.environment === environment);
-  const liveBlocked = environment === "live" && productionEnabled === false;
+  // Self-service production: a merchant creates their own Live key the
+  // moment they're approved + KYC-verified — no separate Super Admin
+  // "enable production" step. This banner reflects only the part known
+  // client-side (approval/KYC); a pricing-rule gap or a suspension surfaces
+  // through the server's own rejection message in generateError instead.
+  const liveBlocked = environment === "live" && merchantApproved === false;
 
   useEffect(() => {
     listApiKeys().then(setKeys);
     getMyMerchant().then((merchant) => {
       if (!merchant) return;
-      setKycVerified(merchant.status === "active" && merchant.kyc_status === "verified");
-      setProductionEnabled(merchant.api_production_enabled);
+      setMerchantApproved(merchant.status === "active" && merchant.kyc_status === "verified");
+      setApiSuspended(merchant.api_access_suspended);
     });
   }, []);
 
@@ -67,18 +75,33 @@ export function ApiKeysView() {
     setGenerating(true);
     setGenerateError(null);
     try {
-      const { key, plaintext_key } = await createApiKey({ name: keyName.trim(), environment, scopes });
+      const { key, plaintext_key } = await createApiKey({
+        name: keyName.trim(),
+        environment,
+        scopes,
+        ip_whitelist_enabled: ipWhitelistChoice === "enabled",
+        continue_without_ip_whitelist: ipWhitelistChoice === "continue_without",
+      });
       setKeys((prev) => [key, ...prev]);
       setRevealed(plaintext_key);
       setCopied(false);
       setFormOpen(false);
       setKeyName("");
       setScopes([]);
+      setIpWhitelistChoice("continue_without");
     } catch (err) {
       setGenerateError(err instanceof Error ? err.message : "Couldn't generate this API key.");
     } finally {
       setGenerating(false);
     }
+  }
+
+  async function handleRename(keyId: string) {
+    const name = renameValue.trim();
+    if (!name) return;
+    const updated = await renameApiKey(keyId, name);
+    setKeys((prev) => prev.map((k) => (k.id === keyId ? updated : k)));
+    setRenamingId(null);
   }
 
   async function handleCopy() {
@@ -139,15 +162,24 @@ export function ApiKeysView() {
         </p>
       </div>
 
-      {liveBlocked && (
+      {apiSuspended && (
+        <div className="flex items-start gap-3 rounded-lg border border-error/30 bg-error-container/30 px-4 py-3.5">
+          <Icon name="block" className="text-[20px] text-error shrink-0 mt-0.5" />
+          <p className="text-sm text-on-error-container">
+            <span className="font-semibold">API access is currently suspended</span> for this account. Existing and
+            new keys will not authenticate. Contact Infinity Africa support.
+          </p>
+        </div>
+      )}
+
+      {!apiSuspended && liveBlocked && (
         <div className="flex items-start gap-3 rounded-lg border border-outline-variant bg-surface-container-low px-4 py-3.5">
           <Icon name="lock" className="text-[20px] text-on-surface-variant shrink-0 mt-0.5" />
           <p className="text-sm text-on-surface-variant">
-            <span className="font-semibold text-on-background">Production API access isn&rsquo;t enabled yet.</span>{" "}
-            {kycVerified
-              ? "Your account is verified, but Infinity Africa hasn't enabled live API access for you yet — contact us to request it."
-              : "Complete onboarding verification first, then contact Infinity Africa to request live API access."}{" "}
-            You can still create and use Sandbox keys in the meantime.
+            <span className="font-semibold text-on-background">
+              Production API keys are available after your business account is approved.
+            </span>{" "}
+            You can still create and use Sandbox keys in the meantime — no approval needed for those.
           </p>
         </div>
       )}
@@ -211,12 +243,54 @@ export function ApiKeysView() {
                 ))}
               </div>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-on-surface-variant mb-2">IP Whitelisting</label>
+              <div className="space-y-2">
+                <label className="flex items-start gap-2.5 px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg cursor-pointer">
+                  <input
+                    checked={ipWhitelistChoice === "continue_without"}
+                    onChange={() => setIpWhitelistChoice("continue_without")}
+                    className="mt-0.5 text-primary-container focus:ring-primary"
+                    type="radio"
+                    name="ip_whitelist_choice"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium text-on-surface">Continue without IP whitelisting</span>
+                    <span className="block text-xs text-on-surface-variant mt-0.5">
+                      Accept this key from any server IP.{" "}
+                      {environment === "live" && "For production, IP whitelisting is recommended for stronger security."}
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2.5 px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg cursor-pointer">
+                  <input
+                    checked={ipWhitelistChoice === "enabled"}
+                    onChange={() => setIpWhitelistChoice("enabled")}
+                    className="mt-0.5 text-primary-container focus:ring-primary"
+                    type="radio"
+                    name="ip_whitelist_choice"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium text-on-surface">Enable IP whitelisting</span>
+                    <span className="block text-xs text-on-surface-variant mt-0.5">
+                      Only accept this key from server IPs you approve — add them on the IP Allowlist page.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
             {generateError && <p className="text-sm text-error">{generateError}</p>}
             <div className="flex items-center gap-3">
               <button
                 type="submit"
-                disabled={generating || !keyName.trim() || scopes.length === 0 || liveBlocked}
-                title={liveBlocked ? "Production API access isn't enabled for this account yet" : undefined}
+                disabled={generating || !keyName.trim() || scopes.length === 0 || liveBlocked || apiSuspended}
+                title={
+                  apiSuspended
+                    ? "API access is suspended for this account"
+                    : liveBlocked
+                      ? "Production API keys are available after your business account is approved"
+                      : undefined
+                }
                 className="bg-primary-container text-on-primary text-sm font-medium py-2.5 px-5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-60"
               >
                 {generating ? "Generating…" : "Generate API Key"}
@@ -258,11 +332,12 @@ export function ApiKeysView() {
             )}
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[900px]">
+            <table className="w-full text-left min-w-[1050px]">
               <thead>
                 <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
                   <th className={thClass}>Name</th>
-                  <th className={thClass}>Key Prefix</th>
+                  <th className={thClass}>Key</th>
+                  <th className={thClass}>IP Whitelist</th>
                   <th className={thClass}>Scopes</th>
                   <th className={thClass}>Created</th>
                   <th className={thClass}>Last Used</th>
@@ -273,8 +348,50 @@ export function ApiKeysView() {
               <tbody className="text-sm">
                 {visibleKeys.map((key) => (
                   <tr key={key.id} className="border-t border-surface-container-highest">
-                    <td className={`${tdClass} font-medium text-on-background`}>{key.name}</td>
-                    <td className={`${tdClass} font-mono text-xs`}>{key.key_prefix}••••••••</td>
+                    <td className={`${tdClass} font-medium text-on-background`}>
+                      {renamingId === key.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(event) => setRenameValue(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") handleRename(key.id);
+                              if (event.key === "Escape") setRenamingId(null);
+                            }}
+                            className="px-2 py-1 bg-surface-container-low border border-surface-container-highest rounded text-sm w-40"
+                          />
+                          <button type="button" onClick={() => handleRename(key.id)} className="text-primary text-xs font-semibold">
+                            Save
+                          </button>
+                          <button type="button" onClick={() => setRenamingId(null)} className="text-on-surface-variant text-xs">
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRenamingId(key.id);
+                            setRenameValue(key.name);
+                          }}
+                          className="hover:underline text-left"
+                          title="Rename this key"
+                        >
+                          {key.name}
+                        </button>
+                      )}
+                    </td>
+                    <td className={`${tdClass} font-mono text-xs`}>
+                      {key.key_prefix}••••••••{key.key_last4 ?? ""}
+                    </td>
+                    <td className={tdClass}>
+                      <StatusBadge
+                        label={key.ip_whitelist_enabled ? "Enabled" : "Any IP"}
+                        tone={key.ip_whitelist_enabled ? "positive" : "neutral"}
+                        dot
+                      />
+                    </td>
                     <td className={tdClass}>
                       <div className="flex flex-wrap gap-1 max-w-[220px]">
                         {key.scopes.length === 0 ? (

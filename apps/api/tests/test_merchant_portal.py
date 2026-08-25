@@ -18,6 +18,7 @@ from tests.factories import (
     TEST_JWT_SECRET,
     auth_headers,
     create_merchant,
+    create_pricing_rule,
     make_merchant_member,
     make_super_admin,
 )
@@ -352,6 +353,71 @@ def test_create_api_key_rejects_unknown_scope(fake_client):
     assert response.status_code == 422
 
 
+def test_create_api_key_defaults_to_continue_without_ip_whitelist_and_returns_key_last4(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    response = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={"name": "Dev key", "scopes": ["collections:write"]},
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()["data"]
+    assert body["ip_whitelist_enabled"] is False
+    assert body["continue_without_ip_whitelist"] is True
+    assert body["key_last4"] == body["plaintext_key"][-4:]
+
+
+def test_create_api_key_reconciles_conflicting_ip_whitelist_flags(fake_client):
+    """ip_whitelist_enabled wins if a client naively sends both true."""
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    response = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={
+            "name": "Dev key",
+            "scopes": ["collections:write"],
+            "ip_whitelist_enabled": True,
+            "continue_without_ip_whitelist": True,
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()["data"]
+    assert body["ip_whitelist_enabled"] is True
+    assert body["continue_without_ip_whitelist"] is False
+
+
+def test_create_api_key_writes_an_audit_log_with_ip_and_user_agent(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    response = client.post(
+        "/v1/merchant/api-keys",
+        headers={**auth_headers(user_id), "User-Agent": "test-integration/1.0"},
+        json={"name": "Dev key", "scopes": ["collections:write"]},
+    )
+    assert response.status_code == 201, response.text
+
+    logs = [row for row in fake_client.table("audit_logs")._table.rows if row["action"] == "api_key.created"]
+    assert len(logs) == 1
+    assert logs[0]["user_agent"] == "test-integration/1.0"
+    assert logs[0]["ip_address"] is not None
+
+
+def test_rename_api_key(fake_client):
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    created = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={"name": "Old name", "scopes": ["collections:write"]},
+    ).json()["data"]
+
+    response = client.patch(
+        f"/v1/merchant/api-keys/{created['id']}",
+        headers=auth_headers(user_id),
+        json={"name": "New name"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["name"] == "New name"
+
+
 def test_list_api_keys_never_includes_plaintext_or_hash(fake_client):
     _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
     client.post(
@@ -388,7 +454,8 @@ def test_revoke_api_key_keeps_scopes_and_marks_revoked(fake_client):
 
 
 def test_rotate_api_key_revokes_old_and_creates_new_with_same_settings(fake_client):
-    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER", api_production_enabled=True)
+    merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    create_pricing_rule(fake_client, merchant_id=merchant_id)
     created = client.post(
         "/v1/merchant/api-keys",
         headers=auth_headers(user_id),

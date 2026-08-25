@@ -1,14 +1,21 @@
 """Self-service webhook configuration — /v1/merchant/webhook-config* and
 /v1/merchant/webhook-events.
 
-merchants.webhook_url/webhook_secret already existed (services/webhooks.py's
-enqueue_webhook_event reads them) but had no API surface for a merchant to
-set them themselves. This adds that surface, plus a synchronous "send a test
+merchants.webhook_url already existed (services/webhooks.py's
+enqueue_webhook_event reads it) but had no API surface for a merchant to set
+it themselves. This adds that surface, plus a synchronous "send a test
 delivery now" endpoint — deliberately separate from the real outbound queue
 (webhook_events, status='pending'): no delivery/retry worker exists yet for
 that queue (future work), so a test send is a direct, immediate HTTP POST
 that reports its own result rather than pretending to be part of a delivery
 pipeline that isn't built.
+
+The signing secret is stored encrypted (merchants.webhook_secret_encrypted,
+app/core/secret_box.py) — never plaintext — and returned to the merchant
+exactly once, immediately after generation; every other read only ever
+reports has_secret: bool. Decrypted only right here, at the moment a real
+HMAC signature needs to be computed (send_test_webhook), never logged, never
+sent to Super Admin.
 """
 
 import json
@@ -22,6 +29,7 @@ from fastapi import APIRouter, Depends
 from app.auth import require_own_merchant_role
 from app.core.errors import ValidationAPIError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
+from app.core.secret_box import decrypt_secret, encrypt_secret
 from app.database.session import get_supabase_admin
 from app.schemas.auth import MerchantMembership
 from app.schemas.common import APIResponse
@@ -65,7 +73,7 @@ def get_webhook_config(
         data=WebhookConfigResponse(
             webhook_url=merchant.get("webhook_url") if merchant else None,
             subscribed_events=merchant.get("webhook_subscribed_events") if merchant else None,
-            has_secret=bool(merchant and merchant.get("webhook_secret")),
+            has_secret=bool(merchant and merchant.get("webhook_secret_encrypted")),
             last_delivery=last_webhook_delivery(client, membership.merchant_id),
         )
     )
@@ -85,8 +93,8 @@ def update_webhook_config(
 
     new_secret: str | None = None
     if payload.regenerate_secret:
-        new_secret = uuid.uuid4().hex + uuid.uuid4().hex  # 64 hex chars
-        update_data["webhook_secret"] = new_secret
+        new_secret = uuid.uuid4().hex + uuid.uuid4().hex  # 64 hex chars, shown once, never stored raw
+        update_data["webhook_secret_encrypted"] = encrypt_secret(new_secret)
 
     merchant = update_row(client, "merchants", membership.merchant_id, update_data) if update_data else get_by_id(
         client, "merchants", membership.merchant_id
@@ -96,7 +104,7 @@ def update_webhook_config(
         data=WebhookConfigUpdateResponse(
             webhook_url=merchant.get("webhook_url") if merchant else None,
             subscribed_events=merchant.get("webhook_subscribed_events") if merchant else None,
-            has_secret=bool(merchant and merchant.get("webhook_secret")),
+            has_secret=bool(merchant and merchant.get("webhook_secret_encrypted")),
             last_delivery=last_webhook_delivery(client, membership.merchant_id),
             secret=new_secret,
         )
@@ -110,7 +118,8 @@ def send_test_webhook(
     client = get_supabase_admin()
     merchant = get_by_id(client, "merchants", membership.merchant_id)
     webhook_url = merchant.get("webhook_url") if merchant else None
-    webhook_secret = merchant.get("webhook_secret") if merchant else None
+    encrypted_secret = merchant.get("webhook_secret_encrypted") if merchant else None
+    webhook_secret = decrypt_secret(encrypted_secret) if encrypted_secret else None
 
     if not webhook_url:
         raise ValidationAPIError("Configure a webhook URL before sending a test delivery")

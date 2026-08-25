@@ -24,7 +24,8 @@ const merchant: Merchant = {
   physical_address: null,
   account_status: "active",
   kyc_status: "verified",
-  api_production_enabled: false,
+  api_access_suspended: false,
+  production_api_eligible: true,
   available_balance: "0",
   created_at: "2026-08-01T00:00:00Z",
 };

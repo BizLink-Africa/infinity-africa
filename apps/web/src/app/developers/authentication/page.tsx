@@ -61,7 +61,9 @@ export default function AuthenticationPage() {
           <CodeBlock language="json — request">{`{
   "name": "Production checkout server",
   "environment": "live",
-  "scopes": ["collections:write", "payment_links:read"]
+  "scopes": ["collections:write", "payment_links:read"],
+  "ip_whitelist_enabled": false,
+  "continue_without_ip_whitelist": true
 }`}</CodeBlock>
           <CodeBlock language="json — response">{`{
   "success": true,
@@ -70,7 +72,10 @@ export default function AuthenticationPage() {
     "name": "Production checkout server",
     "environment": "live",
     "key_prefix": "inf_live_9f2a1c3b",
+    "key_last4": "d8e7",
     "scopes": ["collections:write", "payment_links:read"],
+    "ip_whitelist_enabled": false,
+    "continue_without_ip_whitelist": true,
     "plaintext_key": "inf_live_9f2a1c3bd8e7...",
     "status": "active",
     "created_at": "2026-08-14T09:00:00Z"
@@ -79,7 +84,9 @@ export default function AuthenticationPage() {
         </div>
         <Callout tone="warning" title="Copy the plaintext key now — it won't be shown again">
           <code className="font-mono text-xs">plaintext_key</code> is only ever returned once, on creation. Infinity Africa
-          stores a SHA-256 hash, never the plaintext key — if you lose it, revoke it and generate a new one.
+          stores only a SHA-256 hash — never the plaintext, never a recoverable/encrypted form — so there is no
+          &ldquo;reveal&rdquo; button anywhere, including for Infinity Africa staff. If you lose a key, there&apos;s exactly one fix:
+          rotate it (see below).
         </Callout>
       </section>
 
@@ -123,11 +130,24 @@ export default function AuthenticationPage() {
         <p className="text-sm text-on-surface-variant leading-relaxed mb-3">
           Every key is scoped to an environment. Sandbox keys (prefix{" "}
           <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">inf_sandbox_...</code>) run
-          against the mock payment provider — nothing settles for real, so you can build and test your entire
+          against a fully simulated provider — nothing settles for real, so you can build and test your entire
           integration risk-free. Live keys (
           <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">inf_live_...</code>) move
           real money. Sandbox keys never expire on their own; both can be revoked at any time.
         </p>
+        <p className="text-sm text-on-surface-variant leading-relaxed">
+          Both are self-service — creating a Sandbox key never requires approval. A Live key is also created directly
+          from the dashboard, the moment your business account is approved, KYC-verified, and has pricing assigned;
+          there is no separate &ldquo;request production access&rdquo; step or waiting on Infinity Africa staff. Before that,
+          creating a Live key returns:
+        </p>
+        <CodeBlock language="json — 403 response">{`{
+  "success": false,
+  "error": {
+    "code": "production_access_restricted",
+    "message": "Production API keys are available after your business account is approved."
+  }
+}`}</CodeBlock>
       </section>
 
       <section className="mb-12">
@@ -142,11 +162,38 @@ Authorization: Bearer inf_live_9f2a1c3bd8e7...`}</CodeBlock>
       </section>
 
       <section className="mb-12">
-        <h2 className="text-xl font-semibold text-on-surface mb-3">Revoking a key</h2>
+        <h2 className="text-xl font-semibold text-on-surface mb-3">IP whitelisting (optional)</h2>
+        <p className="text-sm text-on-surface-variant leading-relaxed mb-3">
+          Every key makes a choice, at creation, between two options — there is no default forced on you:
+        </p>
+        <ul className="list-disc list-inside text-sm text-on-surface-variant leading-relaxed space-y-1.5 mb-3">
+          <li>
+            <strong className="text-on-surface">Continue without IP whitelisting</strong> (the default) — the key
+            authenticates from any server IP. Simpler, and fine for most integrations.
+          </li>
+          <li>
+            <strong className="text-on-surface">Enable IP whitelisting</strong> — requests only succeed from IPs you
+            explicitly approve. Add them from the Merchant Portal&apos;s <strong>IP Allowlist</strong> page (label, IP
+            or CIDR, environment); each starts <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">pending</code> until
+            a Super Admin approves it. A request from an unapproved IP gets a 403, and the attempt is logged.
+          </li>
+        </ul>
+        <Callout title="Enforced for live traffic only">
+          Sandbox requests are never IP-restricted, regardless of this setting — there&apos;s nothing real to protect
+          there. For production, enabling IP whitelisting is recommended for stronger security, especially if your
+          backend runs on a small, fixed set of server IPs.
+        </Callout>
+      </section>
+
+      <section className="mb-12">
+        <h2 className="text-xl font-semibold text-on-surface mb-3">Revoking or rotating a key</h2>
         <EndpointRow method="PATCH" path="/v1/merchant/api-keys/{key_id}/revoke" description="Revoke a key immediately — any request using it afterward gets 401." auth="MERCHANT_ADMIN, DEVELOPER (dashboard session)" />
+        <EndpointRow method="POST" path="/v1/merchant/api-keys/{key_id}/rotate" description="Revoke a key and create its replacement (same name/environment/scopes/IP-whitelist choice) in one call. The new plaintext key is returned once, same as creation." auth="MERCHANT_ADMIN, DEVELOPER (dashboard session)" />
         <p className="text-sm text-on-surface-variant leading-relaxed mt-4">
-          Rotate keys periodically from the Merchant Portal, and revoke any key that may have leaked (committed to a
-          public repo, shared in a support ticket, etc.) immediately rather than waiting for a scheduled rotation.
+          Rotate keys periodically from the Merchant Portal, revoke any key that may have leaked (committed to a
+          public repo, shared in a support ticket, etc.) immediately rather than waiting for a scheduled rotation —
+          and if you simply lose a key before copying it down, rotate is also how you recover: there is no way to
+          view a key&apos;s secret again after creation, by design.
         </p>
       </section>
 

@@ -128,18 +128,32 @@ def test_admin_can_approve_a_pending_entry(fake_client):
     assert approve_response.json()["data"]["merchant_name"]
 
 
-def test_no_active_allowlist_rows_means_unrestricted(fake_client):
+def test_a_key_with_ip_whitelisting_off_is_unrestricted_even_with_active_rows(fake_client):
+    """Part 6: IP whitelisting is a per-key opt-in choice — having active
+    allowlist rows configured (e.g. for a different key) doesn't restrict a
+    key that chose "continue without IP whitelisting"."""
     merchant_id, _user_id = _merchant_admin(fake_client)
-    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="live")
+    _activate_allowlist_entry(fake_client, merchant_id, ip="41.222.10.5")
+    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="live", ip_whitelist_enabled=False)
 
     response = _probe(raw_key, merchant_id, "1.2.3.4")
     assert response.status_code == 404  # reached real route logic, just no such collection
 
 
+def test_ip_whitelist_enabled_but_no_active_rows_fails_closed(fake_client):
+    """The opposite gap: a key that opted IN to IP whitelisting but has no
+    approved IP yet must not be treated as unrestricted."""
+    merchant_id, _user_id = _merchant_admin(fake_client)
+    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="live", ip_whitelist_enabled=True)
+
+    response = _probe(raw_key, merchant_id, "1.2.3.4")
+    assert response.status_code == 403, response.text
+
+
 def test_live_request_from_a_non_allowed_ip_is_rejected(fake_client):
     merchant_id, _user_id = _merchant_admin(fake_client)
     _activate_allowlist_entry(fake_client, merchant_id, ip="41.222.10.5")
-    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="live")
+    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="live", ip_whitelist_enabled=True)
 
     response = _probe(raw_key, merchant_id, "9.9.9.9")
     assert response.status_code == 403, response.text
@@ -153,7 +167,7 @@ def test_live_request_from_a_non_allowed_ip_is_rejected(fake_client):
 def test_live_request_from_an_allowed_ip_succeeds(fake_client):
     merchant_id, _user_id = _merchant_admin(fake_client)
     _activate_allowlist_entry(fake_client, merchant_id, ip="41.222.10.5")
-    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="live")
+    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="live", ip_whitelist_enabled=True)
 
     response = _probe(raw_key, merchant_id, "41.222.10.5")
     assert response.status_code == 404  # passed the IP check
@@ -162,7 +176,7 @@ def test_live_request_from_an_allowed_ip_succeeds(fake_client):
 def test_cidr_range_matches(fake_client):
     merchant_id, _user_id = _merchant_admin(fake_client)
     _activate_allowlist_entry(fake_client, merchant_id, ip="41.222.10.0/24")
-    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="live")
+    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="live", ip_whitelist_enabled=True)
 
     response = _probe(raw_key, merchant_id, "41.222.10.200")
     assert response.status_code == 404
@@ -171,10 +185,10 @@ def test_cidr_range_matches(fake_client):
 def test_sandbox_requests_are_never_ip_restricted(fake_client):
     merchant_id, _user_id = _merchant_admin(fake_client)
     _activate_allowlist_entry(fake_client, merchant_id, environment="sandbox", ip="41.222.10.5")
-    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="sandbox")
+    raw_key, _key_row = make_api_key(fake_client, merchant_id, environment="sandbox", ip_whitelist_enabled=True)
 
     response = _probe(raw_key, merchant_id, "9.9.9.9")
-    assert response.status_code == 404  # sandbox is never IP-restricted
+    assert response.status_code == 404  # sandbox is never IP-restricted, even with the flag on
 
 
 def test_last_used_ip_is_recorded_and_visible_to_super_admin(fake_client):

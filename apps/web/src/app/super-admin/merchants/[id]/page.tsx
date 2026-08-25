@@ -7,8 +7,8 @@ import { PageHeader } from "@/components/portal/page-header";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import {
-  disableProductionApiAccessAction,
-  enableProductionApiAccessAction,
+  reinstateMerchantApiAccessAction,
+  suspendMerchantApiAccessAction,
   approveIpAllowlistEntryAction,
   rejectIpAllowlistEntryAction,
 } from "@/lib/admin/live-actions";
@@ -91,36 +91,33 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-1.5">
-              Production API Access
+              API Access
             </p>
             <p className="text-sm text-on-surface-variant">
-              {merchant.api_production_enabled
-                ? "Enabled — this merchant can create and use live API keys."
-                : "Disabled — this merchant can only create sandbox API keys."}
+              {merchant.api_access_suspended
+                ? "Suspended — no API key (sandbox or live) will authenticate for this merchant."
+                : merchant.production_api_eligible
+                  ? "Production keys are self-service: this merchant is approved, verified, and priced, so they can create live keys themselves — no approval step needed here."
+                  : "Sandbox keys are self-service. Production keys aren't available yet — this merchant isn't approved, KYC-verified, and priced all at once."}
             </p>
           </div>
-          {merchant.api_production_enabled ? (
-            <form action={disableProductionApiAccessAction.bind(null, merchantId)}>
+          {merchant.api_access_suspended ? (
+            <form action={reinstateMerchantApiAccessAction.bind(null, merchantId)}>
               <button
                 type="submit"
-                className="border border-error text-error text-sm font-medium py-2 px-4 rounded-lg hover:bg-error-container/10 transition-colors"
+                className="bg-primary-container text-on-primary text-sm font-medium py-2 px-4 rounded-lg hover:opacity-90 transition-opacity"
               >
-                Disable Production Access
+                Reinstate API Access
               </button>
             </form>
           ) : (
-            <form action={enableProductionApiAccessAction.bind(null, merchantId)}>
+            <form action={suspendMerchantApiAccessAction.bind(null, merchantId)}>
               <button
                 type="submit"
-                disabled={merchant.account_status !== "active" || merchant.kyc_status !== "verified"}
-                title={
-                  merchant.account_status !== "active" || merchant.kyc_status !== "verified"
-                    ? "This merchant must be approved and KYC-verified first"
-                    : undefined
-                }
-                className="bg-primary-container text-on-primary text-sm font-medium py-2 px-4 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-60"
+                className="border border-error text-error text-sm font-medium py-2 px-4 rounded-lg hover:bg-error-container/10 transition-colors"
+                title="Blocks all API key authentication for this merchant (sandbox and live) — for abuse/fraud response"
               >
-                Enable Production Access
+                Suspend API Access
               </button>
             </form>
           )}

@@ -70,6 +70,15 @@ class Settings(BaseSettings):
     # POST /v1/webhooks/selcom deliveries — see app/services/selcom/webhooks.py.
     selcom_webhook_secret: str = ""
 
+    # Encryption-at-rest key for merchants.webhook_secret_encrypted (see
+    # app/core/secret_box.py) — a merchant's OUTBOUND webhook signing secret,
+    # the one secret in this codebase that must be recoverable in full after
+    # creation (HMAC signing needs the raw value, not a hash). Backend/Railway
+    # only, NEVER set in apps/web/Vercel, NEVER logged. Blank falls back to a
+    # key derived from supabase_service_role_key — fine for local dev/test,
+    # not for production (set a real Fernet key there).
+    webhook_secret_encryption_key: str = ""
+
     # Selcom production integration (Railway) — see docs/selcom-live-go-live.md
     # for the full deploy/whitelist/go-live procedure. All blank/default
     # until Selcom confirms IP whitelisting and issues live credentials.
