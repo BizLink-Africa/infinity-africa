@@ -174,3 +174,112 @@ def test_admin_cannot_deactivate_themself(fake_client):
 
     response = client.post(f"/v1/merchant/users/{own_row_id}/deactivate", headers=auth_headers(admin_id))
     assert response.status_code == 409
+
+
+# --- Invite redirect_to ---------------------------------------------------------
+
+
+def test_invite_redirect_url_points_to_the_accept_invite_page_not_login(fake_client, monkeypatch):
+    """The whole bug being fixed: a freshly-invited staff member has no
+    password yet, so an invite email that lands on /merchant/login leaves
+    them stuck. It must point at the password-setup page instead."""
+    _merchant_id, admin_id = _admin(fake_client)
+    captured: dict = {}
+    original = fake_client.auth.admin.invite_user_by_email
+
+    def _spy(email, options=None):
+        captured["options"] = options
+        return original(email, options)
+
+    monkeypatch.setattr(fake_client.auth.admin, "invite_user_by_email", _spy)
+
+    response = client.post(
+        "/v1/merchant/users",
+        headers=auth_headers(admin_id),
+        json={"full_name": "David Komba", "email": "david@example.com", "role": "MERCHANT_STAFF"},
+    )
+    assert response.status_code == 201, response.text
+    redirect_to = captured["options"]["redirect_to"]
+    assert redirect_to.endswith("/merchant/invite/accept")
+    assert "/merchant/login" not in redirect_to
+
+
+# --- POST /users/me/accept-invite -----------------------------------------------
+
+
+def _seed_invited_staff(fake_client, merchant_id: uuid.UUID, invited_by: uuid.UUID, role: str = "MERCHANT_STAFF"):
+    staff_id = uuid.uuid4()
+    fake_client.seed(
+        "merchant_users",
+        {
+            "merchant_id": str(merchant_id),
+            "user_id": str(staff_id),
+            "role": role,
+            "status": "invited",
+            "invited_by": str(invited_by),
+        },
+    )
+    fake_client.seed_auth_user(staff_id, email="staff@example.com", full_name="Sam Staff")
+    return staff_id
+
+
+def test_accepting_an_invite_activates_the_membership_and_preserves_merchant_and_role(fake_client):
+    merchant_id, admin_id = _admin(fake_client)
+    staff_id = _seed_invited_staff(fake_client, merchant_id, admin_id, role="MERCHANT_STAFF")
+
+    response = client.post("/v1/merchant/users/me/accept-invite", headers=auth_headers(staff_id))
+    assert response.status_code == 200, response.text
+    body = response.json()["data"]
+    assert body["status"] == "active"
+    assert body["merchant_id"] == str(merchant_id)
+    assert body["role"] == "MERCHANT_STAFF"
+    assert body["user_id"] == str(staff_id)
+
+
+def test_accept_invite_does_not_require_an_active_membership_first(fake_client):
+    """The whole point of this endpoint: it must work while the caller's
+    only merchant_users row is still 'invited' — require_own_merchant_role
+    would 404 here, which is exactly the trap this endpoint exists to avoid."""
+    merchant_id, admin_id = _admin(fake_client)
+    staff_id = _seed_invited_staff(fake_client, merchant_id, admin_id)
+
+    before = client.get("/v1/merchant/users/me", headers=auth_headers(staff_id))
+    assert before.status_code == 404  # not active yet — proves the trap is real
+
+    accept = client.post("/v1/merchant/users/me/accept-invite", headers=auth_headers(staff_id))
+    assert accept.status_code == 200
+
+    after = client.get("/v1/merchant/users/me", headers=auth_headers(staff_id))
+    assert after.status_code == 200
+    assert after.json()["data"]["status"] == "active"
+
+
+def test_accept_invite_is_idempotent_once_already_active(fake_client):
+    merchant_id, _admin_id = _admin(fake_client)
+    staff_id = uuid.uuid4()
+    make_merchant_member(fake_client, merchant_id, staff_id, "MERCHANT_STAFF")
+
+    response = client.post("/v1/merchant/users/me/accept-invite", headers=auth_headers(staff_id))
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "active"
+
+
+def test_accept_invite_404s_with_no_pending_invitation(fake_client):
+    response = client.post("/v1/merchant/users/me/accept-invite", headers=auth_headers(uuid.uuid4()))
+    assert response.status_code == 404
+
+
+def test_accept_invite_never_touches_another_merchants_pending_invite(fake_client):
+    merchant_a, admin_a = _admin(fake_client)
+    merchant_b, admin_b = _admin(fake_client)
+    staff_a = _seed_invited_staff(fake_client, merchant_a, admin_a)
+    staff_b = _seed_invited_staff(fake_client, merchant_b, admin_b)
+
+    response = client.post("/v1/merchant/users/me/accept-invite", headers=auth_headers(staff_a))
+    assert response.status_code == 200
+    assert response.json()["data"]["merchant_id"] == str(merchant_a)
+
+    # merchant B's invite must be completely untouched by A's acceptance.
+    listing_b = client.get("/v1/merchant/users", headers=auth_headers(admin_b)).json()["data"]
+    row_b = next(r for r in listing_b if r["user_id"] == str(staff_b))
+    assert row_b["status"] == "invited"

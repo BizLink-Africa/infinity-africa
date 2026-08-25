@@ -34,7 +34,7 @@ from fastapi import (
     status,
 )
 
-from app.auth import hash_api_key, require_own_merchant_role
+from app.auth import get_current_user, hash_api_key, require_own_merchant_role
 from app.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
@@ -49,7 +49,7 @@ from app.schemas.api_keys import (
     ApiKeyResponse,
 )
 from app.schemas.api_logs import ApiRequestLogResponse
-from app.schemas.auth import MerchantMembership
+from app.schemas.auth import AuthenticatedUser, MerchantMembership
 from app.schemas.checkout_orders import CheckoutOrderResponse
 from app.schemas.collections import (
     CollectionResponse,
@@ -1698,6 +1698,55 @@ def get_my_membership(
     return APIResponse(data=_merchant_user_response(client, row))
 
 
+@router.post("/users/me/accept-invite", response_model=APIResponse[MerchantUserResponse])
+def accept_my_merchant_invite(
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+):
+    """Called once, right after a newly-invited staff member sets their
+    password on the frontend's /merchant/invite/accept page — flips their
+    merchant_users row from 'invited' to 'active' so require_own_merchant_role
+    (which only recognizes 'active') starts letting them into the portal.
+
+    Deliberately depends on get_current_user, not require_own_merchant_role:
+    the whole point is that this runs *before* the caller has an active
+    membership — require_own_merchant_role would 404 every legitimate call.
+    merchant_id is never taken from the request; it's resolved purely from
+    the merchant_users row create_my_merchant_user already created at
+    invite-send time, keyed by this caller's own user_id from their JWT.
+
+    Idempotent: calling this again after already being active just returns
+    the existing membership rather than erroring — a staff member re-opening
+    an old invite email/tab after already accepting shouldn't see a failure."""
+    client = get_supabase_admin()
+    rows = (
+        client.table("merchant_users")
+        .select("*")
+        .eq("user_id", str(user.id))
+        .in_("status", ["invited", "active"])
+        .order("created_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise NotFoundError("No pending invitation found for your account")
+
+    row = rows[0]
+    if row["status"] == "invited":
+        row = update_row(client, "merchant_users", uuid.UUID(row["id"]), {"status": "active"}) or row
+        write_audit_log(
+            client,
+            actor_id=user.id,
+            actor_type="user",
+            merchant_id=uuid.UUID(row["merchant_id"]),
+            action="merchant_user.invite_accepted",
+            resource_type="merchant_user",
+            resource_id=uuid.UUID(row["id"]),
+        )
+
+    return APIResponse(data=_merchant_user_response(client, row))
+
+
 @router.get("/users", response_model=APIResponse[list[MerchantUserResponse]])
 def list_my_merchant_users(
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_ONLY))],
@@ -1744,7 +1793,10 @@ def create_my_merchant_user(
             payload.email,
             {
                 "data": {"full_name": payload.full_name},
-                "redirect_to": f"{settings.public_app_url}/merchant/login",
+                # Must land on the password-setup page, not /merchant/login —
+                # an invited staff member has no password yet, so sending
+                # them to the login form leaves them stuck with no way in.
+                "redirect_to": f"{settings.public_app_url}/merchant/invite/accept",
             },
         )
     except Exception as exc:

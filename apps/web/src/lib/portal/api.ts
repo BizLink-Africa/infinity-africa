@@ -566,6 +566,16 @@ export async function deactivateMerchantUser(userRowId: string): Promise<Merchan
   return apiWrite<MerchantUser>(`/v1/merchant/users/${userRowId}/deactivate`, "POST", {});
 }
 
+/** Called once by a newly-invited staff member right after they set their
+ * password on /merchant/invite/accept — flips their own merchant_users row
+ * from 'invited' to 'active'. Not admin-only, unlike everything else in
+ * this section: the caller isn't a team member yet, they're the person
+ * accepting the invite. merchant_id is resolved backend-side from the
+ * caller's own JWT + their existing merchant_users row — never sent here. */
+export async function acceptMyInvite(): Promise<MerchantUser> {
+  return apiWrite<MerchantUser>("/v1/merchant/users/me/accept-invite", "POST", {});
+}
+
 // ============================================================================
 // Everything below is still MOCK — no /v1/merchant/* endpoint exists yet for
 // customers or support. (Wallet ledger is LIVE — see below; linked
