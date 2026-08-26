@@ -113,10 +113,18 @@ class AdminInvoiceResponse(BaseModel):
     merchant_code: str | None = None
     customer_name: str | None = None
     customer_phone: str | None = None
+    customer_email: str | None = None
     total_amount: Decimal
     status: str
     due_date: date
     created_at: datetime
+    # Set only once the payment-request email actually goes out.
+    sent_at: datetime | None = None
+    # Most recent email_deliveries row for this invoice, if any — null
+    # fields mean no send has ever been attempted, not "unknown".
+    email_status: str | None = None
+    email_provider_message_id: str | None = None
+    email_failed_reason: str | None = None
 
 
 class AdminCollectionResponse(BaseModel):

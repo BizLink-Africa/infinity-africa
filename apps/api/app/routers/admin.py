@@ -55,6 +55,7 @@ from app.services.api_access import is_production_api_access_allowed
 from app.services.audit import write_audit_log
 from app.services.checkout_reconciliation import refresh_checkout_collection_status
 from app.services.crud import execute_maybe_single, get_by_id, update_row
+from app.services.email import batch_latest_email_deliveries
 from app.services.ledger import get_wallet_balance
 from app.services.webhooks import last_webhook_delivery
 
@@ -483,6 +484,9 @@ def list_admin_invoices(
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
     merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
+    email_deliveries = batch_latest_email_deliveries(
+        client, related_resource_type="invoice", related_resource_ids={r["id"] for r in rows}
+    )
 
     data = [
         AdminInvoiceResponse(
@@ -493,10 +497,15 @@ def list_admin_invoices(
             merchant_code=merchant_codes.get(row["merchant_id"]),
             customer_name=row.get("customer_name"),
             customer_phone=row.get("customer_phone"),
+            customer_email=row.get("customer_email"),
             total_amount=row["total_amount"],
             status=row["status"],
             due_date=row["due_date"],
             created_at=row["created_at"],
+            sent_at=row.get("sent_at"),
+            email_status=email_deliveries.get(row["id"], {}).get("status"),
+            email_provider_message_id=email_deliveries.get(row["id"], {}).get("provider_message_id"),
+            email_failed_reason=email_deliveries.get(row["id"], {}).get("error_message"),
         )
         for row in rows
     ]

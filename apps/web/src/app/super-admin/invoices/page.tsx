@@ -51,7 +51,7 @@ export default async function SuperAdminInvoicesPage() {
           <p className="p-6 text-sm text-on-surface-variant">No invoices have been issued yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[900px]">
+            <table className="w-full text-left min-w-[1020px]">
               <thead>
                 <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
                   <th className={thClass}>Invoice No</th>
@@ -60,6 +60,7 @@ export default async function SuperAdminInvoicesPage() {
                   <th className={thClass}>Amount</th>
                   <th className={thClass}>Due Date</th>
                   <th className={thClass}>Status</th>
+                  <th className={thClass}>Email</th>
                   <th className={`${thClass} text-right`}>Actions</th>
                 </tr>
               </thead>
@@ -80,6 +81,27 @@ export default async function SuperAdminInvoicesPage() {
                     </td>
                     <td className={tdClass}>
                       <StatusBadge {...adminInvoiceBadge(invoice.status)} />
+                    </td>
+                    <td className={tdClass}>
+                      {invoice.email_status === "sent" ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-primary"
+                          title={`Sent to ${invoice.customer_email ?? "customer"}${invoice.email_provider_message_id ? ` (${invoice.email_provider_message_id})` : ""}`}
+                        >
+                          <Icon name="mail" className="text-[16px]" />
+                          Sent
+                        </span>
+                      ) : invoice.email_status === "failed" ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-error"
+                          title={invoice.email_failed_reason ?? "Delivery failed"}
+                        >
+                          <Icon name="error" className="text-[16px]" />
+                          Failed
+                        </span>
+                      ) : (
+                        <span className="text-xs text-on-surface-variant">—</span>
+                      )}
                     </td>
                     <td className={`${tdClass} text-right`}>
                       <button className="p-1.5 text-on-surface-variant hover:text-primary" title="View">

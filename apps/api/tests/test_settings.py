@@ -60,3 +60,42 @@ def test_wildcard_cors_origin_allowed_in_development(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     settings = Settings()
     assert settings.cors_origins == ["*"]
+
+
+# --- Email sender addresses (app/services/email.py) -------------------------
+
+
+def test_email_from_defaults_to_the_notification_address():
+    """Every transactional email except invoice payment requests uses
+    this — staff invites, password resets, receipts, welcome emails,
+    inquiry notifications (none of those flows exist yet, but whichever
+    gets built next should read this same setting rather than hardcoding
+    a sender)."""
+    settings = Settings()
+    assert settings.email_from == "Infinity Africa <notification@infinityafrica.net>"
+
+
+def test_invoice_email_from_defaults_to_email_from_when_unset():
+    settings = Settings()
+    assert settings.invoice_email_from == settings.email_from
+
+
+def test_invoice_email_from_uses_invoice_email_from_when_set(monkeypatch):
+    monkeypatch.setenv("INVOICE_EMAIL_FROM", "Infinity Africa Invoices <invoice@infinityafrica.net>")
+    settings = Settings()
+    assert settings.invoice_email_from == "Infinity Africa Invoices <invoice@infinityafrica.net>"
+    # The general sender is untouched by setting the invoice-specific one.
+    assert settings.email_from == "Infinity Africa <notification@infinityafrica.net>"
+
+
+def test_app_url_falls_back_to_public_app_url_when_unset(monkeypatch):
+    monkeypatch.setenv("PUBLIC_APP_URL", "https://infinityafrica.net")
+    settings = Settings()
+    assert settings.app_url == "https://infinityafrica.net"
+
+
+def test_app_url_uses_its_own_value_when_set(monkeypatch):
+    monkeypatch.setenv("PUBLIC_APP_URL", "https://infinityafrica.net")
+    monkeypatch.setenv("APP_URL", "https://www.infinityafrica.net")
+    settings = Settings()
+    assert settings.app_url == "https://www.infinityafrica.net"

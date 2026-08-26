@@ -50,6 +50,7 @@ export function mockInvoices(): Invoice[] {
       notes: null,
       created_at: "2026-07-28T09:00:00Z",
       updated_at: "2026-08-10T09:00:00Z",
+      sent_at: null,
       items: items([["Wholesale delivery — 50kg bags", "1", "120000"]]),
     },
     {
@@ -72,6 +73,7 @@ export function mockInvoices(): Invoice[] {
       notes: null,
       created_at: "2026-08-01T09:00:00Z",
       updated_at: "2026-08-01T09:00:00Z",
+      sent_at: null,
       items: items([["Monthly supply top-up", "1", "64500"]]),
     },
     {
@@ -94,6 +96,7 @@ export function mockInvoices(): Invoice[] {
       notes: null,
       created_at: "2026-07-25T09:00:00Z",
       updated_at: "2026-08-05T09:00:00Z",
+      sent_at: null,
       items: items([["Equipment deposit", "1", "90000"]]),
     },
     {
@@ -116,6 +119,7 @@ export function mockInvoices(): Invoice[] {
       notes: null,
       created_at: "2026-07-14T09:00:00Z",
       updated_at: "2026-07-28T09:00:00Z",
+      sent_at: null,
       items: items([["Fabric consignment", "1", "145000"]]),
     },
     {
@@ -138,6 +142,7 @@ export function mockInvoices(): Invoice[] {
       notes: null,
       created_at: "2026-07-10T09:00:00Z",
       updated_at: "2026-07-20T09:00:00Z",
+      sent_at: null,
       items: items([["Design consultation", "1", "25000"]]),
     },
     {
@@ -160,6 +165,7 @@ export function mockInvoices(): Invoice[] {
       notes: null,
       created_at: "2026-08-13T09:00:00Z",
       updated_at: "2026-08-13T09:00:00Z",
+      sent_at: null,
       items: items([["Coffee beans — 20kg", "1", "58000"]]),
     },
   ];

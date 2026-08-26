@@ -9,6 +9,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
+import resend
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -30,11 +31,43 @@ def _configure_settings(monkeypatch):
     monkeypatch.setenv("SUPABASE_JWT_SECRET", TEST_JWT_SECRET)
     monkeypatch.setenv("MOCK_PROVIDER_FAILURE_RATE", "0")
     monkeypatch.setenv("MOCK_PROVIDER_LATENCY_SECONDS", "0")
+    monkeypatch.setenv("RESEND_API_KEY", "test-resend-key-do-not-use-in-production")
+    monkeypatch.setenv("INVOICE_EMAIL_FROM", "Infinity Africa Invoices <invoice@infinityafrica.net>")
+    monkeypatch.setenv("EMAIL_FROM", "Infinity Africa <notification@infinityafrica.net>")
     get_settings.cache_clear()
     get_selcom_client.cache_clear()
     yield
     get_settings.cache_clear()
     get_selcom_client.cache_clear()
+
+
+class _FakeResend:
+    """Stands in for resend.Emails.send — captures every call instead of
+    making a real HTTP request. app/services/email.py calls
+    resend.Emails.send(params) as a plain classmethod call (no
+    instantiation), so patching the attribute with a bound method of this
+    fake works: resend.Emails.send(params) then calls fake.send(params)."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.should_fail = False
+
+    def send(self, params: dict) -> dict:
+        self.calls.append(params)
+        if self.should_fail:
+            raise Exception("Resend rejected the request")  # noqa: TRY002
+        return {"id": "resend-test-message-id"}
+
+
+@pytest.fixture(autouse=True)
+def fake_resend(monkeypatch):
+    """Autouse: every existing test that calls _send() now triggers a real
+    (mocked) email send — patch it unconditionally rather than requiring
+    every call site to opt in. Tests that care about the captured calls
+    still request this fixture by name to get the fake instance."""
+    fake = _FakeResend()
+    monkeypatch.setattr(resend.Emails, "send", fake.send)
+    return fake
 
 
 def _merchant_and_admin(fake_client, **merchant_overrides):
@@ -287,6 +320,134 @@ def test_cancel_invoice_is_idempotent(fake_client):
 
     assert first.status_code == second.status_code == 200
     assert first.json()["data"]["status"] == second.json()["data"]["status"] == "CANCELLED"
+
+
+# --- send + invoice email (Resend) ------------------------------------------
+
+
+def test_send_invoice_requires_customer_email(fake_client):
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    invoice = _create_invoice(merchant_id, admin_id, customer_email=None)
+
+    response = client.post(f"/v1/invoices/{invoice['id']}/send", headers=auth_headers(admin_id))
+
+    assert response.status_code == 422, response.text
+    assert "Customer email is required" in response.json()["error"]["message"]
+
+    invoice_row = _row(fake_client, "invoices", invoice["id"])
+    assert invoice_row["status"] == "DRAFT"
+
+
+def test_send_invoice_creates_a_payment_link_and_sends_the_email(fake_client, fake_resend):
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    invoice = _create_invoice(merchant_id, admin_id)
+    assert invoice["payment_link_id"] is None
+
+    sent = _send(invoice["id"], admin_id)
+
+    assert sent["status"] == "SENT"
+    assert sent["sent_at"] is not None
+    assert sent["payment_link_id"] is not None
+    assert len(fake_resend.calls) == 1
+
+    link_row = _row(fake_client, "payment_links", sent["payment_link_id"])
+    assert link_row["merchant_id"] == str(merchant_id)
+
+
+def test_send_invoice_reuses_the_existing_payment_link(fake_client, fake_resend):
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    invoice = _create_invoice(merchant_id, admin_id)
+    _send(invoice["id"], admin_id)
+
+    link_response = client.post(f"/v1/invoices/{invoice['id']}/payment-link", headers=auth_headers(admin_id))
+    assert link_response.status_code == 200
+    first_link_id = link_response.json()["data"]["id"]
+
+    # Sending an already-SENT invoice is rejected (test_send_invoice_twice_rejected),
+    # so "reuse" is exercised via the payment-link endpoint being called
+    # again directly — same underlying generate_or_reuse_invoice_payment_link
+    # helper the send flow itself calls.
+    second_link_response = client.post(f"/v1/invoices/{invoice['id']}/payment-link", headers=auth_headers(admin_id))
+    assert second_link_response.status_code == 200
+    assert second_link_response.json()["data"]["id"] == first_link_id
+    assert len(fake_client.table("payment_links")._table.rows) == 1
+
+
+def test_invoice_email_uses_the_invoice_sender_address(fake_client, fake_resend):
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    invoice = _create_invoice(merchant_id, admin_id)
+
+    _send(invoice["id"], admin_id)
+
+    assert len(fake_resend.calls) == 1
+    assert fake_resend.calls[0]["from"] == "Infinity Africa Invoices <invoice@infinityafrica.net>"
+    assert fake_resend.calls[0]["to"] == ["amina@example.com"]
+    assert fake_resend.calls[0]["subject"].startswith("Invoice from ")
+
+
+def test_invoice_email_falls_back_to_email_from_when_invoice_email_from_is_unset(fake_client, fake_resend, monkeypatch):
+    monkeypatch.setenv("INVOICE_EMAIL_FROM", "")
+    monkeypatch.setenv("EMAIL_FROM", "Infinity Africa <notification@infinityafrica.net>")
+    get_settings.cache_clear()
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    invoice = _create_invoice(merchant_id, admin_id)
+
+    _send(invoice["id"], admin_id)
+
+    assert fake_resend.calls[0]["from"] == "Infinity Africa <notification@infinityafrica.net>"
+    get_settings.cache_clear()
+
+
+def test_invoice_email_html_includes_the_pay_now_link(fake_client, fake_resend):
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    invoice = _create_invoice(merchant_id, admin_id)
+
+    sent = _send(invoice["id"], admin_id)
+    link_row = _row(fake_client, "payment_links", sent["payment_link_id"])
+
+    html = fake_resend.calls[0]["html"]
+    assert link_row["public_slug"] in html
+    assert "Pay Now" in html
+
+
+def test_send_invoice_stays_draft_when_email_delivery_fails(fake_client, fake_resend):
+    fake_resend.should_fail = True
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    invoice = _create_invoice(merchant_id, admin_id)
+
+    response = client.post(f"/v1/invoices/{invoice['id']}/send", headers=auth_headers(admin_id))
+
+    assert response.status_code == 502, response.text
+    assert response.json()["error"]["code"] == "email_delivery_failed"
+
+    invoice_row = _row(fake_client, "invoices", invoice["id"])
+    assert invoice_row["status"] == "DRAFT"
+    assert invoice_row.get("sent_at") is None
+
+
+def test_send_invoice_records_an_email_delivery_log_on_success_and_failure(fake_client, fake_resend):
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+
+    ok_invoice = _create_invoice(merchant_id, admin_id, customer_email="paid-on-time@example.com")
+    _send(ok_invoice["id"], admin_id)
+
+    fake_resend.should_fail = True
+    failing_invoice = _create_invoice(merchant_id, admin_id, customer_email="bounces@example.com")
+    client.post(f"/v1/invoices/{failing_invoice['id']}/send", headers=auth_headers(admin_id))
+
+    deliveries = fake_client.table("email_deliveries")._table.rows
+    assert len(deliveries) == 2
+
+    ok_delivery = next(d for d in deliveries if d["recipient_email"] == "paid-on-time@example.com")
+    assert ok_delivery["status"] == "sent"
+    assert ok_delivery["email_type"] == "invoice_payment_request"
+    assert ok_delivery["provider_message_id"]
+    assert ok_delivery["related_resource_id"] == ok_invoice["id"]
+
+    failed_delivery = next(d for d in deliveries if d["recipient_email"] == "bounces@example.com")
+    assert failed_delivery["status"] == "failed"
+    assert failed_delivery["error_message"]
 
 
 # --- payment link generation ------------------------------------------------

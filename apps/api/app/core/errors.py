@@ -67,6 +67,18 @@ class ProductionAccessRestrictedError(APIError):
     code = "production_access_restricted"
 
 
+class EmailDeliveryError(APIError):
+    """Resend rejected the send, or the request to it failed outright
+    (timeout/connection error), or RESEND_API_KEY isn't configured — see
+    app/services/email.py. 502, not 500: this is an upstream provider
+    failure (or missing config for one), not a bug in this app's own
+    logic. The message is always safe to show a merchant/log — never
+    includes the API key or raw provider payload."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    code = "email_delivery_failed"
+
+
 class MerchantCodeGenerationError(APIError):
     """Every candidate 8-digit Merchant ID (27 + 6 random digits) collided
     with an existing merchant across the retry budget — see

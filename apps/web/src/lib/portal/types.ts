@@ -75,6 +75,9 @@ export interface Invoice {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** Set only once the payment-request email actually goes out — null
+   * means never successfully sent, even if a send was attempted. */
+  sent_at: string | null;
   items: InvoiceItem[];
 }
 

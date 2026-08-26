@@ -41,6 +41,8 @@ export function InvoicesView() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copyError, setCopyError] = useState("");
 
+  const [sendStatus, setSendStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
   useEffect(() => {
     listInvoices().then(setInvoices);
   }, []);
@@ -72,6 +74,12 @@ export function InvoicesView() {
     const validItems = items.filter((item) => item.description && Number(item.unitPrice) > 0);
     if (!customerName || validItems.length === 0 || !dueDate) return;
 
+    if (sendNow && !customerContact.includes("@")) {
+      setSendStatus({ type: "error", message: "Add customer email before sending invoice." });
+      return;
+    }
+
+    setSendStatus(null);
     setSubmitting(true);
     try {
       const invoice = await createInvoice({
@@ -93,6 +101,23 @@ export function InvoicesView() {
       setDueDate("");
       setNotes("");
       setItems([emptyItem(), emptyItem()]);
+      if (sendNow) {
+        setSendStatus({ type: "success", message: "Invoice email sent to customer." });
+      }
+    } catch (err) {
+      if (sendNow) {
+        // Create and send are two backend calls — the invoice may exist
+        // as a draft even though sending failed. Refresh from the server
+        // rather than guessing local state.
+        listInvoices().then(setInvoices);
+        setSendStatus({
+          type: "error",
+          message:
+            err instanceof Error && err.message
+              ? err.message
+              : "Invoice email could not be sent. Please try again or copy the payment link manually.",
+        });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -260,6 +285,17 @@ export function InvoicesView() {
             </div>
           </div>
 
+          {sendStatus && (
+            <div
+              className={`rounded-lg px-4 py-3 text-sm font-medium ${
+                sendStatus.type === "success" ? "bg-primary-container/10 text-primary" : "bg-error/10 text-error"
+              }`}
+              role={sendStatus.type === "error" ? "alert" : "status"}
+            >
+              {sendStatus.message}
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               className="flex-1 bg-primary-container text-on-primary text-sm font-medium py-3 rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-60"
@@ -267,7 +303,7 @@ export function InvoicesView() {
               disabled={submitting}
             >
               <Icon name="send" className="text-[20px]" />
-              Send Invoice with Pay Now Link
+              {submitting ? "Sending…" : "Send Invoice Email"}
             </button>
             <button
               className="flex-1 sm:flex-none bg-surface border border-outline-variant text-on-surface text-sm font-medium py-3 px-6 rounded-lg hover:bg-surface-container-low transition-colors disabled:opacity-60"
@@ -279,9 +315,8 @@ export function InvoicesView() {
             </button>
           </div>
           <div className="bg-surface-container-low rounded-lg px-4 py-3 flex items-center gap-2 text-sm text-on-surface-variant">
-            <Icon name="link" className="text-[18px] text-primary" />
-            Pay Now link will be generated automatically:{" "}
-            <span className="font-mono text-on-background">pay.infinityafrica.net/inv/{nextInvoiceNumber}</span>
+            <Icon name="mail" className="text-[18px] text-primary" />
+            Customer will receive an invoice email with a secure Pay Now link.
           </div>
         </form>
       </Card>

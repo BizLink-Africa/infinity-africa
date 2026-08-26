@@ -9,6 +9,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
+import resend
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
@@ -34,11 +35,35 @@ def _configure_settings(monkeypatch):
     monkeypatch.setenv("MOCK_PROVIDER_FAILURE_RATE", "0")
     monkeypatch.setenv("MOCK_PROVIDER_LATENCY_SECONDS", "0")
     monkeypatch.setenv("DISBURSEMENT_APPROVAL_THRESHOLD", "1000000")
+    monkeypatch.setenv("RESEND_API_KEY", "test-resend-key-do-not-use-in-production")
     get_settings.cache_clear()
     get_selcom_client.cache_clear()
     yield
     get_settings.cache_clear()
     get_selcom_client.cache_clear()
+
+
+class _FakeResend:
+    """See tests/test_invoices.py's identical fixture for why this patches
+    resend.Emails.send directly rather than going through a client
+    abstraction — app/services/email.py calls it as a bare classmethod."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.should_fail = False
+
+    def send(self, params: dict) -> dict:
+        self.calls.append(params)
+        if self.should_fail:
+            raise Exception("Resend rejected the request")  # noqa: TRY002
+        return {"id": "resend-test-message-id"}
+
+
+@pytest.fixture(autouse=True)
+def fake_resend(monkeypatch):
+    fake = _FakeResend()
+    monkeypatch.setattr(resend.Emails, "send", fake.send)
+    return fake
 
 
 def _merchant_and_member(fake_client, role: str = "MERCHANT_ADMIN", **merchant_overrides):
@@ -688,6 +713,7 @@ def test_create_then_send_invoice(fake_client):
         "/v1/merchant/invoices",
         headers=auth_headers(user_id),
         json={
+            "customer_email": "customer@example.com",
             "due_date": "2026-12-01",
             "items": [{"description": "Consulting", "quantity": "1", "unit_price": "5000"}],
         },
@@ -1180,6 +1206,7 @@ def test_generate_my_invoice_payment_link_does_not_include_hosted_checkout(fake_
         json={
             "customer_name": "Amina Hassan",
             "customer_phone": "+255700000000",
+            "customer_email": "amina@example.com",
             "due_date": "2026-09-01",
             "items": [{"description": "Consulting services", "quantity": "2", "unit_price": "500.00"}],
         },
@@ -1197,6 +1224,70 @@ def test_generate_my_invoice_payment_link_does_not_include_hosted_checkout(fake_
     link_row = next(r for r in fake_client.table("payment_links")._table.rows if r["id"] == link["id"])
     assert link_row["allowed_payment_methods"] == ["USSD_PUSH", "STK_PUSH", "SELCOM_PESA_PUSH", "DYNAMIC_QR"]
     assert "HOSTED_CHECKOUT" not in link_row["allowed_payment_methods"]
+
+
+def _create_my_invoice(admin_id: uuid.UUID, **overrides) -> dict:
+    body = {
+        "customer_name": "Amina Hassan",
+        "customer_phone": "+255700000000",
+        "customer_email": "amina@example.com",
+        "due_date": "2026-09-01",
+        "items": [{"description": "Consulting services", "quantity": "2", "unit_price": "500.00"}],
+        **overrides,
+    }
+    response = client.post("/v1/merchant/invoices", headers=auth_headers(admin_id), json=body)
+    assert response.status_code == 201, response.text
+    return response.json()["data"]
+
+
+def test_my_invoice_send_sends_a_real_email_and_marks_sent(fake_client, fake_resend):
+    _merchant_id, admin_id = _merchant_and_member(fake_client)
+    invoice = _create_my_invoice(admin_id)
+
+    response = client.post(f"/v1/merchant/invoices/{invoice['id']}/send", headers=auth_headers(admin_id))
+
+    assert response.status_code == 200, response.text
+    sent = response.json()["data"]
+    assert sent["status"] == "SENT"
+    assert sent["sent_at"] is not None
+    assert len(fake_resend.calls) == 1
+    assert fake_resend.calls[0]["to"] == ["amina@example.com"]
+
+
+def test_my_invoice_send_requires_customer_email(fake_client, fake_resend):
+    _merchant_id, admin_id = _merchant_and_member(fake_client)
+    invoice = _create_my_invoice(admin_id, customer_email=None)
+
+    response = client.post(f"/v1/merchant/invoices/{invoice['id']}/send", headers=auth_headers(admin_id))
+
+    assert response.status_code == 422, response.text
+    assert "Customer email is required" in response.json()["error"]["message"]
+    assert len(fake_resend.calls) == 0
+
+
+def test_my_invoice_send_stays_draft_when_email_fails(fake_client, fake_resend):
+    fake_resend.should_fail = True
+    _merchant_id, admin_id = _merchant_and_member(fake_client)
+    invoice = _create_my_invoice(admin_id)
+
+    response = client.post(f"/v1/merchant/invoices/{invoice['id']}/send", headers=auth_headers(admin_id))
+
+    assert response.status_code == 502, response.text
+    invoice_row = next(r for r in fake_client.table("invoices")._table.rows if r["id"] == invoice["id"])
+    assert invoice_row["status"] == "DRAFT"
+
+
+def test_merchant_cannot_send_another_merchants_invoice(fake_client, fake_resend):
+    _merchant_a_id, admin_a = _merchant_and_member(fake_client)
+    _merchant_b_id, admin_b = _merchant_and_member(fake_client)
+    invoice = _create_my_invoice(admin_a)
+
+    response = client.post(f"/v1/merchant/invoices/{invoice['id']}/send", headers=auth_headers(admin_b))
+
+    assert response.status_code == 404
+    assert len(fake_resend.calls) == 0
+    invoice_row = next(r for r in fake_client.table("invoices")._table.rows if r["id"] == invoice["id"])
+    assert invoice_row["status"] == "DRAFT"
 
 
 # --- Withdrawals dispatch -------------------------------------------------

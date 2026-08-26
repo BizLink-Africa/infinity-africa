@@ -22,10 +22,11 @@ from app.auth import (
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
 from app.core.references import generate_reference
+from app.core.time import utc_now_iso
 from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedCaller
 from app.schemas.common import APIResponse
-from app.schemas.enums import LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT, UserRole
+from app.schemas.enums import UserRole
 from app.schemas.invoices import (
     InvoiceCreate,
     InvoiceItemResponse,
@@ -35,10 +36,10 @@ from app.schemas.invoices import (
 from app.schemas.payment_links import PaymentLinkResponse
 from app.services.audit import write_audit_log
 from app.services.crud import get_by_id, insert_row, list_for_merchant, update_row
+from app.services.email import send_invoice_email
 from app.services.payment_links import (
     build_public_url,
-    generate_public_slug,
-    get_with_effective_status,
+    generate_or_reuse_invoice_payment_link,
 )
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -209,6 +210,12 @@ def send_invoice(
     invoice_id: uuid.UUID,
     caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
 ):
+    """DRAFT -> SENT — but only once the customer's payment-request email
+    has actually been delivered via Resend (app/services/email.py).
+    Generates/reuses the invoice's Pay Now link first, then emails it;
+    the invoice stays DRAFT if either step fails, so a SENT invoice always
+    means the customer was actually notified, never just "we tried."
+    """
     client = get_supabase_admin()
     row = get_by_id(client, "invoices", invoice_id)
     if not row:
@@ -221,7 +228,27 @@ def send_invoice(
     if row["status"] != "DRAFT":
         raise ValidationAPIError("Only a draft invoice can be sent")
 
-    row = update_row(client, "invoices", invoice_id, {"status": "SENT"}) or row
+    if not row.get("customer_email"):
+        raise ValidationAPIError("Customer email is required to send this invoice automatically.")
+
+    merchant = get_by_id(client, "merchants", merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
+    link = generate_or_reuse_invoice_payment_link(client, invoice=row, merchant_id=merchant_id)
+    items = (
+        client.table("invoice_items").select("*").eq("invoice_id", str(invoice_id)).order("sort_order").execute()
+    ).data or []
+
+    send_invoice_email(
+        client,
+        merchant=merchant,
+        invoice={**row, "payment_link_id": link["id"]},
+        items=items,
+        payment_url=build_public_url(link["public_slug"]),
+    )
+
+    row = update_row(client, "invoices", invoice_id, {"status": "SENT", "sent_at": utc_now_iso()}) or row
     write_audit_log(
         client,
         actor_id=caller.actor_id,
@@ -230,6 +257,7 @@ def send_invoice(
         action="invoice.sent",
         resource_type="invoice",
         resource_id=invoice_id,
+        metadata={"customer_email": row.get("customer_email")},
     )
     return APIResponse(data=_to_response(client, row))
 
@@ -265,29 +293,10 @@ def generate_invoice_payment_link(
             f"Cannot generate a payment link for an invoice with status {row['status']}; send it first"
         )
 
-    amount_due = Decimal(str(row["total_amount"])) - Decimal(str(row["amount_paid"]))
-    if amount_due <= 0:
-        raise ValidationAPIError("This invoice has no remaining balance")
-
-    if row.get("payment_link_id"):
-        existing = get_with_effective_status(client, uuid.UUID(row["payment_link_id"]))
-        if existing and existing["status"] == "ACTIVE":
-            return APIResponse(data=_to_payment_link_response(existing))
-
-    link_data = {
-        "merchant_id": str(merchant_id),
-        "customer_id": row.get("customer_id"),
-        "amount": str(amount_due),
-        "currency": row["currency"],
-        "customer_name": row.get("customer_name"),
-        "customer_phone": row.get("customer_phone"),
-        "description": f"Payment for invoice {row['invoice_number']}",
-        "allowed_payment_methods": [m.value for m in LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT],
-        "public_slug": generate_public_slug(),
-        "status": "ACTIVE",
-    }
-    link = insert_row(client, "payment_links", link_data)
-    update_row(client, "invoices", invoice_id, {"payment_link_id": link["id"]})
+    had_link_id = row.get("payment_link_id")
+    link = generate_or_reuse_invoice_payment_link(client, invoice=row, merchant_id=merchant_id)
+    if had_link_id == link["id"]:
+        return APIResponse(data=_to_payment_link_response(link))
 
     write_audit_log(
         client,

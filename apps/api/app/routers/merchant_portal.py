@@ -40,6 +40,7 @@ from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
 from app.core.references import generate_reference
 from app.core.request_ip import client_ip
+from app.core.time import utc_now_iso
 from app.database.session import get_supabase_admin
 from app.schemas.api_keys import (
     ApiKeyCreate,
@@ -64,11 +65,7 @@ from app.schemas.disputes import (
     RequestRefundInput,
 )
 from app.schemas.document_requests import DocumentRequestResponse
-from app.schemas.enums import (
-    LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT,
-    CollectionMethod,
-    UserRole,
-)
+from app.schemas.enums import CollectionMethod, UserRole
 from app.schemas.fraud import FraudAlertResponse
 from app.schemas.invoices import InvoiceItemResponse, InvoiceResponse, InvoiceUpdate
 from app.schemas.ip_allowlist import IpAllowlistCreate, IpAllowlistResponse
@@ -112,6 +109,7 @@ from app.services.crud import (
     update_row,
 )
 from app.services.disbursements import execute_disbursement, quote_withdrawal_fee
+from app.services.email import send_invoice_email
 from app.services.hosted_checkout import execute_hosted_checkout_collection
 from app.services.idempotency import run_idempotent
 from app.services.ledger import export_wallet_ledger_rows, list_wallet_ledger
@@ -119,6 +117,7 @@ from app.services.merchant_overview import get_merchant_overview
 from app.services.payment_links import (
     batch_collection_counts,
     build_public_url,
+    generate_or_reuse_invoice_payment_link,
     generate_public_slug,
     get_with_effective_status,
     validate_payment_link_for_collection,
@@ -504,10 +503,12 @@ def send_my_invoice(
     invoice_id: uuid.UUID,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
 ):
-    """DRAFT -> SENT. Not in the originally requested endpoint list, but
-    needed for the Merchant Portal's existing "send now vs. save as draft"
-    invoice-creation flow to actually work — mirrors the existing
-    POST /v1/invoices/{id}/send exactly."""
+    """DRAFT -> SENT — but only once the customer's payment-request email
+    has actually been delivered via Resend (app/services/email.py).
+    Generates/reuses the invoice's Pay Now link first, then emails it;
+    the invoice stays DRAFT if either step fails, so a SENT invoice always
+    means the customer was actually notified, never just "we tried."
+    """
     client = get_supabase_admin()
     row = get_by_id(client, "invoices", invoice_id)
     if not row or uuid.UUID(row["merchant_id"]) != membership.merchant_id:
@@ -516,7 +517,27 @@ def send_my_invoice(
     if row["status"] != "DRAFT":
         raise ValidationAPIError("Only a draft invoice can be sent")
 
-    row = update_row(client, "invoices", invoice_id, {"status": "SENT"}) or row
+    if not row.get("customer_email"):
+        raise ValidationAPIError("Customer email is required to send this invoice automatically.")
+
+    merchant = get_by_id(client, "merchants", membership.merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
+    link = generate_or_reuse_invoice_payment_link(client, invoice=row, merchant_id=membership.merchant_id)
+    items = (
+        client.table("invoice_items").select("*").eq("invoice_id", str(invoice_id)).order("sort_order").execute()
+    ).data or []
+
+    send_invoice_email(
+        client,
+        merchant=merchant,
+        invoice={**row, "payment_link_id": link["id"]},
+        items=items,
+        payment_url=build_public_url(link["public_slug"]),
+    )
+
+    row = update_row(client, "invoices", invoice_id, {"status": "SENT", "sent_at": utc_now_iso()}) or row
     write_audit_log(
         client,
         actor_id=membership.user_id,
@@ -525,6 +546,7 @@ def send_my_invoice(
         action="invoice.sent",
         resource_type="invoice",
         resource_id=invoice_id,
+        metadata={"customer_email": row.get("customer_email")},
     )
     return APIResponse(data=_invoice_response(client, row))
 
@@ -544,41 +566,22 @@ def generate_my_invoice_payment_link(
             f"Cannot generate a payment link for an invoice with status {row['status']}; send it first"
         )
 
-    amount_due = Decimal(str(row["total_amount"])) - Decimal(str(row["amount_paid"]))
-    if amount_due <= 0:
-        raise ValidationAPIError("This invoice has no remaining balance")
+    had_link_id = row.get("payment_link_id")
+    link = generate_or_reuse_invoice_payment_link(client, invoice=row, merchant_id=membership.merchant_id)
 
-    if row.get("payment_link_id"):
-        existing = get_by_id(client, "payment_links", uuid.UUID(row["payment_link_id"]))
-        existing = with_effective_status(client, existing) if existing else None
-        if existing and existing["status"] == "ACTIVE":
-            return APIResponse(data=_payment_link_response(existing))
-
-    link_data = {
-        "merchant_id": str(membership.merchant_id),
-        "customer_id": row.get("customer_id"),
-        "amount": str(amount_due),
-        "currency": row["currency"],
-        "customer_name": row.get("customer_name"),
-        "customer_phone": row.get("customer_phone"),
-        "description": f"Payment for invoice {row['invoice_number']}",
-        "allowed_payment_methods": [m.value for m in LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT],
-        "public_slug": generate_public_slug(),
-        "status": "ACTIVE",
-    }
-    link = insert_row(client, "payment_links", link_data)
-    update_row(client, "invoices", invoice_id, {"payment_link_id": link["id"]})
-
-    write_audit_log(
-        client,
-        actor_id=membership.user_id,
-        actor_type="user",
-        merchant_id=membership.merchant_id,
-        action="invoice.payment_link_generated",
-        resource_type="invoice",
-        resource_id=invoice_id,
-        metadata={"payment_link_id": link["id"]},
-    )
+    if had_link_id != link["id"]:
+        # Only a genuinely new link is worth an audit entry — reusing an
+        # already-active one is a no-op from an audit perspective.
+        write_audit_log(
+            client,
+            actor_id=membership.user_id,
+            actor_type="user",
+            merchant_id=membership.merchant_id,
+            action="invoice.payment_link_generated",
+            resource_type="invoice",
+            resource_id=invoice_id,
+            metadata={"payment_link_id": link["id"]},
+        )
     return APIResponse(data=_payment_link_response(link))
 
 

@@ -7,6 +7,7 @@ which product surface and (if applicable) which API key created it.
 import uuid
 
 import pytest
+import resend
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -29,9 +30,22 @@ def _configure_settings(monkeypatch):
     monkeypatch.setenv("SELCOM_CHECKOUT_API_KEY", "test-key")
     monkeypatch.setenv("SELCOM_CHECKOUT_API_SECRET", "test-secret")
     monkeypatch.setenv("SELCOM_CHECKOUT_VENDOR", "VENDORTEST")
+    monkeypatch.setenv("RESEND_API_KEY", "test-resend-key-do-not-use-in-production")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def fake_resend(monkeypatch):
+    """POST /v1/invoices/{id}/send now sends a real (mocked) email — see
+    tests/test_invoices.py's identical fixture for why this patches
+    resend.Emails.send directly."""
+
+    def _send(params: dict) -> dict:
+        return {"id": "resend-test-message-id"}
+
+    monkeypatch.setattr(resend.Emails, "send", _send)
 
 
 class _FakeSelcomCheckoutClient:
@@ -269,6 +283,7 @@ def test_invoice_payment_collection_belongs_to_correct_merchant_and_records_invo
         headers={**auth_headers(user_id), "Idempotency-Key": str(uuid.uuid4())},
         json={
             "merchant_id": str(merchant_id),
+            "customer_email": "customer@example.com",
             "due_date": "2026-09-01",
             "items": [{"description": "Consulting", "quantity": "1", "unit_price": "1000.00"}],
         },

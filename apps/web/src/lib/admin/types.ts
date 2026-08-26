@@ -116,10 +116,17 @@ export interface AdminInvoiceRow {
   merchant_code: string | null;
   customer_name: string | null;
   customer_phone: string | null;
+  customer_email: string | null;
   total_amount: string;
   due_date: string;
   status: "DRAFT" | "SENT" | "PAID" | "PARTIALLY_PAID" | "OVERDUE" | "CANCELLED";
   created_at: string;
+  /** Set only once the payment-request email actually goes out. */
+  sent_at: string | null;
+  /** Most recent email_deliveries row for this invoice, if any. */
+  email_status: "sent" | "failed" | null;
+  email_provider_message_id: string | null;
+  email_failed_reason: string | null;
 }
 
 export interface AdminCustomerRow {

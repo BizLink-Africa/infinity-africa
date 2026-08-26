@@ -71,4 +71,8 @@ class InvoiceResponse(BaseModel):
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
+    # Set only once the payment-request email actually goes out (see
+    # app/services/email.py) — null means never successfully sent, even if
+    # a send was attempted and failed.
+    sent_at: datetime | None = None
     items: list[InvoiceItemResponse] = Field(default_factory=list)

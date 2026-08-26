@@ -7,13 +7,14 @@ payment_link_id passed into a collection-initiation request the same way).
 import secrets
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from supabase import Client
 
 from app.config import get_settings
 from app.core.errors import ConflictError, ValidationAPIError
-from app.schemas.enums import CollectionMethod
-from app.services.crud import get_by_id, update_row
+from app.schemas.enums import LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT, CollectionMethod
+from app.services.crud import get_by_id, insert_row, update_row
 
 
 def generate_public_slug() -> str:
@@ -49,6 +50,48 @@ def with_effective_status(client: Client, link: dict) -> dict:
             updated = update_row(client, "payment_links", uuid.UUID(link["id"]), {"status": "EXPIRED"})
             if updated:
                 link = updated
+    return link
+
+
+def generate_or_reuse_invoice_payment_link(client: Client, *, invoice: dict, merchant_id: uuid.UUID) -> dict:
+    """Ensures the given invoice has an ACTIVE "Pay Now" payment_links row
+    — reuses one already linked and still active, otherwise creates a
+    fresh one. The single shared implementation behind every call site
+    that needs an invoice's payment link: POST /v1/invoices/{id}/payment-link,
+    POST /v1/merchant/invoices/{id}/payment-link, and both "send invoice"
+    endpoints (which need a real link to put in the email). Previously
+    duplicated inline in two routers, which is exactly how they drifted
+    and both ended up building allowed_payment_methods from the full
+    CollectionMethod enum instead of LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT
+    — one implementation now, one place to get it right.
+
+    Raises ValidationAPIError if the invoice has no remaining balance —
+    same order of checks as the original call sites (balance checked
+    before considering reuse, so a link is never silently returned for an
+    already-fully-paid invoice)."""
+    amount_due = Decimal(str(invoice["total_amount"])) - Decimal(str(invoice["amount_paid"]))
+    if amount_due <= 0:
+        raise ValidationAPIError("This invoice has no remaining balance")
+
+    if invoice.get("payment_link_id"):
+        existing = get_with_effective_status(client, uuid.UUID(invoice["payment_link_id"]))
+        if existing and existing["status"] == "ACTIVE":
+            return existing
+
+    link_data = {
+        "merchant_id": str(merchant_id),
+        "customer_id": invoice.get("customer_id"),
+        "amount": str(amount_due),
+        "currency": invoice["currency"],
+        "customer_name": invoice.get("customer_name"),
+        "customer_phone": invoice.get("customer_phone"),
+        "description": f"Payment for invoice {invoice['invoice_number']}",
+        "allowed_payment_methods": [m.value for m in LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT],
+        "public_slug": generate_public_slug(),
+        "status": "ACTIVE",
+    }
+    link = insert_row(client, "payment_links", link_data)
+    update_row(client, "invoices", uuid.UUID(invoice["id"]), {"payment_link_id": link["id"]})
     return link
 
 

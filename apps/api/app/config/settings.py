@@ -174,6 +174,44 @@ class Settings(BaseSettings):
     withdrawal_pilot_mode: bool = False
     withdrawal_pilot_max_amount_tzs: Decimal = Decimal(1000)
 
+    # Transactional email (Resend) — see app/services/email.py and
+    # docs/email-delivery.md. Backend/Railway only, NEVER set
+    # RESEND_API_KEY in apps/web/Vercel. Blank RESEND_API_KEY means email
+    # sending is not configured — send_email() raises EmailDeliveryError
+    # rather than silently no-op'ing, since a caller (e.g. "send invoice")
+    # needs to know delivery didn't happen.
+    resend_api_key: str = ""
+    # Default sender for every transactional email EXCEPT invoice payment
+    # requests (staff invites, password resets, payment receipts, welcome
+    # emails, inquiry notifications) — see invoice_email_from below for why
+    # invoices use a visually distinct address.
+    email_from: str = "Infinity Africa <notification@infinityafrica.net>"
+    # Sender for invoice payment-request emails specifically — a customer
+    # should be able to tell "someone wants to be paid" apart from
+    # ordinary account/notification mail at a glance. Falls back to
+    # email_from when blank (see the invoice_email_from property) so a
+    # deployment that forgets to set this still sends *something* sane
+    # rather than failing outright.
+    invoice_email_from_raw: str = Field(default="", validation_alias="INVOICE_EMAIL_FROM")
+    email_reply_to: str = "support@infinityafrica.net"
+    # Where a "contact us" / report-transaction inquiry notification goes
+    # — not yet wired to a sender (no such flow exists in this codebase
+    # yet), reserved here so the env var exists ahead of that feature.
+    ceo_email: str = ""
+    # General site base URL for links inside emails (distinct from
+    # public_app_url, which specifically builds the /pay/{slug} payment
+    # link — see app/services/payment_links.py::build_public_url). Falls
+    # back to public_app_url when blank.
+    app_url_raw: str = Field(default="", validation_alias="APP_URL")
+
+    @property
+    def invoice_email_from(self) -> str:
+        return self.invoice_email_from_raw or self.email_from
+
+    @property
+    def app_url(self) -> str:
+        return self.app_url_raw or self.public_app_url
+
     # Collection clearance (docs/ledger-reconciliation.md) — reserved
     # config for a future delayed-settlement gate. Not yet wired to a
     # background worker (none exists in this codebase); the active
