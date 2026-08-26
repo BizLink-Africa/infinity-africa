@@ -566,6 +566,12 @@ export async function deactivateMerchantUser(userRowId: string): Promise<Merchan
   return apiWrite<MerchantUser>(`/v1/merchant/users/${userRowId}/deactivate`, "POST", {});
 }
 
+/** Only valid while the invited teammate is still status "invited" — for
+ * when the original invite email failed to send, or just got lost. */
+export async function resendMerchantUserInvite(userRowId: string): Promise<MerchantUser> {
+  return apiWrite<MerchantUser>(`/v1/merchant/users/${userRowId}/resend-invite`, "POST", {});
+}
+
 /** Called once by a newly-invited staff member right after they set their
  * password on /merchant/invite/accept — flips their own merchant_users row
  * from 'invited' to 'active'. Not admin-only, unlike everything else in

@@ -1878,6 +1878,85 @@ def create_my_merchant_user(
     )
 
 
+@router.post("/users/{user_row_id}/resend-invite", response_model=APIResponse[MerchantUserResponse])
+def resend_my_merchant_user_invite(
+    user_row_id: uuid.UUID,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_ONLY))],
+):
+    """Covers the gap where the original invite email failed to send after
+    the Supabase Auth user + merchant_users row were already created
+    (POST /users fails closed in that case, but the invited account still
+    exists — a second POST /users for the same address would just 409).
+    Uses generate_link(type="recovery") rather than "invite" — the
+    Supabase Auth user already exists from the original invite, and
+    "invite" only works for brand-new users. The resulting action link
+    still lands on /merchant/invite/accept, and
+    accept-invite-form.tsx's supabase.auth.updateUser({password}) works
+    identically regardless of whether the underlying link type was
+    invite or recovery."""
+    client = get_supabase_admin()
+    row = get_by_id(client, "merchant_users", user_row_id)
+    if not row or uuid.UUID(row["merchant_id"]) != membership.merchant_id:
+        raise NotFoundError("Merchant user not found")
+
+    if row["status"] != "invited":
+        raise ConflictError("This person has already accepted their invite — nothing to resend")
+
+    merchant = get_by_id(client, "merchants", membership.merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
+    profile = best_effort_user_profile(client, row["user_id"])
+    invited_email = profile.get("email")
+    if not invited_email:
+        raise ConflictError("Couldn't find this person's email to resend the invite")
+
+    settings = get_settings()
+    try:
+        result = client.auth.admin.generate_link(
+            {
+                "type": "recovery",
+                "email": invited_email,
+                "options": {"redirect_to": f"{settings.public_app_url}/merchant/invite/accept"},
+            }
+        )
+    except Exception as exc:
+        raise ConflictError(f"Couldn't resend the invite. ({exc})") from exc
+
+    send_staff_invite_email(
+        client,
+        merchant=merchant,
+        invited_email=invited_email,
+        invited_role=row["role"],
+        accept_url=result.properties.action_link,
+    )
+
+    write_audit_log(
+        client,
+        actor_id=membership.user_id,
+        actor_type="user",
+        merchant_id=membership.merchant_id,
+        action="merchant_user.invite_resent",
+        resource_type="merchant_user",
+        resource_id=user_row_id,
+        metadata={"role": row["role"]},
+    )
+
+    return APIResponse(
+        data=MerchantUserResponse(
+            id=row["id"],
+            user_id=row["user_id"],
+            merchant_id=row["merchant_id"],
+            full_name=profile.get("full_name"),
+            email=invited_email,
+            role=row["role"],
+            status=row["status"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+    )
+
+
 @router.patch("/users/{user_row_id}", response_model=APIResponse[MerchantUserResponse])
 def update_my_merchant_user(
     user_row_id: uuid.UUID,

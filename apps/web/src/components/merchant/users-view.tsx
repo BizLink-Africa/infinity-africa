@@ -7,7 +7,13 @@ import { EmptyState } from "@/components/portal/empty-state";
 import { PageHeader } from "@/components/portal/page-header";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { formatDateTime } from "@/lib/format";
-import { createMerchantUser, deactivateMerchantUser, listMerchantUsers, updateMerchantUser } from "@/lib/portal/api";
+import {
+  createMerchantUser,
+  deactivateMerchantUser,
+  listMerchantUsers,
+  resendMerchantUserInvite,
+  updateMerchantUser,
+} from "@/lib/portal/api";
 import { MERCHANT_ROLES, UserRole, USER_ROLE_LABELS } from "@/lib/portal/roles";
 import type { MerchantUser } from "@/lib/portal/types";
 
@@ -50,6 +56,8 @@ export function UsersView() {
   const [editingRole, setEditingRole] = useState<MerchantUser["role"]>(UserRole.MERCHANT_STAFF);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [rowMessage, setRowMessage] = useState("");
   const [rowError, setRowError] = useState("");
 
   useEffect(() => {
@@ -105,6 +113,7 @@ export function UsersView() {
       return;
     }
     setDeactivatingId(user.id);
+    setRowMessage("");
     setRowError("");
     try {
       const updated = await deactivateMerchantUser(user.id);
@@ -113,6 +122,21 @@ export function UsersView() {
       setRowError(err instanceof Error ? err.message : "Couldn't deactivate this teammate.");
     } finally {
       setDeactivatingId(null);
+    }
+  }
+
+  async function handleResendInvite(user: MerchantUser) {
+    setResendingId(user.id);
+    setRowMessage("");
+    setRowError("");
+    try {
+      const updated = await resendMerchantUserInvite(user.id);
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)));
+      setRowMessage(`Invitation email resent to ${updated.email ?? "this person"}.`);
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : "Couldn't resend the invite. Please try again.");
+    } finally {
+      setResendingId(null);
     }
   }
 
@@ -220,6 +244,11 @@ export function UsersView() {
         </Card>
       )}
 
+      {rowMessage && (
+        <div className="rounded-lg bg-primary-container/10 px-4 py-3 text-sm font-medium text-primary">
+          {rowMessage}
+        </div>
+      )}
       {rowError && <div className="rounded-lg bg-error/10 px-4 py-3 text-sm font-medium text-error">{rowError}</div>}
 
       {users.length === 0 ? (
@@ -282,6 +311,16 @@ export function UsersView() {
                     <td className={`${tdClass} text-right`}>
                       {user.status !== "suspended" && (
                         <div className="flex items-center justify-end gap-3">
+                          {user.status === "invited" && (
+                            <button
+                              type="button"
+                              onClick={() => handleResendInvite(user)}
+                              disabled={resendingId === user.id}
+                              className="text-primary text-xs font-semibold hover:underline disabled:opacity-60"
+                            >
+                              {resendingId === user.id ? "Resending…" : "Resend Invite"}
+                            </button>
+                          )}
                           {editingId === user.id ? (
                             <>
                               <button

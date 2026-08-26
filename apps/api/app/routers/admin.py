@@ -28,6 +28,7 @@ from app.schemas.admin import (
     AdminAuditLogResponse,
     AdminCollectionResponse,
     AdminCustomerResponse,
+    AdminInquiryResponse,
     AdminInvoiceResponse,
     AdminMerchantResponse,
     AdminMerchantUserResponse,
@@ -969,4 +970,26 @@ def list_admin_audit_logs(
                 created_at=row["created_at"],
             )
         )
+    return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
+
+
+@router.get("/inquiries", response_model=APIResponse[list[AdminInquiryResponse]])
+def list_admin_inquiries(
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+):
+    """Read-only view of POST /v1/public/inquiries submissions (the
+    marketing site's Contact form) — the CEO also gets each one by email
+    as it arrives (send_inquiry_notification_email); this is just so
+    they're browsable/searchable afterward too, not a replacement for
+    that notification."""
+    client = get_supabase_admin()
+    result = (
+        client.table("inquiries")
+        .select("*", count="exact")
+        .order("created_at", desc=True)
+        .range(pagination.start, pagination.end)
+        .execute()
+    )
+    data = [AdminInquiryResponse(**row) for row in (result.data or [])]
     return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))

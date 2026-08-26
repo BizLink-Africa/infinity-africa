@@ -245,6 +245,102 @@ def test_invite_uses_resend_branded_email_not_supabase_default(fake_client, monk
     assert "info@infinityafrica.net" in captured["params"]["html"]
 
 
+# --- POST /users/{id}/resend-invite --------------------------------------------
+
+
+def test_admin_can_resend_a_pending_invite(fake_client):
+    merchant_id, admin_id = _admin(fake_client)
+    staff_id = _seed_invited_staff(fake_client, merchant_id, admin_id)
+    row_id = fake_client.table("merchant_users")._table.rows[-1]["id"]
+    assert fake_client.table("merchant_users")._table.rows[-1]["user_id"] == str(staff_id)
+
+    response = client.post(f"/v1/merchant/users/{row_id}/resend-invite", headers=auth_headers(admin_id))
+    assert response.status_code == 200, response.text
+    body = response.json()["data"]
+    assert body["email"] == "staff@example.com"
+    assert body["status"] == "invited"
+
+
+def test_resend_invite_uses_recovery_link_not_invite(fake_client, monkeypatch):
+    """The staff member's Supabase Auth account already exists from the
+    original invite — generate_link(type="invite") would reject a
+    duplicate email, so this must use type="recovery" instead."""
+    merchant_id, admin_id = _admin(fake_client)
+    _seed_invited_staff(fake_client, merchant_id, admin_id)
+    row_id = fake_client.table("merchant_users")._table.rows[-1]["id"]
+
+    captured: dict = {}
+    original = fake_client.auth.admin.generate_link
+
+    def _spy(params: dict):
+        captured["params"] = params
+        return original(params)
+
+    monkeypatch.setattr(fake_client.auth.admin, "generate_link", _spy)
+
+    response = client.post(f"/v1/merchant/users/{row_id}/resend-invite", headers=auth_headers(admin_id))
+    assert response.status_code == 200, response.text
+    assert captured["params"]["type"] == "recovery"
+    assert captured["params"]["email"] == "staff@example.com"
+    assert captured["params"]["options"]["redirect_to"].endswith("/merchant/invite/accept")
+
+
+def test_resend_invite_sends_another_branded_email(fake_client, monkeypatch):
+    merchant_id, admin_id = _admin(fake_client)
+    _seed_invited_staff(fake_client, merchant_id, admin_id)
+    row_id = fake_client.table("merchant_users")._table.rows[-1]["id"]
+
+    captured: dict = {}
+    original_send = resend.Emails.send
+
+    def _spy(params: dict):
+        captured["params"] = params
+        return original_send(params)
+
+    monkeypatch.setattr(resend.Emails, "send", _spy)
+
+    response = client.post(f"/v1/merchant/users/{row_id}/resend-invite", headers=auth_headers(admin_id))
+    assert response.status_code == 200, response.text
+    assert captured["params"]["to"] == ["staff@example.com"]
+    assert captured["params"]["subject"] == "You're invited to Infinity Africa Merchant Portal"
+
+
+def test_staff_cannot_resend_an_invite(fake_client):
+    merchant_id, admin_id = _admin(fake_client)
+    _seed_invited_staff(fake_client, merchant_id, admin_id)
+    row_id = fake_client.table("merchant_users")._table.rows[-1]["id"]
+    other_staff_id = uuid.uuid4()
+    make_merchant_member(fake_client, merchant_id, other_staff_id, "MERCHANT_STAFF")
+
+    response = client.post(f"/v1/merchant/users/{row_id}/resend-invite", headers=auth_headers(other_staff_id))
+    assert response.status_code == 403
+
+
+def test_cannot_resend_invite_for_an_already_active_teammate(fake_client):
+    merchant_id, admin_id = _admin(fake_client)
+    staff_id = uuid.uuid4()
+    make_merchant_member(fake_client, merchant_id, staff_id, "MERCHANT_STAFF")
+    listing = client.get("/v1/merchant/users", headers=auth_headers(admin_id)).json()["data"]
+    row_id = next(r["id"] for r in listing if r["user_id"] == str(staff_id))
+
+    response = client.post(f"/v1/merchant/users/{row_id}/resend-invite", headers=auth_headers(admin_id))
+    assert response.status_code == 409
+
+
+def test_resend_invite_never_touches_another_merchants_invite(fake_client):
+    merchant_a, admin_a = _admin(fake_client)
+    merchant_b, admin_b = _admin(fake_client)
+    _seed_invited_staff(fake_client, merchant_a, admin_a)
+    staff_a_row_id = fake_client.table("merchant_users")._table.rows[-1]["id"]
+    assert fake_client.table("merchant_users")._table.rows[-1]["merchant_id"] == str(merchant_a)
+
+    _seed_invited_staff(fake_client, merchant_b, admin_b)
+
+    # admin_b has no visibility into merchant_a's invite row.
+    response = client.post(f"/v1/merchant/users/{staff_a_row_id}/resend-invite", headers=auth_headers(admin_b))
+    assert response.status_code == 404
+
+
 # --- POST /users/me/accept-invite -----------------------------------------------
 
 

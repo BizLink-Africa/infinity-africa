@@ -42,5 +42,6 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { label: "API Keys", href: "/super-admin/api-keys", icon: "api" },
   { label: "Webhooks & Reconciliation", href: "/super-admin/webhooks", icon: "webhook" },
   { label: "Audit Logs", href: "/super-admin/audit-logs", icon: "history" },
+  { label: "Inquiries", href: "/super-admin/inquiries", icon: "mail" },
   { label: "Settings", href: "/admin/settings", icon: "settings" },
 ];

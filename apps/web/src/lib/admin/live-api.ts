@@ -10,6 +10,7 @@ import type {
   AdminDisputeRow,
   AdminDocumentRequestRow,
   AdminFraudAlertRow,
+  AdminInquiryRow,
   AdminInvoiceRow,
   AdminIpAllowlistRow,
   AdminNotificationRow,
@@ -27,10 +28,10 @@ import type {
 } from "./types";
 
 /**
- * Live data-access boundary for the 10 in-scope Super Admin dashboard
+ * Live data-access boundary for the 11 in-scope Super Admin dashboard
  * resources (Command Center, Merchants, Merchant Users, Payment Links,
- * Invoices, Collections, Withdrawals, Transactions, Webhooks, Audit Logs) —
- * calls the real apps/api /v1/admin/* endpoints. Server-only, same shape as
+ * Invoices, Collections, Withdrawals, Transactions, Webhooks, Audit Logs,
+ * Inquiries) — calls the real apps/api /v1/admin/* endpoints. Server-only, same shape as
  * lib/onboarding/api.ts: every caller is a Server Component or Server
  * Action under app/super-admin/*, so this can safely use the cookie-based
  * getAccessToken() with no Turbopack client/server bundling conflict.
@@ -335,6 +336,10 @@ export async function listAdminWebhookEvents(): Promise<AdminWebhookEventRow[]> 
 
 export async function listAdminAuditLogs(): Promise<AuditLogRow[]> {
   return apiList<AuditLogRow>(`/v1/admin/audit-logs?${LIST_ALL_PARAMS}`);
+}
+
+export async function listAdminInquiries(): Promise<AdminInquiryRow[]> {
+  return apiList<AdminInquiryRow>(`/v1/admin/inquiries?${LIST_ALL_PARAMS}`);
 }
 
 // --- Risk monitoring -------------------------------------------------------

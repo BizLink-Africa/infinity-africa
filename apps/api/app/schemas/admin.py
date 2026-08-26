@@ -229,3 +229,18 @@ class AdminAuditLogResponse(BaseModel):
     metadata: dict[str, Any]
     ip_address: str | None = None
     created_at: datetime
+
+
+class AdminInquiryResponse(BaseModel):
+    """A "contact us" submission (POST /v1/public/inquiries) — read-only,
+    no super-admin action exists on these beyond viewing/replying by
+    email directly; see app/routers/public_inquiries.py."""
+
+    id: uuid.UUID
+    full_name: str
+    business_name: str | None = None
+    email: str
+    phone: str | None = None
+    message: str
+    source: str
+    created_at: datetime

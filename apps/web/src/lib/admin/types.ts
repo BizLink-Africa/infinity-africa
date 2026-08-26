@@ -398,6 +398,20 @@ export interface AuditLogRow {
   created_at: string;
 }
 
+/** A "contact us" submission from the public marketing site (POST
+ * /v1/public/inquiries) — read-only here, the CEO is notified by email
+ * as each one arrives (see docs/email-delivery.md). */
+export interface AdminInquiryRow {
+  id: string;
+  full_name: string;
+  business_name: string | null;
+  email: string;
+  phone: string | null;
+  message: string;
+  source: string;
+  created_at: string;
+}
+
 export interface SupportTicketRow {
   id: string;
   ticket_number: string;
