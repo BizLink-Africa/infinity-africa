@@ -551,6 +551,17 @@ def test_paying_generated_payment_link_marks_invoice_paid(fake_client):
     assert any(e["event_name"] == "invoice.paid" for e in events)
     assert any(e["event_name"] == "payment_link.paid" for e in events)
 
+    # Regression: collections.collections_single_source used to forbid
+    # payment_link_id and invoice_id ever both being set, which is exactly
+    # the shape every "pay an invoice's Pay Now link" collection legitimately
+    # has (see app/services/collection_source.py::resolve_invoice_id_for_payment_link)
+    # — 500ed against a real Postgres database on every single invoice
+    # payment, invisible to this fake client since it doesn't enforce CHECK
+    # constraints. Dropped in 20260829050000; assert the shape explicitly so
+    # a regression is caught here, not just by a live-database crash.
+    collection_row = next(r for r in fake_client.table("collections")._table.rows if r["payment_link_id"] == link["id"])
+    assert collection_row["invoice_id"] == invoice["id"]
+
 
 def test_paid_invoice_cannot_generate_a_new_payment_link(fake_client):
     merchant_id, admin_id = _merchant_and_admin(fake_client, webhook_url="https://merchant.example.com/hooks")
