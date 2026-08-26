@@ -49,7 +49,7 @@ audit row).
 RESEND_API_KEY=                                                    # backend-only, never in Vercel
 EMAIL_FROM="Infinity Africa <notification@infinityafrica.net>"
 INVOICE_EMAIL_FROM="Infinity Africa Invoices <invoice@infinityafrica.net>"
-EMAIL_REPLY_TO="finance@infinityafrica.net"
+EMAIL_REPLY_TO="info@infinityafrica.net"
 CEO_EMAIL="ceo@infinityafrica.net"                                 # reserved — no inquiry-notification feature exists yet
 APP_URL="https://infinityafrica.net"
 ```

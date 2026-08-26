@@ -195,8 +195,8 @@ class Settings(BaseSettings):
     invoice_email_from_raw: str = Field(default="", validation_alias="INVOICE_EMAIL_FROM")
     # Reply-to for every transactional email — currently only consumed by
     # send_invoice_email, so this is effectively "who a customer's reply
-    # about a bill reaches" today (finance, not general support).
-    email_reply_to: str = "finance@infinityafrica.net"
+    # about a bill reaches" today.
+    email_reply_to: str = "info@infinityafrica.net"
     # Where a "contact us" / report-transaction inquiry notification goes
     # — not yet wired to a sender (no such flow exists in this codebase
     # yet), reserved here so the env var exists ahead of that feature.
