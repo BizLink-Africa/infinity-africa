@@ -318,6 +318,18 @@ def test_generate_payment_link_for_sent_invoice(fake_client):
     invoice_row = _row(fake_client, "invoices", invoice["id"])
     assert invoice_row["payment_link_id"] == link["id"]
 
+    # Regression: payment_links.allowed_payment_methods has its own DB
+    # CHECK constraint that (deliberately) was never widened to include
+    # HOSTED_CHECKOUT — see app/schemas/enums.py's
+    # LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT. Building this list from the
+    # full CollectionMethod enum instead of that constant 500s against a
+    # real Postgres database (invisible to this fake client, which doesn't
+    # enforce CHECK constraints) — assert the exact value here so a
+    # regression is caught by shape, not just by a live DB crash.
+    link_row = _row(fake_client, "payment_links", link["id"])
+    assert link_row["allowed_payment_methods"] == ["USSD_PUSH", "STK_PUSH", "SELCOM_PESA_PUSH", "DYNAMIC_QR"]
+    assert "HOSTED_CHECKOUT" not in link_row["allowed_payment_methods"]
+
 
 def test_generate_payment_link_reuses_active_link(fake_client):
     merchant_id, admin_id = _merchant_and_admin(fake_client)

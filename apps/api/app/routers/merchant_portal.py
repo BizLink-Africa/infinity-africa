@@ -64,7 +64,11 @@ from app.schemas.disputes import (
     RequestRefundInput,
 )
 from app.schemas.document_requests import DocumentRequestResponse
-from app.schemas.enums import CollectionMethod, UserRole
+from app.schemas.enums import (
+    LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT,
+    CollectionMethod,
+    UserRole,
+)
 from app.schemas.fraud import FraudAlertResponse
 from app.schemas.invoices import InvoiceItemResponse, InvoiceResponse, InvoiceUpdate
 from app.schemas.ip_allowlist import IpAllowlistCreate, IpAllowlistResponse
@@ -558,7 +562,7 @@ def generate_my_invoice_payment_link(
         "customer_name": row.get("customer_name"),
         "customer_phone": row.get("customer_phone"),
         "description": f"Payment for invoice {row['invoice_number']}",
-        "allowed_payment_methods": [m.value for m in CollectionMethod],
+        "allowed_payment_methods": [m.value for m in LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT],
         "public_slug": generate_public_slug(),
         "status": "ACTIVE",
     }

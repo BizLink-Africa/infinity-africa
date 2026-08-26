@@ -1158,6 +1158,47 @@ def test_wallet_ledger_export_with_no_entries_in_range_still_returns_a_valid_wor
     assert next(cell.value for cell in ws[1]) == "Merchant ID"
 
 
+# --- Invoice payment links --------------------------------------------------
+
+
+def test_generate_my_invoice_payment_link_does_not_include_hosted_checkout(fake_client):
+    """Regression test: app/routers/merchant_portal.py used to build
+    allowed_payment_methods from the full CollectionMethod enum (which now
+    includes HOSTED_CHECKOUT). payment_links.allowed_payment_methods has
+    its own DB CHECK constraint that was deliberately never widened to
+    allow HOSTED_CHECKOUT (see app/schemas/enums.py's
+    LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT) — that mismatch 500ed against
+    a real Postgres database on every single "generate Pay Now link"
+    click, invisible to this fake client since it doesn't enforce CHECK
+    constraints. Assert the exact value so a regression is caught by
+    shape, not just by a live-database crash."""
+    _merchant_id, admin_id = _merchant_and_member(fake_client)
+
+    create_response = client.post(
+        "/v1/merchant/invoices",
+        headers=auth_headers(admin_id),
+        json={
+            "customer_name": "Amina Hassan",
+            "customer_phone": "+255700000000",
+            "due_date": "2026-09-01",
+            "items": [{"description": "Consulting services", "quantity": "2", "unit_price": "500.00"}],
+        },
+    )
+    assert create_response.status_code == 201, create_response.text
+    invoice_id = create_response.json()["data"]["id"]
+
+    send_response = client.post(f"/v1/merchant/invoices/{invoice_id}/send", headers=auth_headers(admin_id))
+    assert send_response.status_code == 200, send_response.text
+
+    link_response = client.post(f"/v1/merchant/invoices/{invoice_id}/payment-link", headers=auth_headers(admin_id))
+    assert link_response.status_code == 200, link_response.text
+    link = link_response.json()["data"]
+
+    link_row = next(r for r in fake_client.table("payment_links")._table.rows if r["id"] == link["id"])
+    assert link_row["allowed_payment_methods"] == ["USSD_PUSH", "STK_PUSH", "SELCOM_PESA_PUSH", "DYNAMIC_QR"]
+    assert "HOSTED_CHECKOUT" not in link_row["allowed_payment_methods"]
+
+
 # --- Withdrawals dispatch -------------------------------------------------
 
 

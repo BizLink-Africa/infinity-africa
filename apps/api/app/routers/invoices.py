@@ -25,7 +25,7 @@ from app.core.references import generate_reference
 from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedCaller
 from app.schemas.common import APIResponse
-from app.schemas.enums import CollectionMethod, UserRole
+from app.schemas.enums import LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT, UserRole
 from app.schemas.invoices import (
     InvoiceCreate,
     InvoiceItemResponse,
@@ -282,7 +282,7 @@ def generate_invoice_payment_link(
         "customer_name": row.get("customer_name"),
         "customer_phone": row.get("customer_phone"),
         "description": f"Payment for invoice {row['invoice_number']}",
-        "allowed_payment_methods": [m.value for m in CollectionMethod],
+        "allowed_payment_methods": [m.value for m in LEGACY_ALLOWED_PAYMENT_METHODS_DEFAULT],
         "public_slug": generate_public_slug(),
         "status": "ACTIVE",
     }
