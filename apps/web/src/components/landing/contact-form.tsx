@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 const inputClass =
   "w-full border-0 border-b border-outline-variant bg-transparent pb-2 text-sm text-on-surface placeholder-outline focus:outline-none focus:border-primary-container transition-colors";
@@ -17,13 +17,22 @@ export function ContactForm() {
 
   const [status, setStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
   const [error, setError] = useState("");
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  function showError(message: string) {
+    setError(message);
+    // The submit button lives at the bottom of a long form — without this,
+    // a validation/network error rendered up at the top can be scrolled
+    // completely out of view, and clicking Send looks like it does nothing.
+    requestAnimationFrame(() => errorRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" }));
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
 
     if (!fullName.trim() || !email.trim() || !message.trim()) {
-      setError("Please fill in your name, email, and how we can help.");
+      showError("Please fill in your name, email, and how we can help.");
       return;
     }
 
@@ -48,7 +57,7 @@ export function ContactForm() {
       setStatus("sent");
     } catch {
       setStatus("error");
-      setError("Something went wrong sending your message. Please try again, or email info@infinityafrica.net directly.");
+      showError("Something went wrong sending your message. Please try again, or email info@infinityafrica.net directly.");
     }
   }
 
@@ -62,13 +71,18 @@ export function ContactForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-7">
-      {error && <div className="rounded-lg bg-error/10 px-4 py-3 text-sm font-medium text-error">{error}</div>}
+      {error && (
+        <div ref={errorRef} className="rounded-lg bg-error/10 px-4 py-3 text-sm font-medium text-error">
+          {error}
+        </div>
+      )}
 
       <div className="grid sm:grid-cols-2 gap-7">
         <div>
           <label className={labelClass}>Full Name</label>
           <input
             type="text"
+            required
             placeholder="e.g. Amani Mushi"
             className={inputClass}
             value={fullName}
@@ -91,6 +105,7 @@ export function ContactForm() {
           <label className={labelClass}>Email</label>
           <input
             type="email"
+            required
             placeholder="you@business.co.tz"
             className={inputClass}
             value={email}
@@ -132,6 +147,7 @@ export function ContactForm() {
         <label className={labelClass}>How Can We Help?</label>
         <textarea
           rows={3}
+          required
           placeholder="Tell us about your business and what you need"
           className={`${inputClass} resize-none`}
           value={message}

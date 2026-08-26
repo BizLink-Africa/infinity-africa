@@ -40,6 +40,26 @@ describe("ContactForm", () => {
     const { ContactForm } = await import("./contact-form");
     render(<ContactForm />);
 
+    // Full Name/Email/Message are all `required` — the browser blocks
+    // submission and reports the first empty one natively before our own
+    // onSubmit handler ever runs, so nothing reaches the backend.
+    fireEvent.click(screen.getByRole("button", { name: "Send Message" }));
+
+    expect(screen.getByPlaceholderText("e.g. Amani Mushi")).toBeInvalid();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a whitespace-only message even though the field is technically filled", async () => {
+    // required alone wouldn't catch " " — this is what the extra .trim()
+    // check in handleSubmit exists for.
+    const { ContactForm } = await import("./contact-form");
+    render(<ContactForm />);
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Amani Mushi"), { target: { value: "Amani Mushi" } });
+    fireEvent.change(screen.getByPlaceholderText("you@business.co.tz"), { target: { value: "amani@example.com" } });
+    fireEvent.change(screen.getByPlaceholderText("Tell us about your business and what you need"), {
+      target: { value: "   " },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Send Message" }));
 
     expect(await screen.findByText(/Please fill in your name, email/)).toBeInTheDocument();
