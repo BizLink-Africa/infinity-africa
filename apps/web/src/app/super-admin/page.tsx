@@ -38,7 +38,7 @@ export default async function SuperAdminCommandCenterPage() {
           </p>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <AdminKpiCard variant="brand" icon="store" label="Total Merchants" value={overview.total_merchants.toLocaleString()} />
           <AdminKpiCard variant="brand" icon="account_balance_wallet" label="Collections Today" value={formatCurrency(overview.collections_today, "TZS")} />
           <AdminKpiCard variant="brand" icon="send_money" label="Withdrawals Today" value={formatCurrency(overview.withdrawals_today, "TZS")} />

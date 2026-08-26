@@ -29,17 +29,17 @@ export function AdminKpiCard({
 }) {
   if (tone === "warning") {
     return (
-      <div className="bg-[#FEFCE8] border border-[#FEF08A] rounded-xl p-6 shadow-ambient flex flex-col justify-between relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-24 h-24 bg-[#FEF08A]/30 rounded-bl-full" />
-        <div className="flex justify-between items-start mb-4 relative">
-          <span className="text-xs font-semibold text-[#854D0E] uppercase tracking-wider">{label}</span>
-          <div className="p-2 bg-[#FEF08A]/50 rounded-lg text-[#854D0E]">
-            <Icon name={icon} />
+      <div className="bg-[#FEFCE8] border border-[#FEF08A] rounded-lg p-4 shadow-ambient flex flex-col justify-between relative overflow-hidden">
+        <div className="absolute right-0 top-0 w-16 h-16 bg-[#FEF08A]/30 rounded-bl-full" />
+        <div className="flex justify-between items-start mb-2.5 relative">
+          <span className="text-[11px] font-semibold text-[#854D0E] uppercase tracking-wider">{label}</span>
+          <div className="p-1.5 bg-[#FEF08A]/50 rounded-md text-[#854D0E]">
+            <Icon name={icon} className="text-[16px]" />
           </div>
         </div>
         <div className="relative">
-          <div className="text-3xl font-bold text-[#854D0E]">{value}</div>
-          {caption && <div className="text-xs text-[#A16207] mt-1">{caption}</div>}
+          <div className="text-xl font-bold text-[#854D0E]">{value}</div>
+          {caption && <div className="text-[11px] text-[#A16207] mt-0.5">{caption}</div>}
         </div>
       </div>
     );
@@ -47,18 +47,18 @@ export function AdminKpiCard({
 
   if (variant === "brand") {
     return (
-      <div className="bg-primary rounded-xl p-6 shadow-ambient flex flex-col justify-between">
-        <div className="flex justify-between items-start mb-4">
-          <span className="text-xs font-semibold text-on-primary/70 uppercase tracking-wider">{label}</span>
-          <div className="p-2 bg-on-primary/10 rounded-lg text-on-primary">
-            <Icon name={icon} />
+      <div className="bg-primary rounded-lg p-4 shadow-ambient flex flex-col justify-between">
+        <div className="flex justify-between items-start mb-2.5">
+          <span className="text-[11px] font-semibold text-on-primary/70 uppercase tracking-wider">{label}</span>
+          <div className="p-1.5 bg-on-primary/10 rounded-md text-on-primary">
+            <Icon name={icon} className="text-[16px]" />
           </div>
         </div>
         <div>
-          <div className="text-3xl font-bold text-on-primary">{value}</div>
+          <div className="text-xl font-bold text-on-primary">{value}</div>
           {caption && (
-            <div className="text-xs mt-1 flex items-center gap-1 text-on-primary/70">
-              {trendIcon && <Icon name={trendIcon} className="text-[14px]" />}
+            <div className="text-[11px] mt-0.5 flex items-center gap-1 text-on-primary/70">
+              {trendIcon && <Icon name={trendIcon} className="text-[12px]" />}
               {caption}
             </div>
           )}
@@ -68,18 +68,18 @@ export function AdminKpiCard({
   }
 
   return (
-    <div className="bg-surface rounded-xl p-6 border border-surface-container-highest/60 shadow-ambient flex flex-col justify-between hover:-translate-y-1 transition-transform duration-200">
-      <div className="flex justify-between items-start mb-4">
-        <span className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">{label}</span>
-        <div className="p-2 bg-primary-container/10 rounded-lg text-primary">
-          <Icon name={icon} />
+    <div className="bg-surface rounded-lg p-4 border border-surface-container-highest/60 shadow-ambient flex flex-col justify-between hover:-translate-y-1 transition-transform duration-200">
+      <div className="flex justify-between items-start mb-2.5">
+        <span className="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">{label}</span>
+        <div className="p-1.5 bg-primary-container/10 rounded-md text-primary">
+          <Icon name={icon} className="text-[16px]" />
         </div>
       </div>
       <div>
-        <div className="text-3xl font-bold text-on-surface">{value}</div>
+        <div className="text-xl font-bold text-on-surface">{value}</div>
         {caption && (
-          <div className={`text-xs mt-1 flex items-center gap-1 ${captionClassName}`}>
-            {trendIcon && <Icon name={trendIcon} className="text-[14px]" />}
+          <div className={`text-[11px] mt-0.5 flex items-center gap-1 ${captionClassName}`}>
+            {trendIcon && <Icon name={trendIcon} className="text-[12px]" />}
             {caption}
           </div>
         )}
