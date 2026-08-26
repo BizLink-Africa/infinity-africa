@@ -43,9 +43,11 @@ function invoice(overrides: Partial<Invoice> = {}): Invoice {
 
 async function fillAndSubmitInvoiceForm(container: HTMLElement, { withEmail = true } = {}) {
   fireEvent.change(screen.getByPlaceholderText("e.g. Juma Traders Ltd"), { target: { value: "Amina Hassan" } });
-  fireEvent.change(screen.getByPlaceholderText("+255 7XX XXX XXX or email"), {
-    target: { value: withEmail ? "amina@example.com" : "+255700000000" },
-  });
+  if (withEmail) {
+    fireEvent.change(screen.getByPlaceholderText("customer@example.com"), { target: { value: "amina@example.com" } });
+  } else {
+    fireEvent.change(screen.getByPlaceholderText("+255 7XX XXX XXX"), { target: { value: "+255700000000" } });
+  }
   // The form starts with two empty line-item rows — only the first needs
   // filling in for the invoice to be valid.
   fireEvent.change(screen.getAllByPlaceholderText("e.g. Wholesale delivery — 50kg bags")[0], {

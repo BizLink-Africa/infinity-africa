@@ -18,9 +18,6 @@ const membership: MerchantUser = {
 
 vi.mock("@/lib/portal/api", () => ({
   getMyMembership: vi.fn().mockResolvedValue(membership),
-  listMyNotifications: vi.fn().mockResolvedValue([
-    { id: "n1", recipient_type: "merchant", merchant_id: "merchant-1", notification_type: "dispute_received", title: "New dispute", body: "A customer disputed a charge.", related_resource_type: null, related_resource_id: null, is_read: false, created_at: "2026-08-01T10:00:00Z" },
-  ]),
 }));
 
 vi.mock("@/lib/supabase/logout", () => ({
@@ -49,14 +46,11 @@ describe("Topbar", () => {
     );
   });
 
-  it("opens a working notifications panel instead of silently doing nothing", async () => {
+  it("does not show a notifications bell", async () => {
     const { Topbar } = await import("./topbar");
     render(<Topbar onOpenSidebar={() => {}} />);
 
-    await waitFor(() => expect(screen.getByLabelText("Notifications")).toBeInTheDocument());
-    fireEvent.click(screen.getByLabelText("Notifications"));
-
-    await waitFor(() => expect(screen.getByText("New dispute")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Notifications")).not.toBeInTheDocument();
   });
 
   it("links New Payment Link to a real route instead of a dead button", async () => {

@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { merchantLogout } from "@/lib/supabase/logout";
-import { getMyMembership, listMyNotifications } from "@/lib/portal/api";
+import { getMyMembership } from "@/lib/portal/api";
 import { MERCHANT_ROLES, USER_ROLE_LABELS } from "@/lib/portal/roles";
-import type { AppNotification, MerchantUser } from "@/lib/portal/types";
+import type { MerchantUser } from "@/lib/portal/types";
 
 import { Icon } from "./icon";
 import { useRole } from "./role-context";
@@ -27,10 +27,8 @@ const SUPPORT_EMAIL = "info@infinityafrica.net";
 
 export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [emailCopied, setEmailCopied] = useState(false);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [profile, setProfile] = useState<MerchantUser | null>(null);
   const { role, setRole } = useRole();
 
@@ -46,11 +44,8 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   }
 
   useEffect(() => {
-    listMyNotifications().then(setNotifications);
     getMyMembership().then(setProfile);
   }, []);
-
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   return (
     <header className="fixed top-0 right-0 w-full md:w-[calc(100%-16rem)] z-30 bg-surface/80 backdrop-blur-md shadow-sm flex justify-between items-center h-16 px-4 md:px-8 border-b border-surface-container-highest">
@@ -94,38 +89,6 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           <Icon name="add" className="text-[20px]" />
           New Payment Link
         </Link>
-        <div className="relative">
-          <button
-            onClick={() => setNotifOpen((open) => !open)}
-            className="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full relative"
-            aria-label="Notifications"
-          >
-            <Icon name="notifications" />
-            {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full" />}
-          </button>
-          {notifOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} aria-hidden />
-              <div className="absolute right-0 top-11 z-50 w-80 max-h-96 overflow-y-auto bg-surface border border-surface-container-highest rounded-lg shadow-ambient">
-                <div className="px-4 py-3 border-b border-surface-container-highest">
-                  <p className="text-sm font-semibold text-on-background">Notifications</p>
-                </div>
-                {notifications.length === 0 ? (
-                  <p className="px-4 py-6 text-sm text-on-surface-variant text-center">You&apos;re all caught up.</p>
-                ) : (
-                  <ul className="divide-y divide-surface-container-highest">
-                    {notifications.slice(0, 10).map((notification) => (
-                      <li key={notification.id} className={`px-4 py-3 text-sm ${!notification.is_read ? "bg-primary-container/5" : ""}`}>
-                        <p className="font-medium text-on-background">{notification.title}</p>
-                        <p className="text-xs text-on-surface-variant mt-0.5">{notification.body}</p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </>
-          )}
-        </div>
         <div className="relative hidden sm:block">
           <button
             onClick={() => setHelpOpen((open) => !open)}

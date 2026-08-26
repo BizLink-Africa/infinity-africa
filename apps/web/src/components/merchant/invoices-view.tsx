@@ -32,7 +32,8 @@ export function InvoicesView() {
   const [submitting, setSubmitting] = useState(false);
 
   const [customerName, setCustomerName] = useState("");
-  const [customerContact, setCustomerContact] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<DraftItem[]>([emptyItem(), emptyItem()]);
@@ -74,7 +75,7 @@ export function InvoicesView() {
     const validItems = items.filter((item) => item.description && Number(item.unitPrice) > 0);
     if (!customerName || validItems.length === 0 || !dueDate) return;
 
-    if (sendNow && !customerContact.includes("@")) {
+    if (sendNow && !customerEmail.trim()) {
       setSendStatus({ type: "error", message: "Add customer email before sending invoice." });
       return;
     }
@@ -84,8 +85,8 @@ export function InvoicesView() {
     try {
       const invoice = await createInvoice({
         customer_name: customerName,
-        customer_phone: customerContact.includes("@") ? null : customerContact || null,
-        customer_email: customerContact.includes("@") ? customerContact : null,
+        customer_phone: customerPhone || null,
+        customer_email: customerEmail || null,
         due_date: dueDate,
         notes: notes || null,
         send_now: sendNow,
@@ -97,7 +98,8 @@ export function InvoicesView() {
       });
       setInvoices((prev) => [invoice, ...prev]);
       setCustomerName("");
-      setCustomerContact("");
+      setCustomerEmail("");
+      setCustomerPhone("");
       setDueDate("");
       setNotes("");
       setItems([emptyItem(), emptyItem()]);
@@ -191,13 +193,24 @@ export function InvoicesView() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-on-surface-variant mb-1.5">Customer Phone / Email</label>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1.5">Customer Email</label>
               <input
                 className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
-                placeholder="+255 7XX XXX XXX or email"
-                type="text"
-                value={customerContact}
-                onChange={(event) => setCustomerContact(event.target.value)}
+                placeholder="customer@example.com"
+                type="email"
+                value={customerEmail}
+                onChange={(event) => setCustomerEmail(event.target.value)}
+              />
+              <p className="text-xs text-on-surface-variant mt-1">Required to email the invoice.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1.5">Customer Phone (optional)</label>
+              <input
+                className="w-full px-3.5 py-2.5 bg-surface-container-low border border-surface-container-highest rounded-lg focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+                placeholder="+255 7XX XXX XXX"
+                type="tel"
+                value={customerPhone}
+                onChange={(event) => setCustomerPhone(event.target.value)}
               />
             </div>
           </div>
