@@ -99,3 +99,8 @@ def test_app_url_uses_its_own_value_when_set(monkeypatch):
     monkeypatch.setenv("APP_URL", "https://www.infinityafrica.net")
     settings = Settings()
     assert settings.app_url == "https://www.infinityafrica.net"
+
+
+def test_email_reply_to_defaults_to_the_finance_address():
+    settings = Settings()
+    assert settings.email_reply_to == "finance@infinityafrica.net"

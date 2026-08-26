@@ -147,7 +147,7 @@ def _render_invoice_email_html(*, merchant: dict, invoice: dict, items: list[dic
         <td align="center">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background-color:#ffffff;border-radius:12px;overflow:hidden;">
             <tr>
-              <td style="background-color:#04332a;padding:24px 28px;">
+              <td bgcolor="#04332a" style="background-color:#04332a;padding:24px 28px;">
                 <span style="font-size:20px;color:#9cf5c1;vertical-align:middle;">&#8734;</span>
                 <span style="font-size:18px;font-weight:700;color:#ffffff;vertical-align:middle;margin-left:6px;">Infinity Africa</span>
               </td>
