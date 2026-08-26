@@ -154,8 +154,8 @@ export default function PrivacyPage() {
                 </li>
                 <li className="flex items-center gap-2.5 text-sm text-on-surface">
                   <Icon name="headset_mic" className="text-[18px] text-primary-container" />
-                  <a href="mailto:support@infinityafrica.net" className="hover:text-primary-container transition-colors">
-                    support@infinityafrica.net
+                  <a href="mailto:info@infinityafrica.net" className="hover:text-primary-container transition-colors">
+                    info@infinityafrica.net
                   </a>
                 </li>
                 <li className="flex items-center gap-2.5 text-sm text-on-surface">

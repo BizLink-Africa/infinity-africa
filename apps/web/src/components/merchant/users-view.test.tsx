@@ -100,5 +100,6 @@ describe("UsersView", () => {
       }),
     );
     await waitFor(() => expect(screen.getByText("David Komba")).toBeInTheDocument());
+    expect(await screen.findByText("Invitation email sent.")).toBeInTheDocument();
   });
 });

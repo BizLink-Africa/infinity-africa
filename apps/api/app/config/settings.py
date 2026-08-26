@@ -193,13 +193,12 @@ class Settings(BaseSettings):
     # deployment that forgets to set this still sends *something* sane
     # rather than failing outright.
     invoice_email_from_raw: str = Field(default="", validation_alias="INVOICE_EMAIL_FROM")
-    # Reply-to for every transactional email — currently only consumed by
-    # send_invoice_email, so this is effectively "who a customer's reply
-    # about a bill reaches" today.
+    # Reply-to for every transactional email — the customer/merchant
+    # support contact shown in every template's footer.
     email_reply_to: str = "info@infinityafrica.net"
-    # Where a "contact us" / report-transaction inquiry notification goes
-    # — not yet wired to a sender (no such flow exists in this codebase
-    # yet), reserved here so the env var exists ahead of that feature.
+    # Where the "contact us" inquiry notification email goes — see
+    # app/services/email.py::send_inquiry_notification_email, triggered by
+    # POST /v1/public/inquiries.
     ceo_email: str = ""
     # General site base URL for links inside emails (distinct from
     # public_app_url, which specifically builds the /pay/{slug} payment

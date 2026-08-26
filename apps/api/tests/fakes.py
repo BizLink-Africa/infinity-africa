@@ -246,6 +246,17 @@ class _FakeGetUserResult:
         self.user = user
 
 
+class _FakeGenerateLinkProperties:
+    def __init__(self, action_link: str):
+        self.action_link = action_link
+
+
+class _FakeGenerateLinkResult:
+    def __init__(self, user: _FakeAuthAdminUser, action_link: str):
+        self.user = user
+        self.properties = _FakeGenerateLinkProperties(action_link)
+
+
 class _FakeAuthAdmin:
     def __init__(self):
         self._users: dict[str, _FakeAuthAdminUser] = {}
@@ -274,6 +285,40 @@ class _FakeAuthAdmin:
         full_name = ((options or {}).get("data") or {}).get("full_name")
         self.seed_user(user_id, email=email, full_name=full_name)
         return _FakeGetUserResult(self._users[user_id])
+
+    def generate_link(self, params: dict) -> "_FakeGenerateLinkResult":
+        """Mirrors supabase_auth's admin generate_link closely enough for
+        app/services/email.py's staff-invite and password-reset flows:
+        never sends Supabase's own email (that's the whole point of using
+        it over invite_user_by_email/reset_password_for_email), just
+        returns an action_link. type="invite" creates a new user (same
+        duplicate-email rejection as invite_user_by_email above);
+        type="recovery" requires an *existing* user and raises if none
+        matches — the real API's behavior, which
+        send_password_reset_email relies on to silently no-op for an
+        unregistered email (account enumeration prevention)."""
+        link_type = params.get("type")
+        email = params["email"]
+        options = params.get("options") or {}
+        redirect_to = options.get("redirect_to", "")
+        token = uuid.uuid4().hex
+
+        if link_type == "invite":
+            if any(user.email == email for user in self._users.values()):
+                raise Exception(f"A user with email {email} already exists")  # noqa: TRY002
+            user_id = str(uuid.uuid4())
+            full_name = (options.get("data") or {}).get("full_name")
+            self.seed_user(user_id, email=email, full_name=full_name)
+            user = self._users[user_id]
+        elif link_type == "recovery":
+            user = next((u for u in self._users.values() if u.email == email), None)
+            if user is None:
+                raise Exception(f"User {email} not found")  # noqa: TRY002
+        else:
+            raise NotImplementedError(f"generate_link type={link_type}")
+
+        action_link = f"https://fake.supabase.test/auth/v1/verify?type={link_type}&token={token}&redirect_to={redirect_to}"
+        return _FakeGenerateLinkResult(user, action_link)
 
 
 class _FakeAuth:

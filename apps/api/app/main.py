@@ -11,6 +11,7 @@ from app.routers import (
     admin_pricing,
     admin_risk,
     admin_withdrawals,
+    auth_actions,
     collections,
     collections_api,
     developer_docs,
@@ -23,6 +24,7 @@ from app.routers import (
     onboarding,
     payment_links,
     public_disputes,
+    public_inquiries,
     system,
     transactions,
     webhooks,
@@ -73,3 +75,5 @@ app.include_router(webhooks.callback_router, prefix="/v1")
 app.include_router(developer_docs.router, prefix="/v1")
 app.include_router(merchant_webhooks.router, prefix="/v1")
 app.include_router(system.router, prefix="/v1")
+app.include_router(auth_actions.router, prefix="/v1")
+app.include_router(public_inquiries.router, prefix="/v1")

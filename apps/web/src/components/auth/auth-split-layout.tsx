@@ -51,8 +51,8 @@ export function AuthSplitLayout({
             </li>
             <li className="flex items-center gap-2.5">
               <Icon name="mail" className="text-[18px] text-on-primary/70" />
-              <a href="mailto:support@infinityafrica.net" className="hover:text-on-primary transition-colors">
-                support@infinityafrica.net
+              <a href="mailto:info@infinityafrica.net" className="hover:text-on-primary transition-colors">
+                info@infinityafrica.net
               </a>
             </li>
             <li className="flex items-center gap-2.5">

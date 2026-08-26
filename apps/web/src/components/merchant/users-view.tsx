@@ -44,6 +44,7 @@ export function UsersView() {
   const [role, setRole] = useState<MerchantUser["role"]>(UserRole.MERCHANT_STAFF);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [createSuccess, setCreateSuccess] = useState("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingRole, setEditingRole] = useState<MerchantUser["role"]>(UserRole.MERCHANT_STAFF);
@@ -63,6 +64,7 @@ export function UsersView() {
 
     setCreating(true);
     setCreateError("");
+    setCreateSuccess("");
     try {
       const user = await createMerchantUser({ full_name: fullName.trim(), email: email.trim(), role });
       setUsers((prev) => [user, ...prev]);
@@ -70,6 +72,7 @@ export function UsersView() {
       setFullName("");
       setEmail("");
       setRole(UserRole.MERCHANT_STAFF);
+      setCreateSuccess("Invitation email sent.");
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Couldn't invite this person. Please try again.");
     } finally {
@@ -133,7 +136,10 @@ export function UsersView() {
           !formOpen && (
             <button
               type="button"
-              onClick={() => setFormOpen(true)}
+              onClick={() => {
+                setCreateSuccess("");
+                setFormOpen(true);
+              }}
               className="bg-primary-container text-on-primary text-sm font-medium py-2.5 px-5 rounded-lg hover:opacity-90 transition-opacity"
             >
               Add User
@@ -141,6 +147,12 @@ export function UsersView() {
           )
         }
       />
+
+      {createSuccess && !formOpen && (
+        <div className="rounded-lg bg-primary-container/10 px-4 py-3 text-sm font-medium text-primary">
+          {createSuccess}
+        </div>
+      )}
 
       {formOpen && (
         <Card>

@@ -6,6 +6,7 @@ FakeSupabaseClient pattern as test_merchant_portal.py.
 import uuid
 
 import pytest
+import resend
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -23,9 +24,22 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _configure_settings(monkeypatch):
     monkeypatch.setenv("SUPABASE_JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("RESEND_API_KEY", "test-resend-key-do-not-use-in-production")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def fake_resend(monkeypatch):
+    """Inviting a teammate now sends a real (mocked) email — see
+    tests/test_invoices.py's identical fixture for why this patches
+    resend.Emails.send directly."""
+
+    def _send(params: dict) -> dict:
+        return {"id": "resend-test-message-id"}
+
+    monkeypatch.setattr(resend.Emails, "send", _send)
 
 
 def _admin(fake_client):
@@ -185,13 +199,13 @@ def test_invite_redirect_url_points_to_the_accept_invite_page_not_login(fake_cli
     them stuck. It must point at the password-setup page instead."""
     _merchant_id, admin_id = _admin(fake_client)
     captured: dict = {}
-    original = fake_client.auth.admin.invite_user_by_email
+    original = fake_client.auth.admin.generate_link
 
-    def _spy(email, options=None):
-        captured["options"] = options
-        return original(email, options)
+    def _spy(params: dict):
+        captured["params"] = params
+        return original(params)
 
-    monkeypatch.setattr(fake_client.auth.admin, "invite_user_by_email", _spy)
+    monkeypatch.setattr(fake_client.auth.admin, "generate_link", _spy)
 
     response = client.post(
         "/v1/merchant/users",
@@ -199,9 +213,36 @@ def test_invite_redirect_url_points_to_the_accept_invite_page_not_login(fake_cli
         json={"full_name": "David Komba", "email": "david@example.com", "role": "MERCHANT_STAFF"},
     )
     assert response.status_code == 201, response.text
-    redirect_to = captured["options"]["redirect_to"]
+    assert captured["params"]["type"] == "invite"
+    redirect_to = captured["params"]["options"]["redirect_to"]
     assert redirect_to.endswith("/merchant/invite/accept")
     assert "/merchant/login" not in redirect_to
+
+
+def test_invite_uses_resend_branded_email_not_supabase_default(fake_client, monkeypatch):
+    """The other half of the same bug fix: generate_link (unlike
+    invite_user_by_email) never sends Supabase's own email — this
+    endpoint must send its own branded one instead, or the invite would
+    go out with no email at all."""
+    _merchant_id, admin_id = _admin(fake_client)
+    captured: dict = {}
+    original_send = resend.Emails.send
+
+    def _spy(params: dict):
+        captured["params"] = params
+        return original_send(params)
+
+    monkeypatch.setattr(resend.Emails, "send", _spy)
+
+    response = client.post(
+        "/v1/merchant/users",
+        headers=auth_headers(admin_id),
+        json={"full_name": "David Komba", "email": "david@example.com", "role": "MERCHANT_STAFF"},
+    )
+    assert response.status_code == 201, response.text
+    assert captured["params"]["to"] == ["david@example.com"]
+    assert captured["params"]["subject"] == "You're invited to Infinity Africa Merchant Portal"
+    assert "info@infinityafrica.net" in captured["params"]["html"]
 
 
 # --- POST /users/me/accept-invite -----------------------------------------------

@@ -40,7 +40,12 @@ export function useOnboardingReviewAction(id: string) {
     });
   }
 
-  const approve = () => run(() => approveOnboardingAction(id), "Approved.", "Couldn't approve — try again.");
+  const approve = () =>
+    run(
+      () => approveOnboardingAction(id),
+      "Approved. Welcome email sent — the merchant will get their next steps in their inbox.",
+      "Couldn't approve — try again.",
+    );
   const reject = () =>
     run(() => rejectOnboardingAction(id, note.trim() || null), "Rejected.", "Couldn't reject — try again.");
   const requestInfo = () =>

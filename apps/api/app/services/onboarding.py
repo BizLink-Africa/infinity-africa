@@ -19,6 +19,7 @@ from fastapi import UploadFile
 from storage3.utils import StorageException
 from supabase import Client
 
+from app.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
 from app.core.time import utc_now_iso
 from app.schemas.auth import AuthenticatedUser
@@ -27,6 +28,7 @@ from app.schemas.onboarding import OnboardingMerchantAccountCreate
 from app.schemas.withdrawals import PricingRuleCreate
 from app.services.audit import write_audit_log
 from app.services.crud import get_by_id, insert_row, update_row
+from app.services.email import send_merchant_welcome_email
 from app.services.ledger import get_wallet_balance
 from app.services.merchant_code import generate_merchant_code
 
@@ -416,6 +418,16 @@ def approve_onboarding_submission(
         resource_id=submission_id,
         metadata={"custom_pricing_assigned": pricing is not None},
     )
+
+    # Welcome email is a courtesy, not part of approval itself — never let
+    # it fail the approval (send_merchant_welcome_email already never
+    # raises on its own; this is a second layer of defense in depth).
+    try:
+        settings = get_settings()
+        send_merchant_welcome_email(client, merchant=merchant, portal_url=f"{settings.public_app_url}/merchant/login")
+    except Exception:  # noqa: BLE001, S110
+        pass
+
     return get_onboarding_submission(client, submission_id) if updated else submission
 
 

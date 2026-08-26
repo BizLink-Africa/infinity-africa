@@ -109,7 +109,7 @@ from app.services.crud import (
     update_row,
 )
 from app.services.disbursements import execute_disbursement, quote_withdrawal_fee
-from app.services.email import send_invoice_email
+from app.services.email import send_invoice_email, send_staff_invite_email
 from app.services.hosted_checkout import execute_hosted_checkout_collection
 from app.services.idempotency import run_idempotent
 from app.services.ledger import export_wallet_ledger_rows, list_wallet_ledger
@@ -1788,23 +1788,37 @@ def create_my_merchant_user(
 ):
     """Invites a brand new Supabase Auth user by email (never reuses or
     silently attaches an already-registered account to this merchant) and
-    links it to the caller's merchant with the requested role. The invited
-    person receives a real Supabase Auth email to set their own password —
-    this endpoint never handles a plaintext password for anyone but the
-    caller themself."""
+    links it to the caller's merchant with the requested role.
+
+    Uses auth.admin.generate_link(type="invite") rather than
+    invite_user_by_email — generate_link creates the same kind of Supabase
+    Auth user + invite token, but does NOT send Supabase's own unbranded
+    email; this endpoint sends a branded one via Resend instead
+    (app/services/email.py::send_staff_invite_email), carrying the same
+    action_link. Raises (fails the whole invite) if that email doesn't go
+    out — an admin needs to know the invite didn't actually reach anyone,
+    the same fail-closed reasoning as invoice sending."""
     client = get_supabase_admin()
     settings = get_settings()
 
+    merchant = get_by_id(client, "merchants", membership.merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
     try:
-        result = client.auth.admin.invite_user_by_email(
-            payload.email,
+        result = client.auth.admin.generate_link(
             {
-                "data": {"full_name": payload.full_name},
-                # Must land on the password-setup page, not /merchant/login —
-                # an invited staff member has no password yet, so sending
-                # them to the login form leaves them stuck with no way in.
-                "redirect_to": f"{settings.public_app_url}/merchant/invite/accept",
-            },
+                "type": "invite",
+                "email": payload.email,
+                "options": {
+                    "data": {"full_name": payload.full_name},
+                    # Must land on the password-setup page, not
+                    # /merchant/login — an invited staff member has no
+                    # password yet, so sending them to the login form
+                    # leaves them stuck with no way in.
+                    "redirect_to": f"{settings.public_app_url}/merchant/invite/accept",
+                },
+            }
         )
     except Exception as exc:
         # supabase-py raises a generic AuthApiError for every rejection
@@ -1828,6 +1842,14 @@ def create_my_merchant_user(
             "status": "invited",
             "invited_by": str(membership.user_id),
         },
+    )
+
+    send_staff_invite_email(
+        client,
+        merchant=merchant,
+        invited_email=payload.email,
+        invited_role=payload.role.value,
+        accept_url=result.properties.action_link,
     )
 
     write_audit_log(

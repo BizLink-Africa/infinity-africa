@@ -23,7 +23,7 @@ function initials(name: string | null, email: string | null): string {
   return email ? email[0].toUpperCase() : "?";
 }
 
-const SUPPORT_EMAIL = "support@infinityafrica.net";
+const SUPPORT_EMAIL = "info@infinityafrica.net";
 
 export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);

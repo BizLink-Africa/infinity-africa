@@ -30,6 +30,7 @@ from app.core.references import generate_reference
 from app.core.time import utc_now_iso
 from app.schemas.enums import CollectionMethod, NotificationType
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
+from app.services.email import send_payment_receipt_email
 from app.services.fraud_monitoring_service import (
     check_self_payment_risk,
     evaluate_collection,
@@ -367,7 +368,7 @@ def resolve_collection(client: Client, *, collection_id: uuid.UUID, result: Coll
             net_amount=Decimal(str(transaction["net_amount"])),
             currency=currency,
         )
-        _apply_collection_success(client, collection)
+        _apply_collection_success(client, collection, transaction)
         evaluate_collection(client, collection=collection, transaction=transaction, event="resolved")
         enqueue_webhook_event(
             client,
@@ -391,7 +392,7 @@ def resolve_collection(client: Client, *, collection_id: uuid.UUID, result: Coll
     return collection
 
 
-def _apply_collection_success(client: Client, collection: dict) -> None:
+def _apply_collection_success(client: Client, collection: dict, transaction: dict | None = None) -> None:
     if collection.get("payment_link_id"):
         payment_link_id = uuid.UUID(collection["payment_link_id"])
         update_row(client, "payment_links", payment_link_id, {"status": "PAID", "paid_at": utc_now_iso()})
@@ -405,6 +406,19 @@ def _apply_collection_success(client: Client, collection: dict) -> None:
     invoice_id = collection.get("invoice_id") or _find_invoice_id_via_payment_link(client, collection)
     if invoice_id:
         _apply_payment_to_invoice(client, invoice_id=uuid.UUID(invoice_id), amount=Decimal(str(collection["amount"])))
+
+    # Receipt email is a courtesy, not part of the payment itself — never
+    # let it fail collection resolution (defense in depth: send_payment_
+    # receipt_email already never raises on its own, this is a second
+    # layer in case that contract is ever violated by a future change).
+    try:
+        merchant = get_by_id(client, "merchants", uuid.UUID(collection["merchant_id"]))
+        if merchant:
+            send_payment_receipt_email(
+                client, merchant=merchant, transaction=transaction or {}, collection=collection
+            )
+    except Exception:  # noqa: BLE001, S110 — best-effort, never blocks payment completion
+        pass
 
 
 def _find_invoice_id_via_payment_link(client: Client, collection: dict) -> str | None:
@@ -511,7 +525,7 @@ def finalize_pending_review_collection(client: Client, *, collection_id: uuid.UU
         net_amount=Decimal(str(transaction["net_amount"])),
         currency=currency,
     )
-    _apply_collection_success(client, collection)
+    _apply_collection_success(client, collection, transaction)
     notify_merchant(
         client,
         merchant_id=merchant_id,

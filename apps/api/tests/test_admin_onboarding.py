@@ -6,6 +6,7 @@ test_merchant_portal.py / test_onboarding.py.
 import uuid
 
 import pytest
+import resend
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -18,9 +19,32 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _configure_settings(monkeypatch):
     monkeypatch.setenv("SUPABASE_JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("RESEND_API_KEY", "test-resend-key-do-not-use-in-production")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+class _FakeResend:
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.should_fail = False
+
+    def send(self, params: dict) -> dict:
+        self.calls.append(params)
+        if self.should_fail:
+            raise Exception("Resend rejected the request")  # noqa: TRY002
+        return {"id": "resend-test-message-id"}
+
+
+@pytest.fixture(autouse=True)
+def fake_resend(monkeypatch):
+    """Approving a merchant now sends a real (mocked) welcome email — see
+    tests/test_invoices.py's identical fixture for why this patches
+    resend.Emails.send directly."""
+    fake = _FakeResend()
+    monkeypatch.setattr(resend.Emails, "send", fake.send)
+    return fake
 
 
 def _valid_payload(**overrides) -> dict:
@@ -141,6 +165,48 @@ def test_approve_promotes_merchant_status(fake_client):
     merchant = next(r for r in fake_client.table("merchants")._table.rows if r["id"] == merchant_id)
     assert merchant["status"] == "active"
     assert merchant["kyc_status"] == "verified"
+
+
+def test_approval_sends_a_welcome_email(fake_client, fake_resend):
+    submitted = _submit_onboarding(uuid.uuid4())
+    merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)
+    submission_id = next(
+        r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
+    )
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+
+    response = client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
+    assert response.status_code == 200
+
+    assert len(fake_resend.calls) == 1
+    assert fake_resend.calls[0]["to"] == ["user@example.com"]
+    assert fake_resend.calls[0]["subject"] == "Welcome to Infinity Africa"
+    html = fake_resend.calls[0]["html"]
+    assert "Kilimanjaro Fresh Produce" in html
+    assert "Request collections" in html
+    assert "Generate payment links" in html
+    assert "info@infinityafrica.net" in html
+    assert "support@infinityafrica.net" not in html
+
+
+def test_approval_succeeds_even_when_welcome_email_delivery_fails(fake_client, fake_resend):
+    fake_resend.should_fail = True
+    submitted = _submit_onboarding(uuid.uuid4())
+    merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)
+    submission_id = next(
+        r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
+    )
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+
+    response = client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
+
+    assert response.status_code == 200, response.text
+    merchant = next(r for r in fake_client.table("merchants")._table.rows if r["id"] == merchant_id)
+    assert merchant["status"] == "active"
 
 
 def test_cannot_approve_without_required_documents(fake_client):

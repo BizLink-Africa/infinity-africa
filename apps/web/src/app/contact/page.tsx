@@ -45,7 +45,7 @@ export default function ContactPage() {
                 <div className="space-y-5">
                   <ContactCard icon="mail" label="Business Email" value="info@infinityafrica.net" href="mailto:info@infinityafrica.net" />
                   <ContactCard icon="support_agent" label="Help" value="help@infinityafrica.net" href="mailto:help@infinityafrica.net" />
-                  <ContactCard icon="headset_mic" label="Support" value="support@infinityafrica.net" href="mailto:support@infinityafrica.net" />
+                  <ContactCard icon="headset_mic" label="Support" value="info@infinityafrica.net" href="mailto:info@infinityafrica.net" />
                   <ContactCard icon="call" label="Phone / WhatsApp" value="+255 747 730 270" href="https://wa.me/255747730270" />
                   <ContactCard icon="location_on" label="Location" value="Mbezi Luis - Ubungo - Dar es Salaam" />
                 </div>

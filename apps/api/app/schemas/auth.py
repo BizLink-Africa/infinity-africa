@@ -1,9 +1,25 @@
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.enums import UserRole
+
+# Same pattern app/schemas/merchant_portal.py's _EMAIL_PATTERN uses —
+# deliberately not pydantic's EmailStr, which needs the email-validator
+# package this codebase doesn't otherwise depend on.
+_EMAIL_PATTERN = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+
+
+class ForgotPasswordRequest(BaseModel):
+    """POST /v1/auth/forgot-password — redirect_path is deliberately a
+    closed choice (see _ALLOWED_RESET_REDIRECT_PATHS in
+    app/routers/auth_actions.py), never an arbitrary URL a caller could
+    use to redirect a real Supabase recovery link somewhere attacker-
+    controlled."""
+
+    email: str = Field(pattern=_EMAIL_PATTERN)
+    redirect_path: Literal["/merchant/reset-password", "/admin-login/reset-password"] = "/merchant/reset-password"
 
 
 class AuthenticatedUser(BaseModel):

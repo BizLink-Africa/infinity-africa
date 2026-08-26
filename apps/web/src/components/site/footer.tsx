@@ -74,8 +74,8 @@ export function Footer() {
             </li>
             <li className="flex items-start gap-2.5">
               <Icon name="headset_mic" className="text-[18px] text-on-primary/70 mt-0.5" />
-              <a className="text-base text-on-primary/90 hover:text-on-primary transition-colors" href="mailto:support@infinityafrica.net">
-                support@infinityafrica.net
+              <a className="text-base text-on-primary/90 hover:text-on-primary transition-colors" href="mailto:info@infinityafrica.net">
+                info@infinityafrica.net
               </a>
             </li>
             <li className="flex items-start gap-2.5">

@@ -72,10 +72,10 @@ describe("Topbar", () => {
 
     fireEvent.click(screen.getByLabelText("Help"));
 
-    expect(screen.getByText("support@infinityafrica.net")).toBeInTheDocument();
+    expect(screen.getByText("info@infinityafrica.net")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open in email app" })).toHaveAttribute(
       "href",
-      "mailto:support@infinityafrica.net",
+      "mailto:info@infinityafrica.net",
     );
   });
 });
