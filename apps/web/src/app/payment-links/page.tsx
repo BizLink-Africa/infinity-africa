@@ -1,3 +1,4 @@
+import { InfinityLogo } from "@/components/brand/InfinityLogo";
 import { Icon } from "@/components/portal/icon";
 import { CTASection } from "@/components/site/cta-section";
 import { Footer } from "@/components/site/footer";
@@ -64,10 +65,7 @@ export default function PaymentLinksPage() {
                 <div className="bg-primary p-6 text-on-primary">
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-on-primary/70">Payment Request</p>
-                    <span className="flex shrink-0 items-center gap-1">
-                      <Icon name="all_inclusive" className="text-on-primary text-[15px]" />
-                      <span className="text-xs font-bold tracking-tight text-on-primary">Infinity Africa</span>
-                    </span>
+                    <InfinityLogo size={16} showText className="text-on-primary text-xs" />
                   </div>
                   <p className="mt-2 text-3xl font-bold">TZS 25,000.00</p>
                   <p className="mt-2 text-sm text-on-primary/80">Web design deposit</p>

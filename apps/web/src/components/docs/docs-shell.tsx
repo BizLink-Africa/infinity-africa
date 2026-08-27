@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { InfinityLogo } from "@/components/brand/InfinityLogo";
 import { Icon } from "@/components/portal/icon";
 
 import { DocsSidebar } from "./docs-sidebar";
@@ -17,9 +18,8 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
           <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-on-surface-variant p-1" aria-label="Open menu">
             <Icon name="menu" />
           </button>
-          <Link href="/" className="flex items-center gap-1.5">
-            <Icon name="all_inclusive" className="text-primary text-[22px]" />
-            <span className="text-lg font-bold tracking-tight text-primary">Infinity Africa</span>
+          <Link href="/" className="flex items-center">
+            <InfinityLogo size={36} showText className="text-primary text-lg" />
           </Link>
           <span className="hidden sm:inline text-sm font-semibold text-on-surface-variant border-l border-outline-variant pl-3 ml-1">
             API Docs

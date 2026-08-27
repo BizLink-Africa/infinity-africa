@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { InfinityLogo } from "@/components/brand/InfinityLogo";
 import { Icon } from "@/components/portal/icon";
 
 /**
@@ -22,9 +23,8 @@ export function AuthSplitLayout({
         <div className="absolute bottom-10 left-10 w-80 h-80 rounded-full bg-on-primary/5" aria-hidden />
 
         <div className="absolute top-8 left-8 z-10">
-          <Link href="/" className="inline-flex items-center gap-1.5">
-            <Icon name="all_inclusive" className="text-on-primary text-[22px]" />
-            <span className="text-lg font-bold tracking-tight text-on-primary">Infinity Africa</span>
+          <Link href="/" className="inline-flex items-center">
+            <InfinityLogo size={40} showText className="text-on-primary text-lg" />
           </Link>
         </div>
 
@@ -81,9 +81,8 @@ export function AuthSplitLayout({
             <Icon name="arrow_back" className="text-[18px]" />
             Back to website
           </Link>
-          <div className="mb-6 flex items-center gap-1.5 lg:hidden">
-            <Icon name="all_inclusive" className="text-primary text-[22px]" />
-            <span className="text-lg font-bold tracking-tight text-primary">Infinity Africa</span>
+          <div className="mb-6 lg:hidden">
+            <InfinityLogo size={36} showText className="text-primary text-lg" />
           </div>
           <div className="rounded-lg border border-outline-variant bg-surface p-8 shadow-sm">{children}</div>
         </div>

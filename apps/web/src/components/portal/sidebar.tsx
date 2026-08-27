@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { InfinityLogo } from "@/components/brand/InfinityLogo";
 import { isPathAllowedForRole } from "@/lib/portal/roles";
 
 import { Icon } from "./icon";
@@ -28,11 +29,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       >
         <div className="mb-8 flex items-center gap-3 px-4 shrink-0">
           <Link href="/merchant/overview" className="flex flex-col gap-1 flex-1 min-w-0">
-            <span className="flex items-center gap-2">
-              <Icon name="all_inclusive" className="text-white text-[22px] shrink-0" />
-              <span className="text-xl font-bold text-white tracking-tight truncate">Infinity Africa</span>
-            </span>
-            <p className="text-[11px] font-semibold tracking-wide text-sidebar-text-muted pl-[30px]">
+            <InfinityLogo size={40} showText className="text-white text-xl" />
+            <p className="text-[11px] font-semibold tracking-wide text-sidebar-text-muted pl-[48px]">
               Merchant Portal
             </p>
           </Link>
