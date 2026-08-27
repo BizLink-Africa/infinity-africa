@@ -1,8 +1,14 @@
+import asyncio
+import contextlib
+import logging
+from collections.abc import AsyncIterator
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.core.errors import register_exception_handlers
+from app.database.session import get_supabase_admin
 from app.middleware.api_request_log import ApiRequestLogMiddleware
 from app.routers import (
     admin,
@@ -29,13 +35,56 @@ from app.routers import (
     transactions,
     webhooks,
 )
+from app.services.checkout_reconciliation import reconcile_pending_checkout_collections
 
 settings = get_settings()
+
+logger = logging.getLogger("infinity.scheduler")
+
+
+async def _checkout_reconciliation_loop(interval_seconds: float) -> None:
+    """Backend-initiated, webhook-independent sweep — see
+    Settings.selcom_checkout_reconcile_interval_seconds and
+    app/services/checkout_reconciliation.py::reconcile_pending_checkout_collections's
+    own docstring for why this, not the inbound webhook, is what actually
+    keeps Selcom Checkout collections crediting in production. Runs for
+    the lifetime of the app process; a single failed sweep is logged and
+    never crashes the loop (or the app) — the next tick tries again."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            client = get_supabase_admin()
+            summary = await reconcile_pending_checkout_collections(client)
+            if summary["checked"]:
+                logger.info("scheduled_checkout_reconciliation %s", summary)
+        except Exception:
+            logger.exception("scheduled_checkout_reconciliation_failed")
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    # 0 (the default — see .env.example) disables this entirely, so local
+    # dev/tests never have a background task running unless explicitly
+    # opted in.
+    task = None
+    if settings.selcom_checkout_reconcile_interval_seconds > 0:
+        task = asyncio.create_task(
+            _checkout_reconciliation_loop(settings.selcom_checkout_reconcile_interval_seconds)
+        )
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
 
 app = FastAPI(
     title="Infinity Africa API",
     description="Payment infrastructure for African merchants — collections, payment links, invoices, and merchant tools.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

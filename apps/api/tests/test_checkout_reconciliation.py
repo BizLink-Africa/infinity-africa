@@ -18,8 +18,10 @@ from decimal import Decimal
 import pytest
 
 from app.services.checkout_reconciliation import (
+    _amount_and_currency_agree,
     complete_checkout_collection_once,
     map_checkout_status_to_provider_status,
+    reconcile_pending_checkout_collections,
     refresh_checkout_collection_status,
 )
 from app.services.wallet_push import execute_wallet_push_for_payment_link
@@ -346,5 +348,174 @@ def test_refresh_status_completed_credits_merchant_once(fake_client, monkeypatch
         refresh_checkout_collection_status(fake_client, collection_id=uuid.UUID(collection["id"]))
     )
     assert resolved_again["status"] == "successful"
+    balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
+    assert Decimal(str(balance)) == Decimal("985.00")
+
+
+def test_refresh_status_wrong_amount_does_not_credit(fake_client, monkeypatch):
+    """Defense-in-depth: even a live, authenticated Selcom answer must
+    agree on amount before anything credits — protects against Selcom's
+    own order-status response somehow describing the wrong order."""
+    collection, _ctx = _seed_pending_collection(fake_client, monkeypatch)
+
+    import app.services.checkout_reconciliation as reconciliation_module
+
+    class _FakeWrongAmountClient:
+        def __init__(self, *, credentials=None):
+            pass
+
+        async def get_order_status(self, *, order_id):
+            from app.services.selcom_checkout.parsing import parse_order_status_response
+
+            return parse_order_status_response(
+                {
+                    "reference": "S20690471578",
+                    "resultcode": "000",
+                    "result": "SUCCESS",
+                    "message": "OK",
+                    "data": [
+                        {
+                            "order_id": order_id,
+                            "payment_status": "COMPLETED",
+                            "transid": collection["provider_transid"],
+                            "amount": "1.00",  # collection actually expects 1000.00
+                        }
+                    ],
+                }
+            )
+
+    monkeypatch.setattr(reconciliation_module, "SelcomCheckoutHTTPClient", lambda **kwargs: _FakeWrongAmountClient())
+
+    resolved = asyncio.run(refresh_checkout_collection_status(fake_client, collection_id=uuid.UUID(collection["id"])))
+    assert resolved["status"] == "processing"
+    balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
+    assert Decimal(str(balance)) == Decimal(0)
+
+    mismatches = [
+        log for log in fake_client.table("audit_logs")._table.rows if log["action"] == "collection.checkout_amount_mismatch"
+    ]
+    assert len(mismatches) == 1
+
+
+# --- _amount_and_currency_agree (pure function) ---------------------------------------
+
+
+def test_amount_and_currency_agree_when_nothing_is_reported():
+    """No counter-value to contradict — never blocks crediting just
+    because the provider didn't report a field."""
+    assert _amount_and_currency_agree(
+        expected_amount=Decimal("1000.00"), expected_currency="TZS", reported_amount=None, reported_currency=None
+    )
+
+
+def test_amount_and_currency_agree_when_amount_matches():
+    assert _amount_and_currency_agree(
+        expected_amount=Decimal("1000.00"), expected_currency="TZS", reported_amount="1000.00", reported_currency=None
+    )
+
+
+def test_amount_mismatch_rejected():
+    assert not _amount_and_currency_agree(
+        expected_amount=Decimal("1000.00"), expected_currency="TZS", reported_amount="1.00", reported_currency=None
+    )
+
+
+def test_currency_mismatch_rejected():
+    """Selcom's Checkout order-status response never actually reports a
+    currency today (see this module's docstring) — this proves the
+    comparison logic itself is correct and ready for the day a provider
+    does report one, even though the live integration can't exercise it
+    yet."""
+    assert not _amount_and_currency_agree(
+        expected_amount=Decimal("1000.00"), expected_currency="TZS", reported_amount=None, reported_currency="USD"
+    )
+
+
+def test_currency_match_case_insensitive():
+    assert _amount_and_currency_agree(
+        expected_amount=Decimal("1000.00"), expected_currency="TZS", reported_amount=None, reported_currency="tzs"
+    )
+
+
+# --- reconcile_pending_checkout_collections (scheduled sweep) --------------------------
+
+
+def _patch_get_order_status(monkeypatch, *, payment_status: str, resultcode: str = "000", result: str = "SUCCESS"):
+    import app.services.checkout_reconciliation as reconciliation_module
+
+    class _FakeStatusClient:
+        def __init__(self, *, credentials=None):
+            pass
+
+        async def get_order_status(self, *, order_id):
+            from app.services.selcom_checkout.parsing import parse_order_status_response
+
+            return parse_order_status_response(
+                {
+                    "reference": "S20690471578",
+                    "resultcode": resultcode,
+                    "result": result,
+                    "message": "OK",
+                    "data": [{"order_id": order_id, "payment_status": payment_status}],
+                }
+            )
+
+    monkeypatch.setattr(reconciliation_module, "SelcomCheckoutHTTPClient", lambda **kwargs: _FakeStatusClient())
+
+
+def test_reconcile_pending_sweep_credits_a_processing_collection(fake_client, monkeypatch):
+    _collection, _ctx = _seed_pending_collection(fake_client, monkeypatch)
+    _patch_get_order_status(monkeypatch, payment_status="COMPLETED")
+
+    summary = asyncio.run(reconcile_pending_checkout_collections(fake_client))
+
+    assert summary == {"checked": 1, "resolved": 1, "still_pending": 0}
+    resolved = fake_client.table("collections")._table.rows[0]
+    assert resolved["status"] == "successful"
+    balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
+    assert Decimal(str(balance)) == Decimal("985.00")
+
+
+def test_reconcile_pending_sweep_leaves_still_pending_collections_alone(fake_client, monkeypatch):
+    _collection, _ctx = _seed_pending_collection(fake_client, monkeypatch)
+    _patch_get_order_status(monkeypatch, payment_status="PENDING", result="PENDING", resultcode="111")
+
+    summary = asyncio.run(reconcile_pending_checkout_collections(fake_client))
+
+    assert summary == {"checked": 1, "resolved": 0, "still_pending": 1}
+    balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
+    assert Decimal(str(balance)) == Decimal(0)
+
+
+def test_reconcile_pending_sweep_ignores_collections_without_a_checkout_order(fake_client, monkeypatch):
+    """Only ever touches collections actually linked to a Selcom Checkout
+    order — never a bare/other-method processing collection."""
+    fake_client.seed(
+        "collections",
+        {
+            "merchant_id": str(uuid.uuid4()),
+            "status": "processing",
+            "amount": "500.00",
+            "currency": "TZS",
+            "method": "USSD_PUSH",
+            "checkout_order_id": None,
+        },
+    )
+
+    summary = asyncio.run(reconcile_pending_checkout_collections(fake_client))
+
+    assert summary == {"checked": 0, "resolved": 0, "still_pending": 0}
+
+
+def test_reconcile_pending_sweep_is_idempotent_across_multiple_runs(fake_client, monkeypatch):
+    _collection, _ctx = _seed_pending_collection(fake_client, monkeypatch)
+    _patch_get_order_status(monkeypatch, payment_status="COMPLETED")
+
+    asyncio.run(reconcile_pending_checkout_collections(fake_client))
+    second_summary = asyncio.run(reconcile_pending_checkout_collections(fake_client))
+
+    # Already "successful" after the first sweep — second sweep finds
+    # nothing left "processing" to even check.
+    assert second_summary == {"checked": 0, "resolved": 0, "still_pending": 0}
     balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
     assert Decimal(str(balance)) == Decimal("985.00")

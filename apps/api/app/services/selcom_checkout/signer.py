@@ -177,6 +177,19 @@ def build_auth_headers(
     }
 
 
+def _parse_timestamp_for_replay_check(timestamp: str) -> datetime | None:
+    """Best-effort parse of a webhook's claimed Timestamp header — accepts
+    both build_timestamp()'s own "...mmmZ" shape and a plain ISO-8601
+    offset, since a real signed delivery's exact format isn't confirmed.
+    Returns None (never raises) on anything unparseable — treated as a
+    replay-check failure by the caller, same fail-closed default as
+    every other malformed input here."""
+    try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def verify_webhook_signature(
     *,
     body: dict[str, object],
@@ -185,6 +198,7 @@ def verify_webhook_signature(
     digest_method: str | None,
     signed_fields_header: str | None,
     api_secret: str,
+    max_age_seconds: float = 300.0,
 ) -> bool:
     """Verifies an inbound Selcom Checkout webhook delivery.
 
@@ -214,16 +228,38 @@ def verify_webhook_signature(
     A webhook claiming Digest-Method: RS256 fails verification here
     rather than being silently accepted.
 
+    `max_age_seconds` is replay protection: a delivery whose Timestamp is
+    older than this window (or implausibly in the future, beyond a small
+    clock-skew allowance) is rejected even if the digest itself would
+    otherwise check out — a captured-and-resent valid delivery must not
+    be replayable indefinitely. Currently moot for real Selcom traffic
+    (see module docstring — no real delivery has ever carried these
+    headers at all, so this path is unreached today), but in place for
+    whenever/if Selcom's account team confirms a real signing scheme.
+
     Fails closed on any missing/malformed input (returns False, never
     raises) — a real webhook accepted by our own code is what actually
     moves money (via app/services/checkout_reconciliation.py), so any
     ambiguity here must reject, not guess in the caller's favor. The
-    manual order-status refresh endpoints provide a complete,
-    independent path to reconcile a payment that a rejected/unverifiable
-    webhook can't."""
+    manual order-status refresh endpoints and the scheduled reconciliation
+    sweep (app/services/checkout_reconciliation.py::reconcile_pending_checkout_collections)
+    provide complete, independent paths to reconcile a payment that a
+    rejected/unverifiable webhook can't."""
     if not (timestamp and digest and signed_fields_header and api_secret):
         return False
     if digest_method != "HS256":
+        return False
+
+    delivered_at = _parse_timestamp_for_replay_check(timestamp)
+    if delivered_at is None:
+        return False
+    now = datetime.now(timezone.utc)
+    if delivered_at.tzinfo is None:
+        delivered_at = delivered_at.replace(tzinfo=timezone.utc)
+    age_seconds = (now - delivered_at).total_seconds()
+    # Allow a small window of "future" skew (clock drift between servers)
+    # rather than requiring delivered_at <= now exactly.
+    if age_seconds < -30 or age_seconds > max_age_seconds:
         return False
 
     signed_field_names = [name.strip() for name in signed_fields_header.split(",") if name.strip()]

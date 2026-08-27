@@ -146,6 +146,38 @@ class Settings(BaseSettings):
     # back; reconciliation still works via the manual refresh endpoints).
     selcom_checkout_webhook_url: str = ""
 
+    # Confirmed 2026-08-27 against 5 real deliveries: Selcom's Checkout
+    # webhook sends no signature at all, so POST /v1/webhooks/selcom/checkout
+    # fails closed on every production delivery by design (see
+    # app/routers/webhooks.py::selcom_checkout_webhook and
+    # docs/selcom-checkout-collections.md). This is the ONLY way to make
+    # the webhook accept an unsigned delivery, and it's a hard AND of
+    # both conditions below — never reachable by setting just one:
+    #   1. environment must be exactly "development" (mirrors
+    #      _reject_wildcard_cors_outside_development's convention below —
+    #      never "production", "staging", or anything else)
+    #   2. the request must carry header X-Internal-Test-Secret matching
+    #      this value exactly (constant-time compared) — blank here means
+    #      the bypass can never match, even in development
+    # A real Railway production deployment's ENVIRONMENT is never
+    # "development", so this is structurally impossible to enable in
+    # production by misconfiguring this one variable alone.
+    selcom_checkout_webhook_test_secret: str = ""
+
+    # Backend-initiated, webhook-independent reconciliation sweep — see
+    # app/services/checkout_reconciliation.py::reconcile_pending_checkout_collections
+    # and app/main.py's lifespan startup task. Since the inbound webhook
+    # can never pass signature verification for real Selcom traffic (see
+    # above), this periodic sweep — not the webhook — is what actually
+    # keeps merchant wallets credited without a human clicking "Refresh
+    # status": it calls Selcom's own authenticated order-status API
+    # directly for every collection still "processing", on a timer,
+    # never trusting any inbound signal. 0 (the default) disables it
+    # entirely — safe for local dev/tests, where no scheduled task should
+    # run unexpectedly in the background. Set a real interval (e.g. 120)
+    # in Railway to actually enable it.
+    selcom_checkout_reconcile_interval_seconds: int = 0
+
     # Hosted checkout (payment_gateway_url from create-order-minimal) —
     # confirmed broken on Selcom's own side as of 2026-08-23 (returns
     # "Page Not Found" for every order tested — see

@@ -28,12 +28,15 @@ outcome, and the safe response to "the signal doesn't add up" is to
 leave money movement pending, never to guess.
 """
 
+import logging
 import uuid
+from decimal import Decimal, InvalidOperation
 
 from supabase import Client
 
 from app.core.errors import ConflictError, NotFoundError
 from app.schemas.enums import NotificationType
+from app.services.audit import write_audit_log
 from app.services.collections import resolve_collection, reverse_successful_collection
 from app.services.crud import execute_maybe_single, get_by_id, update_row
 from app.services.notifications_service import notify_merchant
@@ -42,6 +45,8 @@ from app.services.selcom_checkout.client import (
     SelcomCheckoutHTTPClient,
     get_selcom_checkout_credentials,
 )
+
+logger = logging.getLogger("infinity.checkout_reconciliation")
 
 _COMPLETED_PAYMENT_STATUSES = {"COMPLETED"}
 # REVERSED is Selcom reporting that a payment it earlier called COMPLETED
@@ -250,16 +255,71 @@ async def complete_checkout_collection_once(
     return resolved
 
 
+def _amount_and_currency_agree(
+    *,
+    expected_amount: Decimal,
+    expected_currency: str,
+    reported_amount: str | None,
+    reported_currency: str | None,
+) -> bool:
+    """Defense-in-depth cross-check applied before crediting, against
+    Selcom's own authenticated order-status answer (never against an
+    inbound webhook's unauthenticated claim — see
+    resolve_checkout_collection_from_webhook_hint). Agrees (True) when a
+    field isn't reported at all — Selcom's Checkout order-status response
+    currently never includes a currency, only amount — since there's
+    nothing to contradict; rejects (False) only on an actual, confirmed
+    mismatch. Never guesses in the credit's favor on a real mismatch."""
+    if reported_amount is not None:
+        try:
+            if Decimal(reported_amount) != expected_amount:
+                return False
+        except (InvalidOperation, ValueError):
+            return False
+    return reported_currency is None or reported_currency.strip().upper() == expected_currency.strip().upper()
+
+
 async def _query_and_complete_checkout_collection(client: Client, *, collection: dict, order_id: str) -> dict | None:
     """Shared core: queries Selcom's own order-status API with our own
-    outbound-authenticated credentials, then applies *that* trustworthy
-    answer via complete_checkout_collection_once(). Used by both the
-    manual Refresh Status endpoints and (since 2026-08-27) the incoming
-    webhook handler — see resolve_checkout_collection_from_webhook_hint's
-    docstring for why the webhook never applies its own claimed fields
-    directly."""
+    outbound-authenticated credentials, cross-checks the amount it
+    reports against what this collection actually expects, then applies
+    the result via complete_checkout_collection_once() — only ever this
+    live, authenticated answer, never an inbound webhook's own claimed
+    fields (see resolve_checkout_collection_from_webhook_hint's
+    docstring). Used by the manual Refresh Status endpoints, the
+    webhook's post-signature-verification lookup, and the scheduled
+    reconciliation sweep alike, so the amount check protects all three
+    uniformly. Returns None (never credits, collection stays whatever it
+    already was) on a mismatch — logged and audited, not silently
+    ignored."""
     checkout_client = SelcomCheckoutHTTPClient(credentials=get_selcom_checkout_credentials())
     status_result = await checkout_client.get_order_status(order_id=order_id)
+
+    expected_amount = Decimal(str(collection["amount"]))
+    expected_currency = collection.get("currency") or "TZS"
+    if not _amount_and_currency_agree(
+        expected_amount=expected_amount,
+        expected_currency=expected_currency,
+        reported_amount=status_result.amount,
+        reported_currency=None,  # Selcom's order-status response never reports one today
+    ):
+        logger.warning(
+            "selcom_checkout_amount_mismatch collection_id=%s expected=%s %s reported_amount=%s",
+            collection["id"],
+            expected_amount,
+            expected_currency,
+            status_result.amount,
+        )
+        write_audit_log(
+            client,
+            action="collection.checkout_amount_mismatch",
+            resource_type="collection",
+            resource_id=uuid.UUID(collection["id"]),
+            actor_type="system",
+            merchant_id=uuid.UUID(collection["merchant_id"]),
+            metadata={"expected_amount": str(expected_amount), "reported_amount": status_result.amount},
+        )
+        return None
 
     return await complete_checkout_collection_once(
         client,
@@ -297,26 +357,69 @@ async def refresh_checkout_collection_status(client: Client, *, collection_id: u
 async def resolve_checkout_collection_from_webhook_hint(
     client: Client, *, collection: dict, order_id: str
 ) -> dict | None:
-    """Called by the webhook handler for every delivery it can match to a
-    collection — regardless of what the delivery itself claims, and
-    regardless of whether verify_webhook_signature accepted it.
+    """Called by the webhook handler — but ONLY after signature
+    verification has already accepted the delivery (or, in local
+    development only, the internal test-secret bypass). A delivery that
+    fails verification never reaches this function at all: it's rejected
+    with 401 before any collection is even looked up (see
+    app/routers/webhooks.py::selcom_checkout_webhook and
+    docs/selcom-checkout-collections.md's "Signature verification"
+    section for why, as of 2026-08-27, Selcom's real Checkout webhook
+    never carries a signature and therefore never reaches here in
+    production — app/services/checkout_reconciliation.py::
+    reconcile_pending_checkout_collections is what actually keeps wallets
+    credited from real traffic today).
 
-    Confirmed against 5 independent real deliveries on 2026-08-27 (see
-    app/services/selcom_checkout/signer.py::verify_webhook_signature's
-    docstring): Selcom's real Checkout webhook callback carries no
-    signature at all — no Digest/Timestamp/Digest-Method/Signed-Fields
-    header, nothing else signature-shaped either. The inferred signing
-    scheme that module was built against was simply wrong; it will
-    reject every real delivery forever, not just a misconfigured one.
-
-    Since there is no way to authenticate an inbound delivery, this never
-    trusts one for something as consequential as crediting a payment —
-    the delivery's own payment_status/result/resultcode are never applied
-    directly. Instead it's treated purely as a "something may have
-    changed, go check" signal: exactly like refresh_checkout_collection_status,
-    it re-queries Selcom's order-status API with our own
-    authenticated outbound credentials and applies only that answer. A
-    forged or replayed webhook POST can therefore never credit a payment
-    by itself — at worst it triggers one harmless status check that
-    finds nothing new to apply."""
+    Even once past signature verification, this still never trusts the
+    delivery's own claimed payment_status/result/resultcode/amount
+    directly — the whole point of a signature is proving *who* sent a
+    message, not that its claims are independently correct, and this
+    account's provider has already shown its callback data can't be
+    assumed reliable (see this module's docstring on the COMPLETED/
+    reversal handling). Same as refresh_checkout_collection_status and
+    the scheduled sweep: it re-queries Selcom's order-status API with our
+    own authenticated outbound credentials and applies only that
+    (amount-cross-checked) answer."""
     return await _query_and_complete_checkout_collection(client, collection=collection, order_id=order_id)
+
+
+async def reconcile_pending_checkout_collections(client: Client) -> dict:
+    """Backend-initiated, webhook-independent reconciliation sweep —
+    called on a timer from app/main.py's lifespan startup task (see
+    Settings.selcom_checkout_reconcile_interval_seconds), not from any
+    inbound signal. This is what actually keeps merchant wallets credited
+    for Selcom Checkout collections now that the inbound webhook fails
+    closed on every real delivery (Selcom sends no signature — see
+    docs/selcom-checkout-collections.md): every collection still
+    "processing" with a linked Selcom Checkout order gets the exact same
+    authenticated order-status lookup + amount cross-check +
+    completion logic refresh_checkout_collection_status uses for a single
+    collection, just swept across all of them. Mirrors
+    app/services/disbursements.py::reconcile_pending_disbursements's
+    identical shape for withdrawals.
+
+    Safe to run concurrently with itself (e.g. more than one API replica
+    each running this loop) or with a manual refresh/webhook-triggered
+    call for the same collection — resolve_collection()'s own idempotency
+    guard means only the first call to actually observe "successful" ever
+    credits anything; every other concurrent/later call for the same
+    collection just re-confirms the same already-settled outcome."""
+    rows = (client.table("collections").select("id, checkout_order_id, status").eq("status", "processing").execute()).data or []
+    pending_with_order = [row for row in rows if row.get("checkout_order_id")]
+
+    resolved = 0
+    still_pending = 0
+    for row in pending_with_order:
+        try:
+            outcome = await refresh_checkout_collection_status(client, collection_id=uuid.UUID(row["id"]))
+        except (NotFoundError, ConflictError):
+            # Collection or its linked order vanished between the list
+            # query and this call, or lost its order link somehow — skip
+            # rather than let one bad row abort the whole sweep.
+            continue
+        if outcome.get("status") == "processing":
+            still_pending += 1
+        else:
+            resolved += 1
+
+    return {"checked": len(pending_with_order), "resolved": resolved, "still_pending": still_pending}

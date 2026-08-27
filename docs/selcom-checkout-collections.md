@@ -175,29 +175,69 @@ own `user-agent: SelcomPay 1.0`, and whatever Railway's proxy adds
 `verify_webhook_signature()` (`apps/api/app/services/selcom_checkout/signer.py`)
 was built against — mirroring the outbound request-signing scheme
 (`build_auth_headers`) in the opposite direction — was a reasonable
-inference at the time but is now confirmed wrong; it rejects every real
-delivery unconditionally, not just a misconfigured one.
+inference at the time but is now confirmed wrong.
 
-**Fix (2026-08-27): the webhook never trusts its own payload for
-crediting, regardless of signature outcome.** `signature_valid` is still
-computed and stored on every `selcom_webhook_events` row (for audit —
-it reads `false` for every genuine delivery, by design) but is no longer
-a rejection reason. Once a delivery is matched to a collection (via
-`transid`/`order_id`), it's treated purely as a "something may have
-changed, go check" signal:
-`app/services/checkout_reconciliation.py::resolve_checkout_collection_from_webhook_hint`
-re-queries Selcom's own order-status API with our own authenticated
-outbound credentials (the exact same call the manual Refresh Status
-button makes below) and applies only *that* answer — the delivery's own
-claimed `result`/`resultcode`/`payment_status` are read only to find
-which collection and which order to ask about, never applied directly.
-This closes the spoofing gap an unsigned webhook would otherwise open: a
-forged or replayed POST to this URL triggers, at worst, one harmless
-status check that finds nothing new to credit.
+**Deliberate policy (2026-08-27, revised same day): the webhook fails
+closed on signature, unconditionally, with no exception for "the scheme
+might be wrong."** An unsigned/invalid/expired delivery is rejected
+(401) before touching anything — no collection status change, no wallet
+credit, nothing. `signature_valid` is still computed and stored on every
+`selcom_webhook_events` row for audit (it reads `false` for every
+genuine Selcom delivery, by design) but a failing/absent signature is
+never treated as "probably fine anyway." This means **every real Selcom
+delivery is, and is meant to be, rejected** — that's an accepted,
+deliberate tradeoff, not a bug: an early version of this fix instead let
+an unsigned delivery trigger a live Selcom lookup and credit only from
+that; this was reverted in favor of unconditional rejection because
+*processing* an unsigned delivery at all — even without trusting its
+claims — was judged an unacceptable attack surface for something that
+moves money. **This endpoint must never be changed to accept an unsigned
+delivery in production.** If Selcom's account team ever confirms a real
+signing scheme, wire it into `verify_webhook_signature()` and the
+rejection stays exactly as strict.
 
-Independent of all this: the manual refresh endpoints below never
-receive anything from Selcom, they only call it, so they keep working
-regardless.
+The only bypass is local development: a request carrying header
+`X-Internal-Test-Secret` matching `SELCOM_CHECKOUT_WEBHOOK_TEST_SECRET`
+is accepted **only when `ENVIRONMENT=development` too** — both
+conditions are required, and a real Railway deployment's `ENVIRONMENT`
+is never `development`, so this can't be enabled in production by
+misconfiguring the test secret alone. See `Settings.selcom_checkout_webhook_test_secret`'s
+docstring (`apps/api/app/config/settings.py`).
+
+**Given the above, real Selcom Checkout traffic never credits via this
+endpoint at all.** What actually keeps merchant wallets credited:
+
+- `app/services/checkout_reconciliation.py::reconcile_pending_checkout_collections`
+  — a backend-initiated sweep on a timer (see "Scheduled reconciliation"
+  below), never triggered by anything inbound.
+- The manual `POST /v1/merchant/collections/{id}/refresh-status` /
+  `POST /v1/admin/collections/{id}/refresh-status` endpoints.
+
+Both call Selcom's order-status API directly with our own authenticated
+credentials — the same underlying call
+(`_query_and_complete_checkout_collection` in checkout_reconciliation.py)
+— and, even then, only credit once the amount Selcom reports back is
+cross-checked against what the collection actually expects
+(`_amount_and_currency_agree`). Even a delivery that *does* pass
+signature verification (the dev-only bypass path, or a future real
+Selcom signature) still goes through this same live, cross-checked
+lookup rather than trusting its own claimed fields directly — see
+`resolve_checkout_collection_from_webhook_hint`'s docstring.
+
+## Scheduled reconciliation
+
+`Settings.selcom_checkout_reconcile_interval_seconds` (env
+`SELCOM_CHECKOUT_RECONCILE_INTERVAL_SECONDS`, default `0` = disabled) —
+when set to a positive number, `app/main.py`'s `lifespan` starts an
+in-process `asyncio` loop that calls `reconcile_pending_checkout_collections`
+on that interval for the lifetime of the process. No separate
+cron/worker service required; safe to run on multiple API replicas
+concurrently (crediting is idempotent — only the first call to observe
+"successful" for a given collection ever posts a ledger entry). A single
+failed sweep (e.g. Selcom or the DB briefly unreachable) is logged and
+never kills the loop — the next tick tries again. **Set a real value
+(e.g. `120`) in Railway** to actually enable auto-crediting; leave at `0`
+for local dev/tests, where no background task should run unexpectedly.
 
 ## Order status query
 
@@ -554,35 +594,35 @@ delivery missing one still resolves via the other.
 1. Check `selcom_webhook_events` for a row where `provider =
    'selcom_checkout'` — its existence alone confirms delivery reached
    this backend. `signature_valid` reads `false` on every row (Selcom
-   never signs this callback — see "Signature verification" above); that
-   no longer means the delivery was rejected — check `status` instead
-   (`processed` means it triggered the authenticated lookup successfully;
-   `failed` means the payload didn't even parse, or matched no
-   collection).
-2. Check the collection's `status` — `successful` means it was fully
-   resolved and credited (via the authenticated Selcom lookup the
-   webhook triggered, not the webhook's own claimed fields);
-   `processing` means either nothing arrived yet, or the lookup itself
-   still says the payment isn't `COMPLETED` yet.
+   never signs this callback — see "Signature verification" above), and
+   `status='failed'` with `processing_error='invalid or missing
+   signature'` is the **expected, permanent** outcome for real Selcom
+   traffic — it does not mean anything is broken; it means the fail-closed
+   policy is working as designed.
+2. Check the collection's `status` — `successful` means it was credited,
+   via either the scheduled sweep or a manual refresh (never via this
+   webhook, for real Selcom traffic); `processing` means neither has
+   resolved it yet.
 3. Check the merchant's ledger/wallet balance actually moved by the net
    amount (gross minus platform fee) — the definitive confirmation that
    crediting happened, not just that a row changed status.
 4. The safe log line (`selcom_checkout webhook received: order_id=...
    transid=... reference=... payment_status=...`, `app/routers/
    webhooks.py`) is visible in Railway's logs the instant a delivery
-   lands, before signature verification even runs.
+   lands, before signature verification even runs — useful to confirm
+   Selcom is still delivering at all, even though it always gets 401'd.
 
-**If no webhook arrives** (this has been the case for every real
-transaction so far): use the manual refresh endpoints —
+**How a real payment actually gets credited today**: the scheduled sweep
+(`SELCOM_CHECKOUT_RECONCILE_INTERVAL_SECONDS` set to a positive value —
+see "Scheduled reconciliation" above) or a manual refresh —
 `POST /v1/merchant/collections/{id}/refresh-status` or
-`POST /v1/admin/collections/{id}/refresh-status` — which query Selcom
+`POST /v1/admin/collections/{id}/refresh-status` — both query Selcom
 directly via `get_order_status()` and apply the identical completion
-logic. If refresh also never resolves a collection past `PENDING` after
-a customer has genuinely paid, that's a signal to contact Selcom/support
-directly to confirm: (a) the callback URL is correctly registered on
-their side for this account, and (b) their systems have actually
-attempted delivery (ask for their own delivery logs/attempts for a
-specific `order_id`/`transid`).
+logic, entirely independent of whether a webhook ever arrived at all. If
+refresh also never resolves a collection past `PENDING` after a customer
+has genuinely paid, that's a signal to contact Selcom/support directly to
+confirm their systems actually processed the payment (ask for their own
+transaction logs for a specific `order_id`/`transid`).
 
 ## Known gaps / what to verify once real traffic exists
 
@@ -608,25 +648,31 @@ specific `order_id`/`transid`).
   values when present — never `Authorization`/`Cookie`), and a safe log
   line captures the same at delivery time. The first delivery predates
   this fix, so its actual header set is lost.
-- **RESOLVED 2026-08-27, confirmed against 5 more real deliveries**
-  (`raw_headers` inspected directly): Selcom's Checkout webhook carries
-  **no signature at all** — the full header set on every one of the 5 was
-  just `accept`, `accept-encoding`, `content-length`, `content-type`,
-  `host`, `user-agent: SelcomPay 1.0`, plus Railway's own proxy headers
-  (`x-forwarded-*`, `x-railway-*`, `x-real-ip`, `x-request-start`). No
-  `Digest`/`Digest-Method`/`Timestamp`/`Signed-Fields` in any casing.
-  This wasn't a header-name guessing problem to keep iterating on —
-  Selcom simply doesn't sign this callback. Rather than accept the
-  payload unsigned (which would let a forged POST credit a fake
-  payment), the webhook was changed to never trust its own payload at
-  all: it now treats any matched delivery as a trigger to re-query
-  Selcom's authenticated order-status API and applies only that answer
-  — see the "Signature verification" section above and
-  `app/services/checkout_reconciliation.py::resolve_checkout_collection_from_webhook_hint`.
+- **RESOLVED (root cause) 2026-08-27, confirmed against 5 more real
+  deliveries** (`raw_headers` inspected directly): Selcom's Checkout
+  webhook carries **no signature at all** — the full header set on every
+  one of the 5 was just `accept`, `accept-encoding`, `content-length`,
+  `content-type`, `host`, `user-agent: SelcomPay 1.0`, plus Railway's own
+  proxy headers (`x-forwarded-*`, `x-railway-*`, `x-real-ip`,
+  `x-request-start`). No `Digest`/`Digest-Method`/`Timestamp`/
+  `Signed-Fields` in any casing. This wasn't a header-name guessing
+  problem to keep iterating on — Selcom simply doesn't sign this
+  callback.
+- **Policy decision, same day**: a first fix let an unsigned delivery
+  still trigger a live, authenticated Selcom lookup and credit only from
+  that answer (never the payload's own claims) — closing the spoofing
+  risk while keeping auto-crediting working. This was explicitly
+  reconsidered and reverted in favor of stricter policy: production now
+  rejects (401) any delivery that isn't signature-verified,
+  unconditionally, with no exception — see "Signature verification"
+  above. Real auto-crediting now comes exclusively from
+  `reconcile_pending_checkout_collections`'s scheduled sweep (backend-
+  initiated, never triggered by anything inbound) and manual refresh.
   `verify_webhook_signature()` and its `_SUPPORTED_DIGEST_METHODS`
   machinery are left in place (harmless, still computes/stores
   `signature_valid=false` for audit) rather than deleted, in case Selcom
-  ever does start signing this callback in the future.
+  ever does start signing this callback in the future — see the module's
+  own docstring for what to change if that happens.
 - `get-order-status`'s exact response field names came from the task
   brief, not an independently re-verified live call the way
   `create-order-minimal` was — see
