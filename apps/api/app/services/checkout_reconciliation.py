@@ -250,15 +250,36 @@ async def complete_checkout_collection_once(
     return resolved
 
 
+async def _query_and_complete_checkout_collection(client: Client, *, collection: dict, order_id: str) -> dict | None:
+    """Shared core: queries Selcom's own order-status API with our own
+    outbound-authenticated credentials, then applies *that* trustworthy
+    answer via complete_checkout_collection_once(). Used by both the
+    manual Refresh Status endpoints and (since 2026-08-27) the incoming
+    webhook handler — see resolve_checkout_collection_from_webhook_hint's
+    docstring for why the webhook never applies its own claimed fields
+    directly."""
+    checkout_client = SelcomCheckoutHTTPClient(credentials=get_selcom_checkout_credentials())
+    status_result = await checkout_client.get_order_status(order_id=order_id)
+
+    return await complete_checkout_collection_once(
+        client,
+        collection_id=uuid.UUID(collection["id"]),
+        payment_status=status_result.payment_status,
+        result=status_result.result,
+        resultcode=status_result.resultcode,
+        reference=status_result.reference,
+        transid=status_result.transid or collection.get("provider_transid"),
+        channel=status_result.channel,
+        raw_response=status_result.raw_response,
+    )
+
+
 async def refresh_checkout_collection_status(client: Client, *, collection_id: uuid.UUID) -> dict:
     """The manual reconciliation path — queries Selcom directly
     (get_order_status()) rather than waiting for a webhook, and applies
     the same completion logic via complete_checkout_collection_once().
-    This is a fully independent path: even if the webhook signature
-    scheme turns out to be wrong once a real delivery is seen (see
-    signer.py::verify_webhook_signature's docstring), this endpoint
-    still works, since it only ever calls Selcom, never receives from
-    it."""
+    This is a fully independent path from the webhook: it only ever
+    calls Selcom, never receives from it."""
     collection = get_by_id(client, "collections", collection_id)
     if not collection:
         raise NotFoundError("Collection not found")
@@ -269,18 +290,33 @@ async def refresh_checkout_collection_status(client: Client, *, collection_id: u
     if not order:
         raise ConflictError("The linked Selcom Checkout order no longer exists")
 
-    checkout_client = SelcomCheckoutHTTPClient(credentials=get_selcom_checkout_credentials())
-    status_result = await checkout_client.get_order_status(order_id=order["order_id"])
-
-    resolved = await complete_checkout_collection_once(
-        client,
-        collection_id=collection_id,
-        payment_status=status_result.payment_status,
-        result=status_result.result,
-        resultcode=status_result.resultcode,
-        reference=status_result.reference,
-        transid=status_result.transid or collection.get("provider_transid"),
-        channel=status_result.channel,
-        raw_response=status_result.raw_response,
-    )
+    resolved = await _query_and_complete_checkout_collection(client, collection=collection, order_id=order["order_id"])
     return resolved if resolved is not None else collection
+
+
+async def resolve_checkout_collection_from_webhook_hint(
+    client: Client, *, collection: dict, order_id: str
+) -> dict | None:
+    """Called by the webhook handler for every delivery it can match to a
+    collection — regardless of what the delivery itself claims, and
+    regardless of whether verify_webhook_signature accepted it.
+
+    Confirmed against 5 independent real deliveries on 2026-08-27 (see
+    app/services/selcom_checkout/signer.py::verify_webhook_signature's
+    docstring): Selcom's real Checkout webhook callback carries no
+    signature at all — no Digest/Timestamp/Digest-Method/Signed-Fields
+    header, nothing else signature-shaped either. The inferred signing
+    scheme that module was built against was simply wrong; it will
+    reject every real delivery forever, not just a misconfigured one.
+
+    Since there is no way to authenticate an inbound delivery, this never
+    trusts one for something as consequential as crediting a payment —
+    the delivery's own payment_status/result/resultcode are never applied
+    directly. Instead it's treated purely as a "something may have
+    changed, go check" signal: exactly like refresh_checkout_collection_status,
+    it re-queries Selcom's order-status API with our own
+    authenticated outbound credentials and applies only that answer. A
+    forged or replayed webhook POST can therefore never credit a payment
+    by itself — at worst it triggers one harmless status check that
+    finds nothing new to apply."""
+    return await _query_and_complete_checkout_collection(client, collection=collection, order_id=order_id)

@@ -19,9 +19,9 @@ from app.schemas.enums import UserRole
 from app.schemas.selcom_checkout_webhooks import SelcomCheckoutWebhookPayload
 from app.schemas.webhooks import SelcomWebhookPayload, WebhookEventResponse
 from app.services.checkout_reconciliation import (
-    complete_checkout_collection_once,
     find_collection_by_order_id,
     find_collection_by_transid,
+    resolve_checkout_collection_from_webhook_hint,
 )
 from app.services.collections import resolve_collection_from_callback
 from app.services.crud import get_for_merchant, list_for_merchant, update_row
@@ -218,26 +218,34 @@ async def selcom_checkout_webhook(request: Request):
     """Selcom Checkout's webhook callback — the async resolution path for
     a wallet-push collection left "processing" after
     process_wallet_payment()'s usual PENDING/111 response
-    (app/services/wallet_push.py). Distinct product/signing scheme from
-    selcom_webhook above (RSA/HMAC-style Digest headers confirmed for
-    outbound Checkout requests, mirrored here for verifying inbound ones
-    — see app/services/selcom_checkout/signer.py::verify_webhook_signature
-    for the exact scheme and, importantly, why it's an inference not yet
-    confirmed against a real delivery).
+    (app/services/wallet_push.py).
 
-    Every delivery is logged to selcom_webhook_events (provider=
+    **Never trusts its own payload for crediting.** Confirmed against 5
+    independent real deliveries on 2026-08-27: Selcom's Checkout webhook
+    carries no signature at all (no Digest/Timestamp/Digest-Method/
+    Signed-Fields header, or anything else signature-shaped) — the
+    inferred scheme verify_webhook_signature was built against was simply
+    wrong, and rejects every real delivery unconditionally. Since there's
+    no way to authenticate a delivery, a failed/absent signature is no
+    longer treated as a reason to reject it outright (signature_valid is
+    still computed and stored on every selcom_webhook_events row, purely
+    for audit — it will read False for every real delivery, by design).
+    Instead, once a delivery can be matched to a collection, it's treated
+    as nothing more than a "something may have changed, go check" signal:
+    app/services/checkout_reconciliation.py::resolve_checkout_collection_from_webhook_hint
+    re-queries Selcom's order-status API with our own authenticated
+    outbound credentials — the same call the manual Refresh Status button
+    makes — and applies only that answer. A forged or replayed POST to
+    this URL can therefore never credit a payment by itself.
+
+    Every delivery is still logged to selcom_webhook_events (provider=
     "selcom_checkout", so it never collides with the older placeholder
-    product's own events on event_id) before signature verification even
-    runs, so the very first real delivery this backend ever receives can
-    be inspected regardless of whether verification passes — that's how
-    the "inferred" signing scheme above gets confirmed or corrected.
+    product's own events on event_id) regardless of outcome, for audit.
 
     Not the only way a collection resolves: POST /v1/merchant/collections/
     {id}/refresh-status and POST /v1/admin/collections/{id}/refresh-status
-    query Selcom directly and apply the exact same completion logic
-    (app/services/checkout_reconciliation.py), so a webhook that never
-    arrives — or one this endpoint ends up rejecting because the
-    signature inference above is wrong — doesn't strand a payment.
+    trigger the exact same authenticated lookup on demand, so a webhook
+    that never arrives at all doesn't strand a payment either.
     """
     raw_body = await request.body()
     raw_text = raw_body.decode("utf-8", errors="replace")
@@ -305,15 +313,12 @@ async def selcom_checkout_webhook(request: Request):
     if is_duplicate:
         return APIResponse(data={"status": "duplicate", "event_id": event_id})
 
-    if not signature_valid:
-        update_row(
-            client,
-            "selcom_webhook_events",
-            uuid.UUID(stored["id"]),
-            {"status": "failed", "processing_error": "invalid signature"},
-        )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
-
+    # signature_valid is stored above for audit only — never a rejection
+    # reason. Selcom's real deliveries carry no signature at all (see this
+    # function's own docstring), so it reads False for every genuine
+    # delivery; crediting safety comes from never trusting this payload
+    # directly (see resolve_checkout_collection_from_webhook_hint below),
+    # not from gatekeeping on an inference that was wrong.
     try:
         payload = SelcomCheckoutWebhookPayload.model_validate(body)
     except ValidationError as exc:
@@ -338,16 +343,11 @@ async def selcom_checkout_webhook(request: Request):
         )
         raise NotFoundError("No matching collection found for this webhook")
 
-    await complete_checkout_collection_once(
-        client,
-        collection_id=uuid.UUID(collection["id"]),
-        payment_status=payload.payment_status,
-        result=payload.result,
-        resultcode=payload.resultcode,
-        reference=payload.reference,
-        transid=payload.transid,
-        channel=payload.channel,
-        raw_response=body,
+    # Deliberately ignores payload.payment_status/result/resultcode —
+    # never trusted directly (see this function's docstring). Only used
+    # to find the collection and to know which Selcom order to ask about.
+    await resolve_checkout_collection_from_webhook_hint(
+        client, collection=collection, order_id=payload.order_id
     )
 
     update_row(

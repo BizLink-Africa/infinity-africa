@@ -1,9 +1,17 @@
 """POST /v1/webhooks/selcom/checkout — Selcom Checkout's inbound webhook.
-Builds real, correctly-signed deliveries using the exact same signer.py
-functions the (inferred, not yet confirmed — see that module's
-docstring) verification scheme is built from, so these tests prove the
-sign/verify round-trip is internally consistent, not just that some
-arbitrary header happens to be accepted.
+
+Confirmed against 5 independent real deliveries on 2026-08-27: Selcom
+sends no signature at all on this callback (no Digest/Timestamp/
+Digest-Method/Signed-Fields header, or anything else signature-shaped).
+The webhook therefore never trusts its own payload for crediting —
+regardless of what it claims (result/resultcode/payment_status), or
+whether it's "signed" at all, a delivery is only ever a "something may
+have changed, go check" signal: it triggers a real, authenticated lookup
+against Selcom's own order-status API
+(app/services/checkout_reconciliation.py::resolve_checkout_collection_from_webhook_hint),
+and only *that* answer ever gets applied. These tests prove that
+property directly — a forged/tampered/unsigned POST that claims success
+must never credit anything unless the authenticated lookup itself agrees.
 """
 
 import asyncio
@@ -15,7 +23,6 @@ from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.main import app
-from app.services.selcom_checkout.signer import build_timestamp, sign_request
 from app.services.wallet_push import execute_wallet_push_for_payment_link
 from tests.factories import TEST_JWT_SECRET, create_merchant, make_merchant_member
 
@@ -108,6 +115,9 @@ def _seed_pending_collection(fake_client, monkeypatch) -> dict:
 
 
 def _webhook_body(collection: dict, *, payment_status: str, result: str = "SUCCESS", resultcode: str = "000") -> dict:
+    """The claims a webhook delivery carries — never trusted directly by
+    the handler; only transid/order_id are used, to find the collection
+    and to know which Selcom order to ask about."""
     return {
         "transid": collection["provider_transid"],
         "order_id": "irrelevant-not-matched-by-order-id-in-these-tests",
@@ -121,32 +131,47 @@ def _webhook_body(collection: dict, *, payment_status: str, result: str = "SUCCE
     }
 
 
-def _signed_headers(body: dict, *, api_secret: str = _API_SECRET) -> dict:
-    signed_field_names = ["transid", "order_id", "reference", "result", "resultcode", "payment_status"]
-    fields = {name: str(body[name]) for name in signed_field_names}
-    timestamp = build_timestamp()
-    ts, digest, signed_fields = sign_request(fields, digest_method="HS256", api_secret=api_secret, timestamp=timestamp)
-    return {
-        "Timestamp": ts,
-        "Digest": digest,
-        "Digest-Method": "HS256",
-        "Signed-Fields": signed_fields,
-    }
+def _stub_order_status(monkeypatch, *, payment_status: str, result: str = "SUCCESS", resultcode: str = "000"):
+    """Patches the *authenticated outbound* lookup the webhook now always
+    triggers — this, not the webhook body, is what actually decides the
+    outcome."""
+    import app.services.checkout_reconciliation as reconciliation_module
+
+    class _FakeStatusClient:
+        def __init__(self, *, credentials=None):
+            pass
+
+        async def get_order_status(self, *, order_id):
+            from app.services.selcom_checkout.parsing import parse_order_status_response
+
+            return parse_order_status_response(
+                {
+                    "reference": "S20690471578",
+                    "resultcode": resultcode,
+                    "result": result,
+                    "message": "OK",
+                    "data": [{"order_id": order_id, "payment_status": payment_status}],
+                }
+            )
+
+    monkeypatch.setattr(reconciliation_module, "SelcomCheckoutHTTPClient", lambda **kwargs: _FakeStatusClient())
 
 
-def _post_webhook(body: dict, headers: dict):
-    return client.post("/v1/webhooks/selcom/checkout", json=body, headers=headers)
+def _post_webhook(body: dict, headers: dict | None = None):
+    return client.post("/v1/webhooks/selcom/checkout", json=body, headers=headers or {})
 
 
-# --- valid delivery ------------------------------------------------------------------
+# --- the webhook never trusts its own payload -------------------------------------------
 
 
-def test_valid_webhook_credits_merchant_once(fake_client, monkeypatch):
+def test_unsigned_delivery_credits_when_the_authenticated_lookup_agrees(fake_client, monkeypatch):
+    """No signature at all (matches every real delivery) — still credits,
+    because the authenticated Selcom lookup independently confirms it."""
     collection = _seed_pending_collection(fake_client, monkeypatch)
+    _stub_order_status(monkeypatch, payment_status="COMPLETED")
     body = _webhook_body(collection, payment_status="COMPLETED")
-    headers = _signed_headers(body)
 
-    response = _post_webhook(body, headers)
+    response = _post_webhook(body)  # no headers at all
 
     assert response.status_code == 200, response.text
     balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
@@ -154,13 +179,30 @@ def test_valid_webhook_credits_merchant_once(fake_client, monkeypatch):
     assert fake_client.table("payment_links")._table.rows[0]["status"] == "PAID"
 
 
+def test_webhook_claiming_success_is_ignored_if_selcom_actually_says_pending(fake_client, monkeypatch):
+    """The core security property: a delivery's own claimed
+    result/resultcode/payment_status can never force a credit — only the
+    authenticated lookup's answer matters. Proves a forged/replayed POST
+    to this URL can't move money on its own."""
+    collection = _seed_pending_collection(fake_client, monkeypatch)
+    _stub_order_status(monkeypatch, payment_status="PENDING", result="PENDING", resultcode="111")
+    body = _webhook_body(collection, payment_status="COMPLETED", result="SUCCESS", resultcode="000")
+
+    response = _post_webhook(body)
+
+    assert response.status_code == 200, response.text
+    balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
+    assert Decimal(str(balance)) == Decimal(0)  # never credited on the delivery's own say-so
+    assert fake_client.table("collections")._table.rows[0]["status"] == "processing"
+
+
 def test_duplicate_webhook_does_not_double_credit(fake_client, monkeypatch):
     collection = _seed_pending_collection(fake_client, monkeypatch)
+    _stub_order_status(monkeypatch, payment_status="COMPLETED")
     body = _webhook_body(collection, payment_status="COMPLETED")
-    headers = _signed_headers(body)
 
-    first = _post_webhook(body, headers)
-    second = _post_webhook(body, headers)  # identical delivery, e.g. Selcom's own retry
+    first = _post_webhook(body)
+    second = _post_webhook(body)  # identical delivery, e.g. Selcom's own retry
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -169,70 +211,64 @@ def test_duplicate_webhook_does_not_double_credit(fake_client, monkeypatch):
     assert Decimal(str(balance)) == Decimal("985.00")
 
 
-# --- signature verification -----------------------------------------------------------
+# --- signature is stored for audit, never a rejection reason -----------------------------
 
 
-def test_invalid_webhook_signature_rejected(fake_client, monkeypatch):
+def test_missing_signature_headers_does_not_block_processing(fake_client, monkeypatch):
+    """Matches every real delivery this backend has ever received —
+    Selcom sends none of these headers. Must not 401."""
     collection = _seed_pending_collection(fake_client, monkeypatch)
-    body = _webhook_body(collection, payment_status="COMPLETED")
-    headers = _signed_headers(body, api_secret="wrong-secret")
-
-    response = _post_webhook(body, headers)
-
-    assert response.status_code == 401
-    balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
-    assert Decimal(str(balance)) == Decimal(0)  # never credited
-
-
-def test_missing_signature_headers_rejected(fake_client, monkeypatch):
-    collection = _seed_pending_collection(fake_client, monkeypatch)
+    _stub_order_status(monkeypatch, payment_status="COMPLETED")
     body = _webhook_body(collection, payment_status="COMPLETED")
 
     response = _post_webhook(body, headers={})
 
-    assert response.status_code == 401
+    assert response.status_code == 200, response.text
 
 
-def test_raw_headers_stored_for_diagnosis_even_when_rejected(fake_client, monkeypatch):
+def test_signature_valid_is_recorded_false_but_still_processed(fake_client, monkeypatch):
+    collection = _seed_pending_collection(fake_client, monkeypatch)
+    _stub_order_status(monkeypatch, payment_status="COMPLETED")
+    body = _webhook_body(collection, payment_status="COMPLETED")
+
+    response = _post_webhook(body, headers={"X-Some-Other-Header": "value"})
+
+    assert response.status_code == 200, response.text
+    event = fake_client.table("selcom_webhook_events")._table.rows[-1]
+    assert event["signature_valid"] is False
+    assert event["status"] == "processed"
+
+
+def test_raw_headers_stored_for_diagnosis(fake_client, monkeypatch):
     """Added after the first real delivery on 2026-08-22 arrived with the
     expected signing headers completely absent, and there was no stored
     evidence of what Selcom actually sent instead. Never stores
     Authorization/Cookie, defensively (a provider webhook has no
     legitimate reason to carry either)."""
     collection = _seed_pending_collection(fake_client, monkeypatch)
+    _stub_order_status(monkeypatch, payment_status="COMPLETED")
     body = _webhook_body(collection, payment_status="COMPLETED")
 
     response = _post_webhook(
         body, headers={"X-Some-Other-Header": "value", "Authorization": "Bearer should-never-be-stored"}
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 200, response.text
     event = fake_client.table("selcom_webhook_events")._table.rows[-1]
     assert "x-some-other-header" in event["raw_headers"]
     assert "authorization" not in event["raw_headers"]
 
 
-def test_tampered_body_after_signing_is_rejected(fake_client, monkeypatch):
-    collection = _seed_pending_collection(fake_client, monkeypatch)
-    body = _webhook_body(collection, payment_status="COMPLETED")
-    headers = _signed_headers(body)
-    body["resultcode"] = "651"  # tampered after signing — digest no longer matches
-
-    response = _post_webhook(body, headers)
-
-    assert response.status_code == 401
-
-
-# --- non-completed payment_status values: never credit --------------------------------
+# --- authenticated lookup result decides everything ---------------------------------------
 
 
 @pytest.mark.parametrize("payment_status", ["PENDING", "INPROGRESS"])
-def test_still_pending_webhook_does_not_credit(fake_client, monkeypatch, payment_status):
+def test_still_pending_lookup_result_does_not_credit(fake_client, monkeypatch, payment_status):
     collection = _seed_pending_collection(fake_client, monkeypatch)
+    _stub_order_status(monkeypatch, payment_status=payment_status, result="PENDING", resultcode="111")
     body = _webhook_body(collection, payment_status=payment_status, result="PENDING", resultcode="111")
-    headers = _signed_headers(body)
 
-    response = _post_webhook(body, headers)
+    response = _post_webhook(body)
 
     assert response.status_code == 200, response.text
     balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
@@ -241,12 +277,12 @@ def test_still_pending_webhook_does_not_credit(fake_client, monkeypatch, payment
 
 
 @pytest.mark.parametrize("payment_status", ["CANCELLED", "USERCANCELLED", "REJECTED"])
-def test_terminal_failed_webhook_does_not_credit(fake_client, monkeypatch, payment_status):
+def test_terminal_failed_lookup_result_does_not_credit(fake_client, monkeypatch, payment_status):
     collection = _seed_pending_collection(fake_client, monkeypatch)
+    _stub_order_status(monkeypatch, payment_status=payment_status, result="FAIL", resultcode="651")
     body = _webhook_body(collection, payment_status=payment_status, result="FAIL", resultcode="651")
-    headers = _signed_headers(body)
 
-    response = _post_webhook(body, headers)
+    response = _post_webhook(body)
 
     assert response.status_code == 200, response.text
     balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
@@ -267,8 +303,7 @@ def test_unmatched_transid_returns_404(fake_client, monkeypatch):
         "resultcode": "000",
         "payment_status": "COMPLETED",
     }
-    headers = _signed_headers(body)
 
-    response = _post_webhook(body, headers)
+    response = _post_webhook(body)
 
     assert response.status_code == 404
