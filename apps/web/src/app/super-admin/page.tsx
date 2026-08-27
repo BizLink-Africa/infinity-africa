@@ -45,10 +45,10 @@ export default async function SuperAdminCommandCenterPage() {
           <AdminKpiCard variant="brand" icon="link" label="Active Payment Links" value={overview.active_payment_links.toLocaleString()} />
           <AdminKpiCard variant="brand" icon="receipt" label="Paid Invoices Today" value={overview.paid_invoices_today.toLocaleString()} />
           <AdminKpiCard variant="brand" icon="payments" label="Value Outstanding" value={formatCurrency(overview.outstanding_invoice_value, "TZS")} />
-          <AdminKpiCard variant="brand" icon="warning" label="Failed Transactions" value={overview.failed_transactions.toLocaleString()} tone={overview.failed_transactions > 0 ? "warning" : "default"} />
+          <AdminKpiCard variant="brand" icon="warning" label="Failed Transactions" value={overview.failed_transactions.toLocaleString()} />
           <AdminKpiCard variant="brand" icon="monetization_on" label="Platform Revenue" value={formatCurrency(overview.platform_revenue, "TZS")} caption="Month to date" />
           <AdminKpiCard variant="brand" icon="assignment_ind" label="Pending Onboarding" value={overview.pending_onboarding_requests.toLocaleString()} />
-          <AdminKpiCard variant="brand" icon="hourglass_empty" label="Pending Withdrawals" value={overview.pending_withdrawals.toLocaleString()} tone={overview.pending_withdrawals > 0 ? "warning" : "default"} />
+          <AdminKpiCard variant="brand" icon="hourglass_empty" label="Pending Withdrawals" value={overview.pending_withdrawals.toLocaleString()} />
         </div>
       )}
 
