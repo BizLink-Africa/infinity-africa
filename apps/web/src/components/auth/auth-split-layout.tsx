@@ -81,9 +81,6 @@ export function AuthSplitLayout({
             <Icon name="arrow_back" className="text-[18px]" />
             Back to website
           </Link>
-          <div className="mb-6 lg:hidden">
-            <InfinityLogo size={36} showText className="text-primary text-lg" />
-          </div>
           <div className="rounded-lg border border-outline-variant bg-surface p-8 shadow-sm">{children}</div>
         </div>
       </div>
