@@ -37,6 +37,7 @@ function paymentLink(overrides: Partial<PaymentLink>): PaymentLink {
     attempt_count: 0,
     created_at: "2026-08-24T10:00:00Z",
     updated_at: "2026-08-24T10:00:00Z",
+    customer_email_sent: null,
     ...overrides,
   };
 }

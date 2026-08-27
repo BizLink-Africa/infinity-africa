@@ -53,6 +53,7 @@ export function WithdrawalsView() {
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const [quote, setQuote] = useState<FeeBreakdown | null>(null);
   const [quoting, setQuoting] = useState(false);
@@ -107,6 +108,7 @@ export function WithdrawalsView() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+    setSuccess(null);
     if (!recipientName || !recipientIdentifier || !amount) return;
     if (method === DisbursementMethod.BANK_ACCOUNT && !bankName) {
       setError("Bank name is required for bank account payouts.");
@@ -142,6 +144,7 @@ export function WithdrawalsView() {
       setNotes("");
       setQuote(null);
       setQuotedFor(null);
+      setSuccess("Withdrawal request submitted. Infinity Africa has been notified.");
     } catch (err) {
       if (err instanceof InsufficientBalanceError) {
         setError(err.message);
@@ -383,6 +386,12 @@ export function WithdrawalsView() {
             )}
           </div>
 
+          {success && (
+            <div className="flex items-center gap-2 bg-primary-container/10 text-primary rounded-lg px-4 py-3 text-sm font-medium">
+              <Icon name="check_circle" className="text-[18px]" />
+              {success}
+            </div>
+          )}
           {error && (
             <div className="flex items-center gap-2 bg-red-50 text-error rounded-lg px-4 py-3 text-sm">
               <Icon name="error" className="text-[18px]" />

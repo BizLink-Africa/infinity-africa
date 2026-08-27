@@ -23,6 +23,7 @@ from supabase import Client
 from app.config import get_settings
 from app.core.errors import EmailDeliveryError
 from app.services.crud import execute_maybe_single, insert_row
+from app.services.payment_links import build_public_url
 
 logger = logging.getLogger("infinity.email")
 
@@ -92,25 +93,31 @@ def _log_delivery(
 
 
 def batch_latest_email_deliveries(
-    client: Client, *, related_resource_type: str, related_resource_ids: set[str]
+    client: Client, *, related_resource_type: str, related_resource_ids: set[str], email_type: str | None = None
 ) -> dict[str, dict]:
     """resource_id -> its most recent email_deliveries row — for Super
     Admin list views that show delivery status alongside the resource
     (e.g. an invoice's Sent column). A resource can have more than one
     delivery attempt (retries after a failure); only the latest matters
-    for a summary view."""
+    for a summary view.
+
+    `email_type` narrows to one email type — needed wherever a single
+    resource can have more than one *kind* of email attached to it (e.g. a
+    disbursement gets both "withdrawal_request_notification" and
+    "withdrawal_success"): without it, "latest across all types" could
+    quietly show the wrong email's status. Every existing caller (invoices,
+    one email type per invoice) is unaffected by this being optional."""
     if not related_resource_ids:
         return {}
-    rows = (
+    query = (
         client.table("email_deliveries")
         .select("*")
         .eq("related_resource_type", related_resource_type)
         .in_("related_resource_id", list(related_resource_ids))
-        .order("created_at", desc=True)
-        .execute()
-        .data
-        or []
     )
+    if email_type is not None:
+        query = query.eq("email_type", email_type)
+    rows = query.order("created_at", desc=True).execute().data or []
     latest: dict[str, dict] = {}
     for row in rows:
         resource_id = row["related_resource_id"]
@@ -122,6 +129,19 @@ def batch_latest_email_deliveries(
 def _money(value: object, currency: str) -> str:
     amount = Decimal(str(value))
     return f"{currency} {amount:,.2f}"
+
+
+def _mask_identifier(value: str) -> str:
+    """•••• 1234 — same convention as apps/web's maskAccountIdentifier
+    (lib/format.ts), so a withdrawal destination looks the same whether a
+    merchant sees it in the portal or the CEO sees it in an email. Never
+    used for anything that needs to stay fully hidden (this still reveals
+    the last 4 digits) — just enough to identify an account without
+    emailing the full number."""
+    value = value.strip()
+    if len(value) <= 4:
+        return value
+    return f"•••• {value[-4:]}"
 
 
 # --- shared branded template shell ------------------------------------------
@@ -713,6 +733,278 @@ def send_merchant_welcome_email(client: Client, *, merchant: dict, portal_url: s
         email_type="merchant_welcome",
         related_resource_type="merchant",
         related_resource_id=merchant.get("id"),
+        recipient_email=recipient,
+        sender_email=sender,
+        subject=subject,
+        status="sent",
+        provider_message_id=message_id or None,
+    )
+
+
+# --- 7. Withdrawal request notification (to CEO) -------------------------------
+
+
+def send_withdrawal_request_notification_email(
+    client: Client, *, merchant: dict, disbursement: dict, available_balance: Decimal | None = None
+) -> dict | None:
+    """Best-effort — never raises. Called right after a withdrawal request
+    row is inserted (app/services/disbursements.py::execute_disbursement,
+    itself wrapped in try/except there for defense in depth) — the request
+    is already saved by the time this runs, so a failed notification must
+    never be mistaken for a failed withdrawal request."""
+    settings = get_settings()
+    if not settings.ceo_email:
+        return None
+
+    business_name = merchant.get("business_name") or "A merchant"
+    merchant_code = merchant.get("merchant_code")
+    amount = disbursement.get("amount")
+    currency = disbursement.get("currency") or "TZS"
+    subject = f"New withdrawal request from {business_name}"
+    sender = settings.email_from
+    review_url = f"{settings.app_url}/super-admin/withdrawals"
+
+    destination_identifier = disbursement.get("destination_identifier") or ""
+    masked_destination = _mask_identifier(destination_identifier) if destination_identifier else "—"
+    bank_name = disbursement.get("bank_name")
+    destination_label = f"{bank_name} — {masked_destination}" if bank_name else masked_destination
+    method = (disbursement.get("method") or "").replace("_", " ").title() or "—"
+    status_label = (disbursement.get("status") or "").replace("_", " ").title() or "—"
+
+    rows: list[tuple[str, str]] = [
+        ("Merchant", business_name),
+        ("Merchant ID", merchant_code or "—"),
+        ("Amount", _money(amount, currency)),
+        ("Method", method),
+        ("Destination", destination_label),
+        ("Requested", disbursement.get("initiated_at") or ""),
+        ("Status", status_label),
+    ]
+    if available_balance is not None:
+        rows.append(("Available Balance", _money(available_balance, currency)))
+
+    rows_html = "".join(
+        f"""
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#6b7280;">{label}</td>
+          <td style="padding:6px 0;font-size:14px;color:#1f2937;text-align:right;">{value}</td>
+        </tr>"""
+        for label, value in rows
+        if value
+    )
+
+    body = f"""
+    <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">Withdrawal Request</p>
+    <h1 style="margin:0 0 20px;font-size:20px;color:#1f2937;">New withdrawal request from {business_name}</h1>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      {rows_html}
+    </table>
+    {_cta_button(review_url, "Review Withdrawal")}
+    """
+    html = _email_shell(body_html=body)
+
+    try:
+        message_id = send_email(
+            to=settings.ceo_email, subject=subject, html=html, sender=sender, reply_to=settings.email_reply_to
+        )
+    except EmailDeliveryError as exc:
+        _log_delivery(
+            client,
+            merchant_id=merchant.get("id"),
+            email_type="withdrawal_request_notification",
+            related_resource_type="disbursement",
+            related_resource_id=disbursement.get("id"),
+            recipient_email=settings.ceo_email,
+            sender_email=sender,
+            subject=subject,
+            status="failed",
+            error_message=str(exc),
+        )
+        return None
+
+    return _log_delivery(
+        client,
+        merchant_id=merchant.get("id"),
+        email_type="withdrawal_request_notification",
+        related_resource_type="disbursement",
+        related_resource_id=disbursement.get("id"),
+        recipient_email=settings.ceo_email,
+        sender_email=sender,
+        subject=subject,
+        status="sent",
+        provider_message_id=message_id or None,
+    )
+
+
+# --- 8. Withdrawal success (to merchant) ----------------------------------------
+
+
+def send_withdrawal_success_email(client: Client, *, merchant: dict, disbursement: dict) -> dict | None:
+    """Best-effort — never raises. Call only once a disbursement has
+    genuinely reached its terminal SUCCESS status — both places that
+    happens (app/services/disbursements.py's synchronous
+    _reserve_and_run_disbursement_provider path and its delayed
+    _resolve_processing_disbursement path, used by both the callback and
+    admin-triggered refresh) call this right next to their existing
+    notify_merchant(...WITHDRAWAL_SUCCESS...) call, each already wrapped
+    in try/except there for defense in depth. Never called for
+    PENDING_ADMIN_APPROVAL/PROCESSING/REJECTED/FAILED/REVERSED/etc — those
+    statuses never reach this function."""
+    recipient = merchant.get("contact_email")
+    if not recipient:
+        return None
+
+    settings = get_settings()
+    business_name = merchant.get("business_name") or "there"
+    merchant_code = merchant.get("merchant_code")
+    amount = disbursement.get("amount")
+    currency = disbursement.get("currency") or "TZS"
+    subject = "Your Infinity Africa withdrawal is successful"
+    sender = settings.email_from
+    portal_url = f"{settings.app_url}/merchant/withdrawals"
+
+    destination_identifier = disbursement.get("destination_identifier") or ""
+    masked_destination = _mask_identifier(destination_identifier) if destination_identifier else "—"
+    bank_name = disbursement.get("bank_name")
+    destination_label = f"{bank_name} — {masked_destination}" if bank_name else masked_destination
+
+    rows: list[tuple[str, str]] = [
+        ("Merchant", business_name),
+        ("Merchant ID", merchant_code or "—"),
+        ("Reference", disbursement.get("provider_reference") or "—"),
+        ("Completed", disbursement.get("completed_at") or ""),
+        ("Destination", destination_label),
+        ("Status", "Successful"),
+    ]
+    rows_html = "".join(
+        f"""
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#6b7280;">{label}</td>
+          <td style="padding:6px 0;font-size:14px;color:#1f2937;text-align:right;">{value}</td>
+        </tr>"""
+        for label, value in rows
+        if value
+    )
+
+    body = f"""
+    <h1 style="margin:0 0 20px;font-size:20px;color:#1f2937;">Your withdrawal is successful</h1>
+    <p style="margin:0 0 16px;font-size:14px;color:#374151;">Hi {business_name}, your withdrawal has been completed.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fafb;border-radius:8px;padding:16px;margin:0 0 16px;">
+      <tr>
+        <td style="padding:6px 16px;font-size:14px;color:#6b7280;">Amount</td>
+        <td style="padding:6px 16px;font-size:20px;font-weight:700;color:#04332a;text-align:right;">{_money(amount, currency)}</td>
+      </tr>
+    </table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      {rows_html}
+    </table>
+    {_cta_button(portal_url, "View Merchant Portal")}
+    """
+    html = _email_shell(body_html=body)
+
+    try:
+        message_id = send_email(to=recipient, subject=subject, html=html, sender=sender, reply_to=settings.email_reply_to)
+    except EmailDeliveryError as exc:
+        _log_delivery(
+            client,
+            merchant_id=merchant.get("id"),
+            email_type="withdrawal_success",
+            related_resource_type="disbursement",
+            related_resource_id=disbursement.get("id"),
+            recipient_email=recipient,
+            sender_email=sender,
+            subject=subject,
+            status="failed",
+            error_message=str(exc),
+        )
+        return None
+
+    return _log_delivery(
+        client,
+        merchant_id=merchant.get("id"),
+        email_type="withdrawal_success",
+        related_resource_type="disbursement",
+        related_resource_id=disbursement.get("id"),
+        recipient_email=recipient,
+        sender_email=sender,
+        subject=subject,
+        status="sent",
+        provider_message_id=message_id or None,
+    )
+
+
+# --- 9. Payment link customer delivery ------------------------------------------
+
+
+def send_payment_link_customer_email(client: Client, *, merchant: dict, payment_link: dict) -> dict | None:
+    """Best-effort — never raises. Called right after a payment link is
+    created (app/routers/merchant_portal.py::create_my_payment_link), only
+    when payment_link["customer_email"] is present. A missing email is not
+    a failure — nothing to send — so this checks for it internally rather
+    than requiring every caller to guard first; payment link creation
+    itself must never fail just because no customer email was given."""
+    recipient = payment_link.get("customer_email")
+    if not recipient:
+        return None
+
+    settings = get_settings()
+    business_name = merchant.get("business_name") or "Your merchant"
+    amount = payment_link.get("amount")
+    currency = payment_link.get("currency") or "TZS"
+    description = payment_link.get("description")
+    reference = payment_link.get("merchant_reference")
+    payment_url = build_public_url(payment_link["public_slug"])
+    subject = f"Payment request from {business_name} via Infinity Africa"
+    sender = settings.email_from
+
+    rows: list[tuple[str, str]] = [("Amount", _money(amount, currency))]
+    if description:
+        rows.append(("Description", description))
+    if reference:
+        rows.append(("Reference", reference))
+    rows_html = "".join(
+        f"""
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#6b7280;">{label}</td>
+          <td style="padding:6px 0;font-size:14px;color:#1f2937;text-align:right;">{value}</td>
+        </tr>"""
+        for label, value in rows
+    )
+
+    body = f"""
+    <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">Payment Request</p>
+    <h1 style="margin:0 0 20px;font-size:20px;color:#1f2937;">{business_name} has requested a payment</h1>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fafb;border-radius:8px;padding:16px;margin:0 0 16px;">
+      {rows_html}
+    </table>
+    {_cta_button(payment_url, "Pay Now")}
+    <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">Questions about this payment? Contact {business_name} directly.</p>
+    """
+    html = _email_shell(body_html=body)
+
+    try:
+        message_id = send_email(to=recipient, subject=subject, html=html, sender=sender, reply_to=settings.email_reply_to)
+    except EmailDeliveryError as exc:
+        _log_delivery(
+            client,
+            merchant_id=merchant.get("id"),
+            email_type="payment_link_customer",
+            related_resource_type="payment_link",
+            related_resource_id=payment_link.get("id"),
+            recipient_email=recipient,
+            sender_email=sender,
+            subject=subject,
+            status="failed",
+            error_message=str(exc),
+        )
+        return None
+
+    return _log_delivery(
+        client,
+        merchant_id=merchant.get("id"),
+        email_type="payment_link_customer",
+        related_resource_type="payment_link",
+        related_resource_id=payment_link.get("id"),
         recipient_email=recipient,
         sender_email=sender,
         subject=subject,

@@ -44,6 +44,11 @@ export interface PaymentLink {
   attempt_count: number;
   created_at: string;
   updated_at: string;
+  // Only ever set by the create-link response — true/false for "an email
+  // was attempted and it succeeded/failed", null for "no customer_email,
+  // nothing was attempted". Every other endpoint (list/get/cancel) leaves
+  // this null; they don't re-attempt a send.
+  customer_email_sent: boolean | null;
 }
 
 export interface InvoiceItem {

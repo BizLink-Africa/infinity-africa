@@ -13,7 +13,7 @@ reproduced here since they're config, not code).
 
 ## What's wired up
 
-Six email types, all built on the same `send_email()` primitive and all
+Nine email types, all built on the same `send_email()` primitive and all
 logged to `email_deliveries` (success or failure, every attempt):
 
 | Email type | Sent from | Trigger |
@@ -24,6 +24,9 @@ logged to `email_deliveries` (success or failure, every attempt):
 | Payment receipt | `send_payment_receipt_email` | `app/services/collections.py::_apply_collection_success` (a collection reaching genuinely `successful`/cleared) |
 | Inquiry notification (to CEO) | `send_inquiry_notification_email` | `POST /v1/public/inquiries` (the marketing site's Contact form) |
 | Merchant welcome | `send_merchant_welcome_email` | `app/services/onboarding.py::approve_onboarding_submission` (a merchant's KYC being approved) |
+| Withdrawal request notification (to CEO) | `send_withdrawal_request_notification_email` | `app/services/disbursements.py::execute_disbursement` (right after a withdrawal request row is saved) |
+| Withdrawal success | `send_withdrawal_success_email` | `app/services/disbursements.py` — both places a disbursement reaches `SUCCESS` (the synchronous approval path and the delayed callback/refresh-resolved path) |
+| Payment link customer delivery | `send_payment_link_customer_email` | `POST /v1/merchant/payment-links` (only when `customer_email` is provided) |
 
 **Supabase never sends its own auth email for invites or password resets.**
 Both flows use `auth.admin.generate_link()` (type `"invite"` /
@@ -45,7 +48,7 @@ doesn't go through — the parent action refuses to claim success:
   email_delivery_failed` rather than silently leaving an admin thinking
   the invite went out.
 
-The other four are best-effort (fail-open) — they never raise, and the
+The other seven are best-effort (fail-open) — they never raise, and the
 call sites additionally wrap them in `try/except` for defense in depth:
 
 - **Password reset**: must never let a caller distinguish "no such
@@ -58,6 +61,16 @@ call sites additionally wrap them in `try/except` for defense in depth:
   lose the saved inquiry.
 - **Merchant welcome**: a courtesy email failing to send must never fail
   the merchant's approval.
+- **Withdrawal request notification**: the withdrawal request is already
+  saved by the time this runs — a failed CEO notification must never look
+  like a failed withdrawal request.
+- **Withdrawal success**: must never reverse or fail an already-successful
+  withdrawal.
+- **Payment link customer delivery**: a missing or failed send must never
+  fail link creation itself — `POST /v1/merchant/payment-links`'s response
+  carries `customer_email_sent` (`true`/`false`/`null` for "not
+  attempted") so the frontend can show the right outcome, and copy/
+  WhatsApp-share stay available regardless.
 
 ## Sender addresses
 
@@ -67,7 +80,7 @@ deployment:
 | Email type | Sender | Env var |
 | --- | --- | --- |
 | Invoice payment requests | `Infinity Africa Invoices <invoice@infinityafrica.net>` | `INVOICE_EMAIL_FROM` |
-| Everything else (staff invites, password resets, payment receipts, welcome emails, inquiry notifications) | `Infinity Africa <notification@infinityafrica.net>` | `EMAIL_FROM` |
+| Everything else (staff invites, password resets, payment receipts, welcome emails, inquiry notifications, withdrawal request/success, payment link delivery) | `Infinity Africa <notification@infinityafrica.net>` | `EMAIL_FROM` |
 
 If `INVOICE_EMAIL_FROM` isn't set, invoice emails fall back to whatever
 `EMAIL_FROM` is set to (see `Settings.invoice_email_from` in
@@ -152,6 +165,35 @@ portal (no verified wallet, no live API access) until approved, so a
 onboarding review UI shows "Approved. Welcome email sent..." as its
 success feedback for the Approve action.
 
+**Withdrawal request notification / success** — the destination account
+identifier is masked in both emails (`app/services/email.py::_mask_identifier`,
+`•••• 1234` — the same convention `apps/web/src/lib/format.ts::maskAccountIdentifier`
+already used on the frontend) rather than shown in full. The request
+email's "Review Withdrawal" button links to `{APP_URL}/super-admin/withdrawals`
+(the review queue — there's no per-withdrawal detail route yet); the
+success email's "View Merchant Portal" button links to
+`{APP_URL}/merchant/withdrawals`. Both are also surfaced on
+`GET /v1/admin/withdrawals` as `request_email_status`/`success_email_status`
+for Super Admin, via `batch_latest_email_deliveries`'s optional `email_type`
+filter (needed here since a single disbursement can have two different
+kinds of email attached to it, unlike every other resource this helper
+serves).
+
+**Payment link customer delivery** — sent right after
+`POST /v1/merchant/payment-links` creates the row, only when
+`customer_email` is present; a missing email is not a failure, just
+nothing to send (`send_payment_link_customer_email` checks internally).
+The email's "Pay Now" button uses the same `build_public_url` the
+response's own `public_url` field does — never a placeholder domain. Note:
+this is currently wired into the Merchant Portal's own create endpoint
+(`app/routers/merchant_portal.py::create_my_payment_link`) only, not the
+API-key-authenticated `POST /v1/payment-links` — an API integrator likely
+wants to send their own email, not have Infinity Africa's branded one sent
+on their behalf. A "request collection" (merchant portal wallet-push)
+equivalent was scoped out of this pass: unlike a payment link, a plain
+phone push has no public payment page/URL to email in the first place (see
+the payment-receipt flow note above for the same underlying fact).
+
 ## Safety notes
 
 - The Resend API key is never logged, never included in an error message
@@ -166,3 +208,5 @@ success feedback for the Approve action.
   separate payment-receipt email is for.
 - Invite and reset emails never carry a plaintext password — only a
   Supabase-generated action link, which itself is never logged.
+- Withdrawal emails never show a destination account/phone number in
+  full — always masked to the last 4 digits (`_mask_identifier`).

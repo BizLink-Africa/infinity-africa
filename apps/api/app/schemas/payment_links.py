@@ -71,6 +71,13 @@ class PaymentLinkResponse(BaseModel):
     attempt_count: int = 0
     created_at: datetime
     updated_at: datetime
+    # Only ever set (not None) by the create endpoint, right after it tries
+    # sending — True/False for "attempted and succeeded/failed", None for
+    # "no customer_email, nothing was attempted". Every other endpoint
+    # (list/get/cancel) leaves this None; they don't re-attempt a send, so
+    # there's no fresh outcome to report — see app/services/email.py::
+    # send_payment_link_customer_email.
+    customer_email_sent: bool | None = None
 
 
 class PublicPaymentLinkResponse(BaseModel):

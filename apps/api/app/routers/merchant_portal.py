@@ -109,7 +109,11 @@ from app.services.crud import (
     update_row,
 )
 from app.services.disbursements import execute_disbursement, quote_withdrawal_fee
-from app.services.email import send_invoice_email, send_staff_invite_email
+from app.services.email import (
+    send_invoice_email,
+    send_payment_link_customer_email,
+    send_staff_invite_email,
+)
 from app.services.hosted_checkout import execute_hosted_checkout_collection
 from app.services.idempotency import run_idempotent
 from app.services.ledger import export_wallet_ledger_rows, list_wallet_ledger
@@ -228,6 +232,10 @@ def export_my_wallet_ledger(
 
 
 def _payment_link_response(row: dict, *, attempt_count: int = 0) -> PaymentLinkResponse:
+    # customer_email_sent isn't a real payment_links column — only present
+    # on `row` right after create_my_payment_link attaches it (see there),
+    # so **row picks it up there and every other caller's plain DB row
+    # naturally leaves it at the schema's None default.
     return PaymentLinkResponse(
         **row, public_url=build_public_url(row["public_slug"]), attempt_count=attempt_count
     )
@@ -274,6 +282,18 @@ async def create_my_payment_link(
             resource_id=uuid.UUID(row["id"]),
             metadata={"origin": payload.origin},
         )
+
+        # customer_email_sent isn't a payment_links column — attached here
+        # only so the response (and, via run_idempotent's cache, any
+        # retried request) can report the outcome; None means "no
+        # customer_email, nothing was attempted" (see PaymentLinkResponse).
+        if row.get("customer_email"):
+            merchant = get_by_id(client, "merchants", membership.merchant_id)
+            sent = merchant is not None and send_payment_link_customer_email(
+                client, merchant=merchant, payment_link=row
+            ) is not None
+            row["customer_email_sent"] = sent
+
         return status.HTTP_201_CREATED, row
 
     _status_code, body = await run_idempotent(

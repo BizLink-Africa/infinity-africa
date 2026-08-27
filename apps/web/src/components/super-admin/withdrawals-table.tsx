@@ -262,6 +262,18 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                         {row.status === "REJECTED" && row.rejection_reason && (
                           <p className="text-xs text-on-surface-variant mt-1">{row.rejection_reason}</p>
                         )}
+                        {row.request_email_status === "failed" && (
+                          <p className="text-[11px] text-amber-700 mt-1 flex items-center gap-1">
+                            <Icon name="mail" className="text-[12px]" />
+                            Request notification email failed
+                          </p>
+                        )}
+                        {row.status === "SUCCESS" && row.success_email_status === "failed" && (
+                          <p className="text-[11px] text-amber-700 mt-1 flex items-center gap-1">
+                            <Icon name="mail" className="text-[12px]" />
+                            Success email failed
+                          </p>
+                        )}
                       </td>
                       <td className={`${tdClass} text-right`}>
                         {needsRefresh && (

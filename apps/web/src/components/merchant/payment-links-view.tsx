@@ -129,6 +129,7 @@ export function PaymentLinksView() {
   const [expiresAt, setExpiresAt] = useState("");
   const [description, setDescription] = useState("");
   const [merchantReference, setMerchantReference] = useState("");
+  const [createMessage, setCreateMessage] = useState("");
 
   useEffect(() => {
     listPaymentLinks().then((data) => {
@@ -170,6 +171,13 @@ export function PaymentLinksView() {
       setExpiresAt("");
       setDescription("");
       setMerchantReference("");
+      setCreateMessage(
+        link.customer_email_sent === true
+          ? "Payment link created and emailed to customer."
+          : link.customer_email_sent === false
+            ? "Payment link created, but email could not be sent. You can copy or share the link manually."
+            : "Payment link created. Add a customer email to send it automatically, or copy/share it manually.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -326,6 +334,17 @@ export function PaymentLinksView() {
             <h3 className="text-2xl font-semibold text-on-background mb-1">Your Payment Link</h3>
             <p className="text-sm text-on-surface-variant">Share it with your customer to collect payment instantly.</p>
           </div>
+          {createMessage && (
+            <div
+              className={
+                lastCreated?.customer_email_sent === false
+                  ? "rounded-lg bg-[#FEFCE8] text-[#854D0E] px-4 py-3 text-sm font-medium"
+                  : "rounded-lg bg-primary-container/10 text-primary px-4 py-3 text-sm font-medium"
+              }
+            >
+              {createMessage}
+            </div>
+          )}
           {lastCreated ? (
             <PaymentLinkDetail link={lastCreated} onCopy={handleCopyPanel} copied={copiedPanel} />
           ) : (

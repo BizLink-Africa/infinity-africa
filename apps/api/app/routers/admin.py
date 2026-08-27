@@ -692,6 +692,16 @@ def list_admin_withdrawals(
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
     merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
+    resource_ids = {r["id"] for r in rows}
+    request_emails = batch_latest_email_deliveries(
+        client,
+        related_resource_type="disbursement",
+        related_resource_ids=resource_ids,
+        email_type="withdrawal_request_notification",
+    )
+    success_emails = batch_latest_email_deliveries(
+        client, related_resource_type="disbursement", related_resource_ids=resource_ids, email_type="withdrawal_success"
+    )
 
     data = [
         AdminWithdrawalResponse(
@@ -715,6 +725,8 @@ def list_admin_withdrawals(
             rejection_reason=row.get("rejection_reason"),
             admin_status_reason=row.get("admin_status_reason"),
             created_at=row["created_at"],
+            request_email_status=request_emails.get(row["id"], {}).get("status"),
+            success_email_status=success_emails.get(row["id"], {}).get("status"),
         )
         for row in rows
     ]

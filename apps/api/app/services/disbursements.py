@@ -41,6 +41,10 @@ from app.schemas.enums import DestinationCode, DisbursementMethod, NotificationT
 from app.schemas.withdrawals import FeeBreakdown
 from app.services.audit import write_audit_log
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
+from app.services.email import (
+    send_withdrawal_request_notification_email,
+    send_withdrawal_success_email,
+)
 from app.services.ledger import (
     get_wallet_balance,
     post_disbursement_entries,
@@ -189,6 +193,22 @@ async def execute_disbursement(
             "pricing_snapshot_json": breakdown.model_dump(mode="json"),
         },
     )
+
+    # Courtesy notification — the withdrawal request is already saved above;
+    # a failed send must never look like a failed withdrawal request. See
+    # send_withdrawal_request_notification_email's own try/except (never
+    # raises) — this is a second layer of defense in case that contract is
+    # ever violated by a future change, matching collections.py/onboarding.py's
+    # identical pattern for their own best-effort emails.
+    try:
+        merchant = get_by_id(client, "merchants", merchant_id)
+        if merchant:
+            send_withdrawal_request_notification_email(
+                client, merchant=merchant, disbursement=disbursement, available_balance=available
+            )
+    except Exception:  # noqa: BLE001, S110 — best-effort, never blocks the withdrawal request
+        pass
+
     return disbursement
 
 
@@ -392,6 +412,24 @@ def _fail_and_reverse(
         payload={"disbursement_id": str(disbursement_id), "reason": reason},
     )
     return disbursement
+
+
+def _send_withdrawal_success_email_best_effort(client: Client, disbursement: dict) -> None:
+    """Shared by both places a disbursement can reach SUCCESS — the
+    synchronous path in _reserve_and_run_disbursement_provider and the
+    delayed path in _resolve_processing_disbursement (callback or
+    admin-triggered refresh) — called right next to each one's existing
+    notify_merchant(...WITHDRAWAL_SUCCESS...). Never raises: a failed
+    confirmation email must never reverse or fail an already-successful
+    withdrawal (send_withdrawal_success_email itself never raises either;
+    this is a second layer of defense in depth, matching collections.py/
+    onboarding.py's identical pattern for their own best-effort emails)."""
+    try:
+        merchant = get_by_id(client, "merchants", uuid.UUID(disbursement["merchant_id"]))
+        if merchant:
+            send_withdrawal_success_email(client, merchant=merchant, disbursement=disbursement)
+    except Exception:  # noqa: BLE001, S110 — best-effort, never blocks the withdrawal
+        pass
 
 
 def _block_ip_whitelist(
@@ -614,6 +652,7 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
             related_resource_type="disbursement",
             related_resource_id=disbursement_id,
         )
+        _send_withdrawal_success_email_best_effort(client, disbursement)
         return _stamp_response_fields(disbursement, transaction)
 
     disbursement = _fail_and_reverse(
@@ -707,6 +746,7 @@ def _resolve_processing_disbursement(
             related_resource_type="disbursement",
             related_resource_id=disbursement_id,
         )
+        _send_withdrawal_success_email_best_effort(client, disbursement)
         return _stamp_response_fields(disbursement, transaction)
 
     disbursement = _fail_and_reverse(

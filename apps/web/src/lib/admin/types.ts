@@ -170,6 +170,12 @@ export interface AdminWithdrawalRow {
   rejection_reason: string | null;
   admin_status_reason: string | null;
   created_at: string;
+  // Delivery status of the two emails a withdrawal can trigger — see
+  // app/services/email.py::send_withdrawal_request_notification_email /
+  // send_withdrawal_success_email. null means that email hasn't been
+  // attempted yet.
+  request_email_status: "sent" | "failed" | null;
+  success_email_status: "sent" | "failed" | null;
 }
 
 export interface PricingRuleRow {

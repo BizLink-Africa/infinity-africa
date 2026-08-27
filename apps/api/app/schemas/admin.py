@@ -182,6 +182,13 @@ class AdminWithdrawalResponse(BaseModel):
     rejection_reason: str | None = None
     admin_status_reason: str | None = None
     created_at: datetime
+    # Delivery status of the two emails this withdrawal can trigger — see
+    # app/services/email.py::send_withdrawal_request_notification_email /
+    # send_withdrawal_success_email. None means that email hasn't been
+    # attempted yet (e.g. success_email_status is always None until the
+    # withdrawal actually reaches SUCCESS).
+    request_email_status: str | None = None
+    success_email_status: str | None = None
 
 
 class AdminTransactionResponse(BaseModel):

@@ -32,6 +32,8 @@ const pendingRow: AdminWithdrawalRow = {
   rejection_reason: null,
   admin_status_reason: null,
   created_at: "2026-08-13T09:12:00Z",
+  request_email_status: null,
+  success_email_status: null,
 };
 
 describe("WithdrawalsTable", () => {
