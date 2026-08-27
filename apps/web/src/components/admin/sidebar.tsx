@@ -18,7 +18,13 @@ export function AdminSidebar({ open, onClose }: { open: boolean; onClose: () => 
       >
         <div className="mb-8 flex items-center gap-3 px-4 shrink-0">
           <Link href="/super-admin" className="flex flex-col gap-1 flex-1 min-w-0">
-            <span className="text-xl font-bold text-white tracking-tight truncate">Super Admin</span>
+            <span className="flex items-center gap-2">
+              <Icon name="all_inclusive" className="text-white text-[22px] shrink-0" />
+              <span className="text-xl font-bold text-white tracking-tight truncate">Infinity Africa</span>
+            </span>
+            <p className="text-[11px] font-semibold tracking-wide text-sidebar-text-muted pl-[30px]">
+              Super Admin
+            </p>
           </Link>
           <button onClick={onClose} className="md:hidden text-sidebar-text p-1" aria-label="Close menu">
             <Icon name="close" />

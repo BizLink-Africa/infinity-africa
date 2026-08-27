@@ -1,6 +1,6 @@
 "use client";
 
-import { InfinityLogo } from "@/components/brand/InfinityLogo";
+import { Icon } from "@/components/portal/icon";
 import { formatCurrency, formatDateTime, maskAccountIdentifier } from "@/lib/format";
 import type { PublicCollectionReceipt } from "@/lib/payment-links";
 
@@ -35,7 +35,10 @@ export function ReceiptCard({ receipt, slug }: { receipt: PublicCollectionReceip
       >
         <div className="-mx-6 -mt-6 flex items-center justify-between rounded-t-lg border-b border-dashed border-primary/20 bg-accent px-6 py-5 sm:-mx-8 sm:-mt-8 sm:px-8 print:rounded-none">
           <div>
-            <InfinityLogo size={24} showText className="text-primary text-lg" />
+            <span className="flex items-center gap-1.5">
+              <Icon name="all_inclusive" className="text-primary text-[20px]" />
+              <span className="text-lg font-bold tracking-tight text-primary">Infinity Africa</span>
+            </span>
             <p className="mt-0.5 text-xs text-primary/70">Payment Receipt</p>
           </div>
           <CheckBadge />

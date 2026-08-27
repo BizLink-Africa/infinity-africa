@@ -35,10 +35,10 @@ describe("ReceiptCard", () => {
     expect(screen.getByText("S20690471578")).toBeInTheDocument();
   });
 
-  it("shows the Infinity Africa logo mark (image + wordmark), not plain text alone", () => {
+  it("shows the Infinity Africa logo mark (icon + wordmark), not plain text alone", () => {
     render(<ReceiptCard receipt={receipt} slug="test-slug" />);
 
-    expect(screen.getByAltText("Infinity Africa logo")).toBeInTheDocument();
+    expect(screen.getByText("all_inclusive")).toBeInTheDocument();
     expect(screen.getByText("Infinity Africa")).toBeInTheDocument();
   });
 

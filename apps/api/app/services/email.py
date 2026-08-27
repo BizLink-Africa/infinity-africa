@@ -129,7 +129,7 @@ def _money(value: object, currency: str) -> str:
 
 def _email_shell(*, body_html: str) -> str:
     """Wraps `body_html` in the Infinity Africa branded header/footer
-    every transactional email shares — dark green header band (logo mark +
+    every transactional email shares — dark green header band (∞ mark +
     wordmark), white content area, light-gray footer with a help-contact
     line and "Powered by Infinity Africa". Table-based HTML with inline
     styles throughout — the only layout approach that renders consistently
@@ -138,19 +138,9 @@ def _email_shell(*, body_html: str) -> str:
     CSS background-color AND the legacy bgcolor HTML attribute — Outlook
     desktop's Word-based rendering engine ignores CSS background-color on
     table cells entirely. Never references the Material Symbols icon font
-    used elsewhere in the app (unsupported in email).
-
-    The logo is an <img> with explicit width/height (so layout doesn't
-    jump if it loads late) pointing at the real, deployed asset — never a
-    data URI or a temporary upload path. Many email clients (Gmail,
-    Outlook) block remote images until the recipient clicks "display
-    images below", so the "Infinity Africa" wordmark stays a plain,
-    always-rendered text sibling rather than being baked into the image or
-    used as its only label — the brand still reads correctly with images
-    off. The <img> also carries alt="Infinity Africa logo" for the
-    minority of clients that render alt text in place of a blocked image."""
+    used elsewhere in the app (unsupported in email); the ∞ mark is a
+    plain Unicode character so it always renders."""
     settings = get_settings()
-    logo_url = f"{settings.app_url}/brand/infinity-logo.png"
     return f"""\
 <!doctype html>
 <html>
@@ -161,8 +151,8 @@ def _email_shell(*, body_html: str) -> str:
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background-color:#ffffff;border-radius:12px;overflow:hidden;">
             <tr>
               <td bgcolor="#04332a" style="background-color:#04332a;padding:24px 28px;">
-                <img src="{logo_url}" alt="Infinity Africa logo" width="24" height="24" style="width:24px;height:24px;vertical-align:middle;border:0;display:inline-block;" />
-                <span style="font-size:18px;font-weight:700;color:#ffffff;vertical-align:middle;margin-left:8px;">Infinity Africa</span>
+                <span style="font-size:20px;color:#9cf5c1;vertical-align:middle;">&#8734;</span>
+                <span style="font-size:18px;font-weight:700;color:#ffffff;vertical-align:middle;margin-left:6px;">Infinity Africa</span>
               </td>
             </tr>
             <tr>

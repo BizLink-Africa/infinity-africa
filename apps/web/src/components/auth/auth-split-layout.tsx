@@ -21,6 +21,13 @@ export function AuthSplitLayout({
         <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-on-primary/5" aria-hidden />
         <div className="absolute bottom-10 left-10 w-80 h-80 rounded-full bg-on-primary/5" aria-hidden />
 
+        <div className="absolute top-8 left-8 z-10">
+          <Link href="/" className="inline-flex items-center gap-1.5">
+            <Icon name="all_inclusive" className="text-on-primary text-[22px]" />
+            <span className="text-lg font-bold tracking-tight text-on-primary">Infinity Africa</span>
+          </Link>
+        </div>
+
         <div className="relative z-10">
           <p className="text-3xl font-bold tracking-tight max-w-sm" aria-hidden>
             Welcome to Infinity Africa
@@ -74,6 +81,10 @@ export function AuthSplitLayout({
             <Icon name="arrow_back" className="text-[18px]" />
             Back to website
           </Link>
+          <div className="mb-6 flex items-center gap-1.5 lg:hidden">
+            <Icon name="all_inclusive" className="text-primary text-[22px]" />
+            <span className="text-lg font-bold tracking-tight text-primary">Infinity Africa</span>
+          </div>
           <div className="rounded-lg border border-outline-variant bg-surface p-8 shadow-sm">{children}</div>
         </div>
       </div>
