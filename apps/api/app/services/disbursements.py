@@ -806,24 +806,45 @@ async def refresh_disbursement_status(client: Client, *, disbursement_id: uuid.U
 
 
 async def reconcile_pending_disbursements(client: Client) -> dict:
-    """POST /v1/admin/withdrawals/reconcile-pending — admin-triggered batch
-    refresh over every stuck PROCESSING/NEEDS_RECONCILIATION withdrawal.
-    Not a cron/background job (none exists in this codebase, and the
-    business rule against unattended Selcom calls before approval doesn't
-    apply here — these are all already-approved withdrawals) — only ever
-    runs when a Super Admin clicks the button."""
+    """Batch refresh over every stuck PROCESSING/NEEDS_RECONCILIATION
+    withdrawal — called both from POST /v1/admin/withdrawals/reconcile-pending
+    (a Super Admin clicking the button) and, on a timer, from
+    app/main.py's lifespan startup task (see
+    Settings.selcom_disbursement_reconcile_interval_seconds). The business
+    rule against unattended Selcom calls before approval doesn't apply
+    here — every row this touches is already PROCESSING/
+    NEEDS_RECONCILIATION, which only happens after a Super Admin has
+    already approved it and it already reached the provider once.
+
+    Each row is isolated: one withdrawal raising something other than
+    NotFoundError/ConflictError must never abort the whole sweep — a
+    regression test in app/services/checkout_reconciliation.py's own
+    sweep for this exact class of bug (a single bad row silently
+    blocking every other one, confirmed live 2026-08-28) is why this
+    isn't just a bare loop."""
     rows = (
         client.table("disbursements")
         .select("id, status")
         .in_("status", ["PROCESSING", "NEEDS_RECONCILIATION"])
         .execute()
     ).data or []
+    logger.info("disbursement_reconciliation_sweep_starting pending_total=%s", len(rows))
 
     resolved = 0
     still_pending = 0
     for row in rows:
-        outcome = await refresh_disbursement_status(client, disbursement_id=uuid.UUID(row["id"]))
-        if outcome["status"] in ("PROCESSING", "NEEDS_RECONCILIATION"):
+        disbursement_id = uuid.UUID(row["id"])
+        try:
+            outcome = await refresh_disbursement_status(client, disbursement_id=disbursement_id)
+        except (NotFoundError, ConflictError) as exc:
+            logger.warning("disbursement_reconciliation_skipped disbursement_id=%s reason=%s", disbursement_id, exc)
+            continue
+        except Exception:
+            logger.exception("disbursement_reconciliation_row_failed disbursement_id=%s", disbursement_id)
+            continue
+        outcome_status = outcome["status"]
+        logger.info("disbursement_reconciliation_checked disbursement_id=%s result=%s", disbursement_id, outcome_status)
+        if outcome_status in ("PROCESSING", "NEEDS_RECONCILIATION"):
             still_pending += 1
         else:
             resolved += 1

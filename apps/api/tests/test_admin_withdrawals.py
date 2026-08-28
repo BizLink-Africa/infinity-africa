@@ -565,6 +565,63 @@ def test_reconcile_pending_resolves_stuck_withdrawals(fake_client, monkeypatch):
     assert summary["resolved"] == 1
 
 
+def test_reconcile_pending_survives_an_unexpected_error_on_one_withdrawal(fake_client, monkeypatch):
+    """A single withdrawal raising anything other than NotFoundError/
+    ConflictError must never abort the whole sweep and block every other
+    stuck withdrawal from being checked. Regression test for the exact
+    class of bug found live in the checkout-collections sweep
+    (2026-08-28) — see reconcile_pending_checkout_collections's own
+    regression test in test_checkout_reconciliation.py."""
+    import app.services.disbursements as disbursements_module
+    from app.services.selcom_business.schemas import SelcomBusinessResult
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+    body_a = _request_withdrawal(merchant_id, admin_id, "1000.00")
+    body_b = _request_withdrawal(merchant_id, admin_id, "1500.00")
+
+    class _ProcessingProvider:
+        def __init__(self):
+            self._counter = 0
+
+        async def process_transaction(self, **kwargs):
+            self._counter += 1
+            return SelcomBusinessResult(transaction_id=f"SEL-PROC-{self._counter}", status="processing")
+
+        async def query_transaction(self, *, trans_id, **kwargs):
+            return SelcomBusinessResult(transaction_id=trans_id, status="successful")
+
+    provider = _ProcessingProvider()
+    monkeypatch.setattr(disbursements_module, "get_selcom_business_client", lambda: provider)
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+    approved_a = _approve(body_a["id"], super_admin_id).json()["data"]
+    approved_b = _approve(body_b["id"], super_admin_id).json()["data"]
+    assert approved_a["status"] == "PROCESSING"
+    assert approved_b["status"] == "PROCESSING"
+
+    broken_reference = approved_a["provider_reference"]
+
+    class _FlakyOnOneProvider:
+        async def query_transaction(self, *, trans_id, **kwargs):
+            if trans_id == broken_reference:
+                raise RuntimeError("simulated provider outage for this one transaction")
+            return SelcomBusinessResult(transaction_id=trans_id, status="successful")
+
+    monkeypatch.setattr(disbursements_module, "get_selcom_business_client", lambda: _FlakyOnOneProvider())
+
+    response = client.post("/v1/admin/withdrawals/reconcile-pending", headers=auth_headers(super_admin_id))
+
+    assert response.status_code == 200, response.text
+    summary = response.json()["data"]
+    assert summary == {"checked": 2, "resolved": 1, "still_pending": 0}
+
+    statuses = {row["id"]: row["status"] for row in fake_client.table("disbursements")._table.rows}
+    assert statuses[approved_a["id"]] == "PROCESSING"  # untouched by the failed row
+    assert statuses[approved_b["id"]] == "SUCCESS"  # still resolved despite row a's failure
+
+
 # --- reject --------------------------------------------------------------------
 
 

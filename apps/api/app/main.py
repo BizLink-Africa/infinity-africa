@@ -36,6 +36,7 @@ from app.routers import (
     webhooks,
 )
 from app.services.checkout_reconciliation import reconcile_pending_checkout_collections
+from app.services.disbursements import reconcile_pending_disbursements
 
 settings = get_settings()
 
@@ -110,14 +111,47 @@ def _start_checkout_reconciliation_task() -> asyncio.Task | None:
     return asyncio.create_task(_checkout_reconciliation_loop(interval))
 
 
+async def _disbursement_reconciliation_loop(interval_seconds: float) -> None:
+    """Withdrawal counterpart to _checkout_reconciliation_loop above — see
+    Settings.selcom_disbursement_reconcile_interval_seconds for why this
+    exists even though the disbursement webhook is signed and verified
+    (unlike the checkout one): a safety net for a delayed/dropped/never-sent
+    delivery, not a replacement for a broken signal."""
+    logger.info("disbursement_reconciliation_loop_running interval_seconds=%s", interval_seconds)
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            client = get_supabase_admin()
+            summary = await reconcile_pending_disbursements(client)
+            logger.info("scheduled_disbursement_reconciliation %s", summary)
+        except Exception:
+            logger.exception("scheduled_disbursement_reconciliation_failed")
+
+
+def _start_disbursement_reconciliation_task() -> asyncio.Task | None:
+    """Same split-out-for-testability shape as
+    _start_checkout_reconciliation_task above."""
+    interval = settings.selcom_disbursement_reconcile_interval_seconds
+    if interval <= 0:
+        logger.info("disbursement_reconciliation_scheduler_disabled interval_seconds=%s", interval)
+        return None
+    logger.info("disbursement_reconciliation_scheduler_started interval_seconds=%s", interval)
+    return asyncio.create_task(_disbursement_reconciliation_loop(interval))
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    task = _start_checkout_reconciliation_task()
+    tasks = [
+        task
+        for task in (_start_checkout_reconciliation_task(), _start_disbursement_reconciliation_task())
+        if task is not None
+    ]
     try:
         yield
     finally:
-        if task is not None:
+        for task in tasks:
             task.cancel()
+        for task in tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 

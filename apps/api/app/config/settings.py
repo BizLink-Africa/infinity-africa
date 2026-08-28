@@ -191,6 +191,19 @@ class Settings(BaseSettings):
     # in Railway to actually enable it.
     selcom_checkout_reconcile_interval_seconds: int = 0
 
+    # Same idea as selcom_checkout_reconcile_interval_seconds above, for
+    # withdrawals — see app/services/disbursements.py::
+    # reconcile_pending_disbursements and app/main.py's lifespan startup
+    # task. Unlike checkout collections, the Selcom Business disbursement
+    # webhook (app/routers/webhooks.py::selcom_webhook) is signed and
+    # verified successfully, so this isn't compensating for a broken
+    # inbound signal — it's a safety net for a delivery that's delayed,
+    # dropped, or never sent, so a withdrawal doesn't sit PROCESSING
+    # forever waiting on a human to click "Refresh Status". 0 (the
+    # default) disables it entirely. Set a real interval (e.g. 120) in
+    # Railway to actually enable it.
+    selcom_disbursement_reconcile_interval_seconds: int = 0
+
     # Hosted checkout (payment_gateway_url from create-order-minimal) —
     # confirmed broken on Selcom's own side as of 2026-08-23 (returns
     # "Page Not Found" for every order tested — see
