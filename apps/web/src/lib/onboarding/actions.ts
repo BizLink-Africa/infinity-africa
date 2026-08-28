@@ -40,6 +40,7 @@ export async function submitOnboardingAction(_prevState: FormState, formData: Fo
   const businessCategory = String(formData.get("businessCategory") ?? "").trim();
   const physicalAddress = String(formData.get("physicalAddress") ?? "").trim();
   const regionCity = String(formData.get("regionCity") ?? "").trim();
+  const contactPhone = String(formData.get("contactPhone") ?? "").trim();
   const websiteOrAppLink = String(formData.get("websiteOrAppLink") ?? "").trim();
 
   const servicesNeeded = formData
@@ -57,6 +58,7 @@ export async function submitOnboardingAction(_prevState: FormState, formData: Fo
   if (!businessCategory) errors.businessCategory = ["Business category is required."];
   if (!physicalAddress) errors.physicalAddress = ["Physical address is required."];
   if (!regionCity) errors.regionCity = ["Region/city is required."];
+  if (!contactPhone) errors.contactPhone = ["Contact phone number is required."];
   if (servicesNeeded.length === 0) errors.servicesNeeded = ["Select at least one service you need."];
 
   const nidaFile = validateDocument(formData.get("nidaDocument"), errors, "nidaDocument", "NIDA upload");
@@ -67,7 +69,15 @@ export async function submitOnboardingAction(_prevState: FormState, formData: Fo
   if (!agreedToPrivacy) errors.agreedToPrivacy = ["You must agree to the Infinity Africa Privacy Policy."];
   if (!confirmedAccurate) errors.confirmedAccurate = ["You must confirm the information provided is accurate."];
 
-  const values = { businessName, natureOfBusiness, businessCategory, physicalAddress, regionCity, websiteOrAppLink };
+  const values = {
+    businessName,
+    natureOfBusiness,
+    businessCategory,
+    physicalAddress,
+    regionCity,
+    contactPhone,
+    websiteOrAppLink,
+  };
 
   if (Object.keys(errors).length > 0) {
     return { errors, values };
@@ -81,7 +91,7 @@ export async function submitOnboardingAction(_prevState: FormState, formData: Fo
       physical_address: physicalAddress,
       region_city: regionCity,
       website_url: websiteOrAppLink || null,
-      contact_phone: user.phone,
+      contact_phone: contactPhone,
       services_needed: servicesNeeded,
       accepted_terms: agreedToTerms,
       accepted_privacy: agreedToPrivacy,

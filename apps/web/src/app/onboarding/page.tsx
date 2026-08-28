@@ -11,7 +11,7 @@ export const metadata = {
 };
 
 export default async function OnboardingPage() {
-  await requireCurrentUser("/merchant/login");
+  const user = await requireCurrentUser("/merchant/login");
 
   const onboarding = await getOnboardingStatus();
   if (onboarding?.next_path === "/merchant/overview") {
@@ -32,7 +32,7 @@ export default async function OnboardingPage() {
           <p className="text-sm text-on-surface-variant mb-10">
             Complete your business details and upload compliance documents to submit your account for verification.
           </p>
-          <OnboardingForm accountStatus={onboarding?.account_status ?? null} />
+          <OnboardingForm accountStatus={onboarding?.account_status ?? null} defaultPhone={user.phone} />
         </div>
       </main>
       <Footer />

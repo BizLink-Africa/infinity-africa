@@ -18,7 +18,18 @@ const sectionHeadingClass = "text-lg font-semibold text-on-surface";
 // offered as a "services needed" interest checkbox during onboarding.
 const SERVICES = Object.values(ServiceNeeded).filter((service) => service !== ServiceNeeded.DYNAMIC_QR);
 
-export function OnboardingForm({ accountStatus }: { accountStatus: AccountStatus | null }) {
+export function OnboardingForm({
+  accountStatus,
+  defaultPhone,
+}: {
+  accountStatus: AccountStatus | null;
+  // The phone number on file from signup — pre-fills the field below so a
+  // merchant whose number is already valid doesn't have to retype it, but
+  // stays editable since this is the only chance to fix it before
+  // submission (submitOnboardingAction sends whatever's in this field, not
+  // the account's stored value directly — see its own comment).
+  defaultPhone: string;
+}) {
   const [state, action, pending] = useActionState(submitOnboardingAction, null);
   const values = state?.values ?? {
     businessName: "",
@@ -27,6 +38,7 @@ export function OnboardingForm({ accountStatus }: { accountStatus: AccountStatus
     physicalAddress: "",
     regionCity: "",
     websiteOrAppLink: "",
+    contactPhone: defaultPhone,
   };
 
   const needsResubmission = accountStatus === AccountStatus.REJECTED || accountStatus === AccountStatus.INFO_REQUESTED;
@@ -126,6 +138,25 @@ export function OnboardingForm({ accountStatus }: { accountStatus: AccountStatus
               </p>
             ))}
           </div>
+        </div>
+
+        <div>
+          <label htmlFor="contactPhone" className={labelClass}>
+            Contact Phone Number
+          </label>
+          <input
+            id="contactPhone"
+            name="contactPhone"
+            type="tel"
+            placeholder="e.g. 0747730270"
+            defaultValue={values.contactPhone}
+            className={inputClass}
+          />
+          {state?.errors?.contactPhone?.map((msg) => (
+            <p key={msg} className={errorClass}>
+              {msg}
+            </p>
+          ))}
         </div>
 
         <div>
