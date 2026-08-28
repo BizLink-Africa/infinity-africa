@@ -13,6 +13,19 @@ class Settings(BaseSettings):
 
     environment: str = "development"
 
+    # Every logger in this app is named "infinity.X" (logging.getLogger(
+    # "infinity.scheduler"), "infinity.webhooks", etc.) — see
+    # app/main.py::_configure_logging, which sets this level on their
+    # shared "infinity" parent logger. Nothing configured Python's
+    # logging system at all before this existed, which meant every
+    # logger.info()/.debug() call was silently dropped in production
+    # (the root logger defaults to WARNING with no handler) — only
+    # .warning()/.error()/.exception() calls were ever visible in
+    # Railway logs. Confirmed 2026-08-28 investigating why the checkout
+    # reconciliation scheduler's own startup/sweep confirmation logs
+    # never appeared even though the scheduler was running correctly.
+    log_level: str = "INFO"
+
     # Supabase
     supabase_url: str = ""
     supabase_service_role_key: str = ""

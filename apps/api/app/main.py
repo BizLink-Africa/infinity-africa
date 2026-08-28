@@ -39,6 +39,36 @@ from app.services.checkout_reconciliation import reconcile_pending_checkout_coll
 
 settings = get_settings()
 
+
+def _configure_logging(level: str) -> None:
+    """Every logger in this app is named "infinity.X" (see
+    Settings.log_level's own docstring for the full story of why this
+    exists) — configuring their shared "infinity" parent logger, rather
+    than the root logger via logging.basicConfig(), covers all of them
+    through normal logger-hierarchy propagation without touching the
+    root logger at all. That matters: touching the root logger risks
+    interfering with anything else already managing it (uvicorn's own
+    "uvicorn"/"uvicorn.error"/"uvicorn.access" loggers, and — the reason
+    this isn't just logging.basicConfig() — pytest's caplog fixture,
+    which attaches its own handler to the root logger during tests).
+    propagate=False on the "infinity" logger stops messages also
+    bubbling up to the root logger and potentially double-printing if
+    something else ever does configure it.
+
+    Idempotent: safe to call more than once (e.g. if a future test ever
+    imports this module multiple times) — checks for an existing handler
+    before adding another."""
+    infinity_logger = logging.getLogger("infinity")
+    infinity_logger.setLevel(level.upper())
+    if not infinity_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        infinity_logger.addHandler(handler)
+    infinity_logger.propagate = False
+
+
+_configure_logging(settings.log_level)
+
 logger = logging.getLogger("infinity.scheduler")
 
 

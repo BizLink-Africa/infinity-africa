@@ -239,6 +239,32 @@ never kills the loop — the next tick tries again. **Set a real value
 (e.g. `120`) in Railway** to actually enable auto-crediting; leave at `0`
 for local dev/tests, where no background task should run unexpectedly.
 
+**Confirming it's actually running, from Railway logs**: search for
+`checkout_reconciliation_scheduler_started` (logged once at boot, with
+the configured interval) and `checkout_reconciliation_sweep_starting`
+(logged on *every* tick, even when there's nothing pending — deliberately,
+so "is this running at all" doesn't require waiting for a real pending
+collection to show up). If neither ever appears despite
+`SELCOM_CHECKOUT_RECONCILE_INTERVAL_SECONDS` being set correctly on the
+right service, check `LOG_LEVEL` next (see below) before assuming the
+scheduler itself is broken — an unconfigured logging level silently
+drops these exact log calls without the scheduler being at fault at all.
+
+**Logging (`LOG_LEVEL`, 2026-08-28 finding)**: before this was added,
+nothing anywhere in this codebase ever configured Python's logging
+system — every `logger.info()` call in the entire app (not just the
+scheduler's) was silently dropped, because the root logger defaults to
+`WARNING` with no handler attached. Only `.warning()`/`.error()`/
+`.exception()` calls were ever visible in Railway logs. This is exactly
+why the scheduler's own startup/sweep confirmation logs never appeared,
+even on a deploy confirmed to be running the correct code — the
+scheduler itself was very likely fine the whole time. `app/main.py::
+_configure_logging` fixes this by configuring the shared `"infinity"`
+parent logger (every logger in this app is named `"infinity.X"`) rather
+than the root logger, specifically to avoid interfering with pytest's
+own root-logger-based log capture in tests. `LOG_LEVEL` (env var,
+default `INFO`) controls the level.
+
 ## Order status query
 
 ```
