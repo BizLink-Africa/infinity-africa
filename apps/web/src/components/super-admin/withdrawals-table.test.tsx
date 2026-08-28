@@ -28,6 +28,7 @@ const pendingRow: AdminWithdrawalRow = {
   total_charges: "1800.00",
   total_reserved_amount: "101800.00",
   recipient_net_amount: "100000.00",
+  available_balance: "500000.00",
   pricing_rule_id: null,
   rejection_reason: null,
   admin_status_reason: null,

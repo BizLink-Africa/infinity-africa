@@ -18,10 +18,27 @@ Every withdrawal is created PENDING_ADMIN_APPROVAL with its fee breakdown
 (see app/services/withdrawals/fee_calculator.py) frozen onto the row —
 approving it later uses that stored snapshot, never recalculates. Rejecting
 one never reserved anything, so there's nothing to reverse.
+
+TODO(balance reservation): a PENDING_ADMIN_APPROVAL withdrawal does not
+formally reserve/lock any balance — get_wallet_balance() at request time
+is only a friendly up-front check (see its own docstring). Two merchants
+(or two requests from the same merchant) can both be created against the
+same available balance while both sit pending. This is safe today, not
+an oversight: the only place money actually moves is approve_disbursement
+-> _reserve_and_run_disbursement_provider -> post_disbursement_entries,
+an atomic Postgres RPC that re-checks live balance and can never take a
+wallet negative — so if two pending withdrawals together exceed what's
+actually available, whichever is approved second simply fails cleanly at
+that point (marked FAILED, nothing reversed since nothing was posted) and
+its balance check runs again if reattempted. If a merchant's own UX ever
+needs to *see* a "pending" hold reflected in their displayed available
+balance (rather than just correctly rejecting whichever approval doesn't
+fit), that's new reservation infrastructure to build, not a bug to fix.
 """
 
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from supabase import Client
@@ -96,19 +113,56 @@ def _check_no_open_high_risk_alerts(client: Client, *, merchant_id: uuid.UUID) -
         )
 
 
-def _check_pilot_amount_limit(amount: Decimal) -> None:
-    """Controlled production pilot guardrail
-    (docs/withdrawal-production-pilot-checklist.md) — an extra, temporary
-    cap on top of the platform's normal withdrawal validation, active only
-    while WITHDRAWAL_PILOT_MODE=true. Not a permanent business rule; turn
-    the env var off once the pilot is reconciled and approved to expand."""
+def _check_withdrawal_amount_limits(client: Client, *, merchant_id: uuid.UUID, amount: Decimal) -> None:
+    """Backend-controlled withdrawal amount guardrails for MVP launch —
+    see Settings.min_withdrawal_amount_tzs/max_withdrawal_amount_tzs/
+    daily_withdrawal_limit_tzs. Supersedes the old, temporary
+    WITHDRAWAL_PILOT_MODE cap (docs/withdrawal-production-pilot-checklist.md)
+    now that real collections/withdrawals have been tested successfully —
+    these are permanent production limits, not a togglable pilot. The
+    frontend never decides these; this is the sole enforcement point,
+    called from execute_disbursement before any withdrawal row is
+    written."""
     settings = get_settings()
-    if not settings.withdrawal_pilot_mode:
-        return
-    if amount > settings.withdrawal_pilot_max_amount_tzs:
+    if amount < settings.min_withdrawal_amount_tzs:
+        raise WithdrawalRestrictedError(f"Minimum withdrawal amount is {settings.min_withdrawal_amount_tzs} TZS.")
+    if amount > settings.max_withdrawal_amount_tzs:
         raise WithdrawalRestrictedError(
-            f"Withdrawals are currently limited to {settings.withdrawal_pilot_max_amount_tzs} TZS "
-            "during the production pilot. Contact Infinity Africa if you need a higher limit."
+            f"Maximum withdrawal amount is {settings.max_withdrawal_amount_tzs} TZS per request."
+        )
+    _check_daily_withdrawal_limit(client, merchant_id=merchant_id, amount=amount)
+
+
+def _check_daily_withdrawal_limit(client: Client, *, merchant_id: uuid.UUID, amount: Decimal) -> None:
+    """Rolling 24-hour cumulative cap per merchant — sums every withdrawal
+    this merchant has requested in the last 24 hours that hasn't been
+    REJECTED/FAILED (a rejected/failed request never actually moved
+    money, so it doesn't count against the cap), plus this new request,
+    and rejects if that total would exceed
+    Settings.daily_withdrawal_limit_tzs. Deliberately counts every other
+    status (PENDING_ADMIN_APPROVAL/INFO_REQUESTED/PROCESSING/SUCCESS/
+    NEEDS_RECONCILIATION) — a still-pending request already represents
+    money the merchant intends to withdraw today, not just what's
+    already been paid out. Filters in Python rather than a DB `not in`
+    query, matching this codebase's simple Supabase query-builder
+    conventions elsewhere in this file."""
+    settings = get_settings()
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    rows = (
+        client.table("disbursements")
+        .select("amount, status")
+        .eq("merchant_id", str(merchant_id))
+        .gte("initiated_at", cutoff)
+        .execute()
+    ).data or []
+    already_requested_today = sum(
+        (Decimal(str(row["amount"])) for row in rows if row["status"] not in ("REJECTED", "FAILED")),
+        Decimal(0),
+    )
+    if already_requested_today + amount > settings.daily_withdrawal_limit_tzs:
+        raise WithdrawalRestrictedError(
+            f"This withdrawal would exceed the daily withdrawal limit of {settings.daily_withdrawal_limit_tzs} "
+            f"TZS (already requested in the last 24 hours: {already_requested_today} TZS)."
         )
 
 
@@ -147,7 +201,7 @@ async def execute_disbursement(
     path; only approve_disbursement (below) ever reaches the provider."""
     _check_merchant_is_verified(client, merchant_id=merchant_id)
     _check_no_open_high_risk_alerts(client, merchant_id=merchant_id)
-    _check_pilot_amount_limit(amount)
+    _check_withdrawal_amount_limits(client, merchant_id=merchant_id, amount=amount)
 
     breakdown = calculate_withdrawal_fee(
         client, merchant_id=merchant_id, amount=amount, channel=method, destination_code=destination_code
@@ -215,11 +269,26 @@ async def execute_disbursement(
 async def approve_disbursement(
     client: Client, *, disbursement_id: uuid.UUID, approver_id: uuid.UUID
 ) -> dict:
+    """Re-checks the same merchant-standing/risk gates execute_disbursement
+    applied at request time, since time has passed and either could have
+    changed since then (the merchant could have been suspended, or a new
+    high-risk fraud alert could have opened, after this withdrawal was
+    requested but before a Super Admin got to it) — a Super Admin approving
+    a request that looked fine hours or days ago must not skip a gate that
+    would block a brand-new request right now. Available balance itself is
+    re-checked separately and atomically inside
+    _reserve_and_run_disbursement_provider -> post_disbursement_entries
+    (the Postgres RPC), not here — this only re-checks the two gates that
+    live in application code."""
     disbursement = get_by_id(client, "disbursements", disbursement_id)
     if not disbursement:
         raise NotFoundError("Disbursement not found")
     if disbursement["status"] != "PENDING_ADMIN_APPROVAL":
         raise ConflictError("This withdrawal isn't awaiting approval")
+
+    merchant_id = uuid.UUID(disbursement["merchant_id"])
+    _check_merchant_is_verified(client, merchant_id=merchant_id)
+    _check_no_open_high_risk_alerts(client, merchant_id=merchant_id)
 
     disbursement = update_row(
         client,
@@ -266,6 +335,12 @@ def reject_disbursement(
         related_resource_type="disbursement",
         related_resource_id=disbursement_id,
     )
+    # TODO(email): no send_withdrawal_rejection_email exists yet — a
+    # rejected withdrawal today only reaches the merchant via the in-app
+    # notification above, not email. Add one mirroring
+    # send_withdrawal_success_email's shape (app/services/email.py) if/when
+    # merchants need an email for this specifically, same as the request
+    # and success emails already send.
     return disbursement
 
 

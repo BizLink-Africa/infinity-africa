@@ -92,6 +92,7 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                   <th className={thClass}>Destination</th>
                   <th className={thClass}>Method</th>
                   <th className={thClass}>Amount</th>
+                  <th className={thClass}>Available Balance</th>
                   <th className={thClass}>Fees</th>
                   <th className={thClass}>Total Reserved</th>
                   <th className={thClass}>Recipient Receives</th>
@@ -100,7 +101,9 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {queue.map((request) => (
+                {queue.map((request) => {
+                  const insufficientBalance = Number(request.available_balance) < Number(request.total_reserved_amount ?? request.amount);
+                  return (
                   <Fragment key={request.withdrawal_id}>
                     <tr className="border-t border-surface-container-highest">
                       <td className={tdClass}>
@@ -117,6 +120,9 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                       </td>
                       <td className={`${tdClass} text-on-surface-variant`}>{DISBURSEMENT_METHOD_LABELS[request.method]}</td>
                       <td className={`${tdClass} font-semibold text-on-background`}>{formatCurrency(request.amount, request.currency)}</td>
+                      <td className={`${tdClass} ${insufficientBalance ? "text-red-600 font-semibold" : "text-on-surface-variant"}`}>
+                        {formatCurrency(request.available_balance, request.currency)}
+                      </td>
                       <td className={`${tdClass} text-on-surface-variant`}>{formatCurrency(request.total_charges, request.currency)}</td>
                       <td className={tdClass}>{formatCurrency(request.total_reserved_amount ?? request.amount, request.currency)}</td>
                       <td className={tdClass}>{formatCurrency(request.recipient_net_amount ?? request.amount, request.currency)}</td>
@@ -145,7 +151,7 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                     </tr>
                     {expandedRejectId === request.withdrawal_id && (
                       <tr className="border-t border-surface-container-highest bg-surface-container-low">
-                        <td className={tdClass} colSpan={9}>
+                        <td className={tdClass} colSpan={10}>
                           <form
                             action={rejectWithdrawalAction.bind(null, request.withdrawal_id)}
                             className="flex items-center gap-2"
@@ -165,7 +171,7 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                     )}
                     {expandedInfoId === request.withdrawal_id && (
                       <tr className="border-t border-surface-container-highest bg-surface-container-low">
-                        <td className={tdClass} colSpan={9}>
+                        <td className={tdClass} colSpan={10}>
                           <form
                             action={requestInfoWithdrawalAction.bind(null, request.withdrawal_id)}
                             className="flex items-center gap-2"
@@ -189,7 +195,8 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                       </tr>
                     )}
                   </Fragment>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

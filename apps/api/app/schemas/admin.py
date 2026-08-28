@@ -178,6 +178,13 @@ class AdminWithdrawalResponse(BaseModel):
     total_charges: Decimal = Decimal(0)
     total_reserved_amount: Decimal | None = None
     recipient_net_amount: Decimal | None = None
+    # The merchant's *current* wallet balance (not a snapshot from request
+    # time) — lets a Super Admin see at a glance whether this request can
+    # actually be covered before approving. See
+    # app/services/admin_directory.py::batch_wallet_balances. A merchant
+    # with no ledger_accounts row yet (never received a payment) shows 0,
+    # not null.
+    available_balance: Decimal = Decimal(0)
     pricing_rule_id: uuid.UUID | None = None
     rejection_reason: str | None = None
     admin_status_reason: str | None = None

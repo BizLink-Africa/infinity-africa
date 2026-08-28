@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from app.auth import require_super_admin
+from app.core.rate_limit import rate_limit
 from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.common import APIResponse
@@ -40,6 +41,7 @@ router = APIRouter(prefix="/admin/withdrawals", tags=["admin-withdrawals"])
 async def approve_withdrawal(
     disbursement_id: uuid.UUID,
     admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="withdrawal_approval", limit=60, window_seconds=60))],
 ):
     client = get_supabase_admin()
     disbursement = await approve_disbursement(client, disbursement_id=disbursement_id, approver_id=admin.id)
@@ -61,6 +63,7 @@ def reject_withdrawal(
     disbursement_id: uuid.UUID,
     payload: WithdrawalRejectRequest,
     admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="withdrawal_approval", limit=60, window_seconds=60))],
 ):
     client = get_supabase_admin()
     disbursement = reject_disbursement(

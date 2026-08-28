@@ -50,6 +50,7 @@ from app.services.admin_directory import (
     batch_merchant_codes,
     batch_merchant_names,
     batch_user_profiles,
+    batch_wallet_balances,
 )
 from app.services.admin_overview import get_admin_overview
 from app.services.api_access import is_production_api_access_allowed
@@ -692,6 +693,7 @@ def list_admin_withdrawals(
     rows = result.data or []
     merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
     merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
+    wallet_balances = batch_wallet_balances(client, {r["merchant_id"] for r in rows})
     resource_ids = {r["id"] for r in rows}
     request_emails = batch_latest_email_deliveries(
         client,
@@ -721,6 +723,7 @@ def list_admin_withdrawals(
             total_charges=row.get("total_charges") or Decimal(0),
             total_reserved_amount=row.get("total_reserved_amount"),
             recipient_net_amount=row.get("recipient_net_amount"),
+            available_balance=wallet_balances.get(row["merchant_id"], "0"),
             pricing_rule_id=row.get("pricing_rule_id"),
             rejection_reason=row.get("rejection_reason"),
             admin_status_reason=row.get("admin_status_reason"),

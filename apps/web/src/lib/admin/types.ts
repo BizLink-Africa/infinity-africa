@@ -166,6 +166,9 @@ export interface AdminWithdrawalRow {
   total_charges: string;
   total_reserved_amount: string | null;
   recipient_net_amount: string | null;
+  /** The merchant's current wallet balance (not a request-time snapshot) — see
+   * apps/api/app/schemas/admin.py::AdminWithdrawalResponse.available_balance. */
+  available_balance: string;
   pricing_rule_id: string | null;
   rejection_reason: string | null;
   admin_status_reason: string | null;

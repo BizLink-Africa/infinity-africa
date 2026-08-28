@@ -12,6 +12,7 @@ from app.auth import require_role
 from app.config import get_settings
 from app.core.errors import NotFoundError, ValidationAPIError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
+from app.core.rate_limit import rate_limit
 from app.core.time import utc_now_iso
 from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedUser
@@ -95,7 +96,10 @@ async def selcom_webhook_reachability_check():
 
 
 @callback_router.post("/selcom", response_model=APIResponse[dict])
-async def selcom_webhook(request: Request):
+async def selcom_webhook(
+    request: Request,
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="selcom_webhook", limit=120, window_seconds=60))],
+):
     """Where a real Selcom callback would land, resolving a collection or
     disbursement that was left `processing`. In SELCOM_MODE=mock (the
     default — see MockSelcomClient) nothing ever calls this, since the mock
@@ -216,7 +220,10 @@ async def selcom_checkout_webhook_reachability_check():
 
 
 @callback_router.post("/selcom/checkout", response_model=APIResponse[dict])
-async def selcom_checkout_webhook(request: Request):
+async def selcom_checkout_webhook(
+    request: Request,
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="selcom_checkout_webhook", limit=120, window_seconds=60))],
+):
     """Selcom Checkout's webhook callback — the async resolution path for
     a wallet-push collection left "processing" after
     process_wallet_payment()'s usual PENDING/111 response

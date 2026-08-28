@@ -72,6 +72,19 @@ _configure_logging(settings.log_level)
 
 logger = logging.getLogger("infinity.scheduler")
 
+if not settings.require_admin_approval_for_all_withdrawals:
+    # See Settings.require_admin_approval_for_all_withdrawals's own
+    # docstring: this flag documents an architectural invariant, it
+    # cannot actually disable approval (no code path exists for that) —
+    # a False value here means someone misconfigured Railway, not that
+    # withdrawals are actually unapproved. Loud and early so it's caught
+    # in deploy logs immediately rather than discovered during an audit.
+    logging.getLogger("infinity.config").warning(
+        "REQUIRE_ADMIN_APPROVAL_FOR_ALL_WITHDRAWALS is set to false, but no code path in this "
+        "service can actually skip Super Admin approval for a withdrawal — this setting has no "
+        "effect other than this warning. Fix the misconfigured env var."
+    )
+
 
 async def _checkout_reconciliation_loop(interval_seconds: float) -> None:
     """Backend-initiated, webhook-independent sweep — see
@@ -102,10 +115,18 @@ def _start_checkout_reconciliation_task() -> asyncio.Task | None:
     """Split out from lifespan() so tests can exercise the start/no-start
     decision directly without spinning up the whole app. 0 (the
     default — see .env.example) disables it entirely, so local dev/tests
-    never have a background task running unless explicitly opted in."""
+    never have a background task running unless explicitly opted in.
+    ENABLE_AUTO_RECONCILIATION=false (Settings.enable_auto_reconciliation)
+    pauses this regardless of the interval — a single flag to stop both
+    reconciliation schedulers at once without separately zeroing each
+    interval var."""
     interval = settings.selcom_checkout_reconcile_interval_seconds
-    if interval <= 0:
-        logger.info("checkout_reconciliation_scheduler_disabled interval_seconds=%s", interval)
+    if not settings.enable_auto_reconciliation or interval <= 0:
+        logger.info(
+            "checkout_reconciliation_scheduler_disabled interval_seconds=%s enable_auto_reconciliation=%s",
+            interval,
+            settings.enable_auto_reconciliation,
+        )
         return None
     logger.info("checkout_reconciliation_scheduler_started interval_seconds=%s", interval)
     return asyncio.create_task(_checkout_reconciliation_loop(interval))
@@ -130,10 +151,15 @@ async def _disbursement_reconciliation_loop(interval_seconds: float) -> None:
 
 def _start_disbursement_reconciliation_task() -> asyncio.Task | None:
     """Same split-out-for-testability shape as
-    _start_checkout_reconciliation_task above."""
+    _start_checkout_reconciliation_task above, including the same
+    ENABLE_AUTO_RECONCILIATION gate."""
     interval = settings.selcom_disbursement_reconcile_interval_seconds
-    if interval <= 0:
-        logger.info("disbursement_reconciliation_scheduler_disabled interval_seconds=%s", interval)
+    if not settings.enable_auto_reconciliation or interval <= 0:
+        logger.info(
+            "disbursement_reconciliation_scheduler_disabled interval_seconds=%s enable_auto_reconciliation=%s",
+            interval,
+            settings.enable_auto_reconciliation,
+        )
         return None
     logger.info("disbursement_reconciliation_scheduler_started interval_seconds=%s", interval)
     return asyncio.create_task(_disbursement_reconciliation_loop(interval))

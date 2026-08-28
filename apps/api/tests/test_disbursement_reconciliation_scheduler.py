@@ -82,6 +82,15 @@ def test_scheduler_disabled_when_interval_is_negative(monkeypatch):
     assert task is None
 
 
+def test_scheduler_disabled_when_auto_reconciliation_flag_is_off(monkeypatch):
+    monkeypatch.setattr(main_module.settings, "selcom_disbursement_reconcile_interval_seconds", 120)
+    monkeypatch.setattr(main_module.settings, "enable_auto_reconciliation", False)
+
+    task = asyncio.run(_start_and_cancel())
+
+    assert task is None
+
+
 def test_loop_survives_a_failed_sweep_and_keeps_running(monkeypatch):
     calls = []
 

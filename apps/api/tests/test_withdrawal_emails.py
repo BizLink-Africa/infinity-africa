@@ -332,3 +332,47 @@ def test_super_admin_sees_no_success_email_status_before_approval(fake_client, f
     row = next(r for r in response.json()["data"] if r["withdrawal_id"] == body["id"])
     assert row["request_email_status"] == "sent"
     assert row["success_email_status"] is None
+
+
+# --- Super Admin: current available balance on the withdrawals list -------------
+
+
+def test_super_admin_sees_current_available_balance_not_a_request_time_snapshot(fake_client, fake_resend):
+    """available_balance (app/services/admin_directory.py::batch_wallet_balances)
+    reflects the merchant's *current* wallet balance, not whatever it was
+    when the withdrawal was requested — so a reviewer sees accurate,
+    up-to-date context, not stale data."""
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "1000000.00")
+    body = _request_withdrawal(merchant_id, admin_id, "50000.00")
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+
+    # Balance moves after the request was submitted, before it's reviewed.
+    for row in fake_client.table("ledger_accounts")._table.rows:
+        if row["merchant_id"] == str(merchant_id):
+            row["balance"] = "750000.00"
+
+    response = client.get("/v1/admin/withdrawals", headers=auth_headers(super_admin_id))
+    row = next(r for r in response.json()["data"] if r["withdrawal_id"] == body["id"])
+    assert row["available_balance"] == "750000.00"
+
+
+def test_super_admin_sees_zero_balance_for_a_merchant_with_no_wallet_account_yet(fake_client, fake_resend):
+    """A brand-new merchant with no ledger_accounts row at all must show
+    0, not null or an error — same "missing means zero" convention as
+    get_wallet_balance's own documented behavior."""
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "50000.00")
+    body = _request_withdrawal(merchant_id, admin_id, "1000.00")
+
+    # Remove the ledger account entirely to simulate "never had one".
+    fake_client.table("ledger_accounts")._table.rows.clear()
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+
+    response = client.get("/v1/admin/withdrawals", headers=auth_headers(super_admin_id))
+    row = next(r for r in response.json()["data"] if r["withdrawal_id"] == body["id"])
+    assert row["available_balance"] == "0"

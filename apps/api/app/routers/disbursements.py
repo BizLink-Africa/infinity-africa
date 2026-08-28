@@ -24,7 +24,9 @@ from app.auth import (
     get_authenticated_caller,
 )
 from app.core.errors import NotFoundError
+from app.core.feature_flags import require_withdrawals_enabled
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
+from app.core.rate_limit import rate_limit
 from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedCaller
 from app.schemas.common import APIResponse
@@ -56,6 +58,7 @@ async def _create_disbursement(
     caller: AuthenticatedCaller,
     idempotency_key: str,
 ) -> APIResponse[DisbursementResponse]:
+    require_withdrawals_enabled()
     authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
     client = get_supabase_admin()
 
@@ -102,6 +105,7 @@ async def create_selcom_pesa_disbursement(
     payload: PhoneDisbursementRequest,
     caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="withdrawal_request", limit=10, window_seconds=60))],
 ):
     return await _create_disbursement(DisbursementMethod.SELCOM_PESA, payload, caller, idempotency_key)
 
@@ -113,6 +117,7 @@ async def create_mobile_money_disbursement(
     payload: PhoneDisbursementRequest,
     caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="withdrawal_request", limit=10, window_seconds=60))],
 ):
     return await _create_disbursement(DisbursementMethod.MOBILE_MONEY, payload, caller, idempotency_key)
 
@@ -124,6 +129,7 @@ async def create_bank_account_disbursement(
     payload: BankAccountDisbursementRequest,
     caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="withdrawal_request", limit=10, window_seconds=60))],
 ):
     return await _create_disbursement(DisbursementMethod.BANK_ACCOUNT, payload, caller, idempotency_key)
 

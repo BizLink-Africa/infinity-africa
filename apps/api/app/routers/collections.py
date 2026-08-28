@@ -20,7 +20,9 @@ from app.auth import (
     require_role,
 )
 from app.core.errors import NotFoundError
+from app.core.feature_flags import require_collections_enabled
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
+from app.core.rate_limit import rate_limit
 from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedCaller, AuthenticatedUser
 from app.schemas.collections import (
@@ -71,6 +73,7 @@ async def _create_push_collection(
     caller: AuthenticatedCaller,
     idempotency_key: str,
 ) -> APIResponse[CollectionResponse]:
+    require_collections_enabled()
     authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
     require_api_key_scope(caller, "collections:write")
     client = get_supabase_admin()
@@ -133,6 +136,7 @@ async def create_ussd_push_collection(
     payload: PushCollectionRequest,
     caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="collection_create", limit=20, window_seconds=60))],
 ):
     return await _create_push_collection(CollectionMethod.USSD_PUSH, payload, caller, idempotency_key)
 
@@ -144,6 +148,7 @@ async def create_stk_push_collection(
     payload: PushCollectionRequest,
     caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="collection_create", limit=20, window_seconds=60))],
 ):
     return await _create_push_collection(CollectionMethod.STK_PUSH, payload, caller, idempotency_key)
 
@@ -155,6 +160,7 @@ async def create_selcom_pesa_push_collection(
     payload: PushCollectionRequest,
     caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="collection_create", limit=20, window_seconds=60))],
 ):
     return await _create_push_collection(CollectionMethod.SELCOM_PESA_PUSH, payload, caller, idempotency_key)
 
@@ -166,7 +172,9 @@ async def create_dynamic_qr_collection(
     payload: DynamicQrCollectionRequest,
     caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="collection_create", limit=20, window_seconds=60))],
 ):
+    require_collections_enabled()
     authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
     require_api_key_scope(caller, "collections:write")
     client = get_supabase_admin()

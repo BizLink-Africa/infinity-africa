@@ -1,5 +1,18 @@
 # Withdrawal Production Pilot Checklist
 
+> **Superseded (2026-08-28):** the pilot's `WITHDRAWAL_PILOT_MODE`/
+> `WITHDRAWAL_PILOT_MAX_AMOUNT_TZS` cap described here has been replaced by
+> permanent, always-on production limits (`MIN_WITHDRAWAL_AMOUNT_TZS`,
+> `MAX_WITHDRAWAL_AMOUNT_TZS`, `DAILY_WITHDRAWAL_LIMIT_TZS`) as the project
+> moves from this pilot to MVP launch — see
+> [`docs/MVP_LAUNCH_CHECKLIST.md`](./MVP_LAUNCH_CHECKLIST.md). **Remove
+> `WITHDRAWAL_PILOT_MODE`/`WITHDRAWAL_PILOT_MAX_AMOUNT_TZS` from Railway**
+> (they're no longer read by any code — `extra="ignore"` means leaving them
+> set is harmless but misleading) and set the three new vars instead. The
+> rest of this document (guardrails, test flow, stop conditions) still
+> reflects real, currently-accurate architecture — only §3/§6's specific
+> env vars are stale.
+
 A **controlled internal pilot**, not a public launch — one approved merchant,
 one verified real destination account, a small capped amount, manual
 Super Admin approval and observation on every transaction. For the general

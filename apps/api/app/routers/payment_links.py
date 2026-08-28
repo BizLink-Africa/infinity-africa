@@ -20,6 +20,8 @@ from app.auth import (
 )
 from app.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
+from app.core.feature_flags import require_collections_enabled
+from app.core.rate_limit import rate_limit
 from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedCaller
 from app.schemas.common import APIResponse
@@ -387,6 +389,7 @@ async def pay_payment_link(
     public_slug: str,
     payload: PaymentLinkPayRequest,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="payment_link_pay", limit=20, window_seconds=60))],
 ):
     """The "Choose how you want to pay" screen's single submit endpoint —
     dispatches to whichever of the three active methods the customer
@@ -395,6 +398,7 @@ async def pay_payment_link(
     /pay/wallet-push and /pay/checkout endpoints below are unchanged and
     still work (checkout gated off by settings.hosted_checkout_enabled),
     kept for any existing caller rather than removed."""
+    require_collections_enabled()
     if payload.method in ("WALLET_PUSH", "SELCOM_PESA") and not payload.customer_phone:
         raise ValidationAPIError("customer_phone is required for this payment method")
 
@@ -438,6 +442,7 @@ async def pay_payment_link_wallet_push(
     public_slug: str,
     payload: PaymentLinkWalletPushRequest,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="payment_link_pay", limit=20, window_seconds=60))],
 ):
     """Selcom Checkout's two-step create-order-minimal -> wallet-payment
     flow (Push STK/USSD/mobile money push), distinct from
@@ -446,6 +451,7 @@ async def pay_payment_link_wallet_push(
     merchant, posts a ledger entry, or marks this link PAID — see
     app/services/wallet_push.py's module docstring for why, and what's
     still missing before that can happen."""
+    require_collections_enabled()
     client = get_supabase_admin()
     link = execute_maybe_single(
         client.table("payment_links").select("*").eq("public_slug", public_slug).maybe_single()
@@ -502,6 +508,7 @@ async def pay_payment_link_checkout(
     public_slug: str,
     payload: PaymentLinkCheckoutRequest,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="payment_link_pay", limit=20, window_seconds=60))],
 ):
     """The single "Pay securely" flow (2026-08-23) — no channel to
     choose. Creates the Selcom order via create-order-minimal
@@ -516,6 +523,7 @@ async def pay_payment_link_checkout(
     settings.hosted_checkout_enabled rather than deleted, so this code
     path is ready the moment Selcom confirms a fix; no frontend calls
     this endpoint while the flag is off."""
+    require_collections_enabled()
     if not get_settings().hosted_checkout_enabled:
         raise ConflictError("Hosted checkout is currently disabled")
 

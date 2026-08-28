@@ -370,6 +370,25 @@ def test_developer_can_create_api_key(fake_client):
     assert body["scopes"] == ["collections:write", "collections:read"]
 
 
+def test_create_api_key_blocked_when_merchant_api_keys_disabled(fake_client, monkeypatch):
+    """ENABLE_MERCHANT_API_KEYS=false (app/core/feature_flags.py) must
+    block new key creation/rotation without touching any existing issued
+    key — see require_merchant_api_keys_enabled's own docstring."""
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
+    monkeypatch.setenv("ENABLE_MERCHANT_API_KEYS", "false")
+    get_settings.cache_clear()
+
+    response = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={"name": "Dev key", "scopes": ["collections:write"]},
+    )
+
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == "feature_disabled"
+    assert fake_client.table("api_keys")._table.rows == []
+
+
 def test_create_api_key_rejects_unknown_scope(fake_client):
     _merchant_id, user_id = _merchant_and_member(fake_client, role="DEVELOPER")
     response = client.post(

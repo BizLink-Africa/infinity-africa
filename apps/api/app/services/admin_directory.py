@@ -38,6 +38,30 @@ def batch_merchant_codes(client: Client, merchant_ids: set[str]) -> dict[str, st
     return {row["id"]: row["merchant_code"] for row in rows}
 
 
+def batch_wallet_balances(client: Client, merchant_ids: set[str]) -> dict[str, str]:
+    """id -> current merchant_wallet balance (as a string, matching every
+    other Decimal-shaped field these batch helpers return), for the Super
+    Admin withdrawal approval queue (app/routers/admin.py::list_admin_withdrawals) —
+    lets a reviewer see whether a merchant can actually cover a pending
+    request without a separate lookup. Deliberately read-only: unlike
+    app/services/ledger.py::get_wallet_balance, this never creates a
+    ledger_accounts row for a merchant that doesn't have one yet — a GET
+    endpoint must not have that side effect. A merchant with no
+    merchant_wallet row simply doesn't appear in the returned dict; callers
+    should treat a missing key as a balance of 0, same convention as
+    get_wallet_balance's own documented behavior for that case."""
+    if not merchant_ids:
+        return {}
+    rows = (
+        client.table("ledger_accounts")
+        .select("merchant_id, balance")
+        .in_("merchant_id", list(merchant_ids))
+        .eq("purpose", "merchant_wallet")
+        .execute()
+    ).data or []
+    return {row["merchant_id"]: str(row["balance"]) for row in rows}
+
+
 def batch_api_key_prefixes(client: Client, api_key_ids: set[str]) -> dict[str, str]:
     """id -> key_prefix, for join-on-display only — never selects hashed_key."""
     if not api_key_ids:

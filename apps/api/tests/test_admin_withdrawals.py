@@ -142,6 +142,57 @@ def test_approve_reserves_funds_and_calls_selcom(fake_client):
     assert any(e["event_name"] == "disbursement.success" for e in events)
 
 
+def test_approve_rechecks_merchant_standing_and_blocks_if_suspended_since_request(fake_client):
+    """The merchant could have been suspended after requesting but before
+    a Super Admin got to reviewing it — approval must re-check standing,
+    not just trust that it was fine at request time."""
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+    body = _request_withdrawal(merchant_id, admin_id, "4000.00")
+
+    fake_client.table("merchants")._table.rows[0]["status"] = "suspended"
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+    response = _approve(body["id"], super_admin_id)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "withdrawal_restricted"
+    # Never reserved — the merchant's balance is untouched and the
+    # withdrawal is still sitting PENDING_ADMIN_APPROVAL, not SUCCESS/FAILED.
+    assert _wallet_balance(fake_client, merchant_id) == Decimal("10000.00")
+    assert fake_client.table("disbursements")._table.rows[0]["status"] == "PENDING_ADMIN_APPROVAL"
+
+
+def test_approve_rechecks_risk_alerts_and_blocks_if_opened_since_request(fake_client):
+    """A new HIGH/CRITICAL fraud alert could have opened for this merchant
+    after the withdrawal was requested but before a Super Admin approved
+    it — approval must re-check, not just trust the request-time state."""
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+    body = _request_withdrawal(merchant_id, admin_id, "4000.00")
+
+    fake_client.seed(
+        "fraud_alerts",
+        {
+            "merchant_id": str(merchant_id),
+            "rule_code": "TEST_HIGH_RISK",
+            "risk_level": "HIGH",
+            "reason": "Opened after this withdrawal was already requested",
+            "status": "OPEN",
+        },
+    )
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+    response = _approve(body["id"], super_admin_id)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "withdrawal_restricted"
+    assert _wallet_balance(fake_client, merchant_id) == Decimal("10000.00")
+    assert fake_client.table("disbursements")._table.rows[0]["status"] == "PENDING_ADMIN_APPROVAL"
+
+
 def test_approve_uses_stored_snapshot_not_a_recalculation(fake_client):
     from tests.factories import create_pricing_rule
 

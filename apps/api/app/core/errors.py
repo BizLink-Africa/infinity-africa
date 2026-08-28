@@ -56,6 +56,19 @@ class WithdrawalRestrictedError(ConflictError):
     code = "withdrawal_restricted"
 
 
+class FeatureDisabledError(APIError):
+    """A Super Admin has flipped one of the ENABLE_COLLECTIONS/
+    ENABLE_WITHDRAWALS/ENABLE_MERCHANT_API_KEYS kill switches off in
+    Railway (see app/core/feature_flags.py and Settings — 'Production
+    safety switches') — new requests are paused; existing records stay
+    fully viewable. 503, not 403/409: this isn't about the caller's
+    permissions or a data conflict, the whole feature is temporarily
+    paused platform-wide."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "feature_disabled"
+
+
 class ProductionAccessRestrictedError(APIError):
     """A merchant tried to create/rotate a `live` API key before Super
     Admin enabled production API access for them (on top of already being

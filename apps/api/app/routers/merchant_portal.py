@@ -37,7 +37,9 @@ from fastapi import (
 from app.auth import get_current_user, hash_api_key, require_own_merchant_role
 from app.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
+from app.core.feature_flags import require_merchant_api_keys_enabled
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
+from app.core.rate_limit import rate_limit
 from app.core.references import generate_reference
 from app.core.request_ip import client_ip
 from app.core.time import utc_now_iso
@@ -1169,11 +1171,13 @@ def create_my_api_key(
     payload: ApiKeyCreate,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
     request: Request,
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="api_key_create", limit=10, window_seconds=60))],
 ):
     """Sandbox keys are self-service for any non-suspended merchant.
     Production (`live`) keys are ALSO self-service — no per-key Super Admin
     approval — but only once the merchant is approved/verified/priced (see
     app.services.api_access.check_production_api_access)."""
+    require_merchant_api_keys_enabled()
     client = get_supabase_admin()
     merchant = get_by_id(client, "merchants", membership.merchant_id) or {}
     if payload.environment == "live":
@@ -1309,6 +1313,7 @@ def rotate_my_api_key(
     api_key_id: uuid.UUID,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_DEVELOPER))],
     request: Request,
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="api_key_create", limit=10, window_seconds=60))],
 ):
     """Revokes the named key and creates a fresh one with the same
     name/environment/scopes/IP-whitelist choice in a single action — the
@@ -1317,6 +1322,7 @@ def rotate_my_api_key(
     the only way to get a usable key back). The new key's plaintext is
     returned exactly once, same rule as create_my_api_key — copy it now, it
     can never be retrieved again."""
+    require_merchant_api_keys_enabled()
     client = get_supabase_admin()
     old_row = get_by_id(client, "api_keys", api_key_id)
     if not old_row or uuid.UUID(old_row["merchant_id"]) != membership.merchant_id:

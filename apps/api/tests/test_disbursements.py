@@ -23,6 +23,7 @@ from tests.factories import (
     create_merchant,
     create_pricing_rule,
     make_merchant_member,
+    make_super_admin,
 )
 
 client = TestClient(app)
@@ -86,6 +87,26 @@ def _request_mobile_money(merchant_id: uuid.UUID, admin_id: uuid.UUID, amount: s
     )
 
 
+# --- ENABLE_WITHDRAWALS kill switch -------------------------------------------
+
+
+def test_withdrawal_request_blocked_when_withdrawals_disabled(fake_client, monkeypatch):
+    """ENABLE_WITHDRAWALS=false (app/core/feature_flags.py) must block new
+    withdrawal requests without touching balance/verification checks —
+    it's the first thing checked."""
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "10000.00")
+    monkeypatch.setenv("ENABLE_WITHDRAWALS", "false")
+    get_settings.cache_clear()
+
+    response = _request_mobile_money(merchant_id, admin_id, "1000.00")
+
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == "feature_disabled"
+    assert fake_client.table("disbursements")._table.rows == []
+    assert _wallet_balance(fake_client, merchant_id) == Decimal("10000.00")
+
+
 # --- merchant verification gate ----------------------------------------------
 
 
@@ -114,29 +135,33 @@ def test_suspended_merchant_cannot_withdraw_even_if_previously_verified(fake_cli
     assert response.json()["error"]["code"] == "withdrawal_restricted"
 
 
-# --- production pilot amount limit (docs/withdrawal-production-pilot-checklist.md) --
+# --- backend-controlled withdrawal amount limits (MVP launch) ---------------
+# Supersedes the old, temporary WITHDRAWAL_PILOT_MODE/
+# WITHDRAWAL_PILOT_MAX_AMOUNT_TZS pilot cap
+# (docs/withdrawal-production-pilot-checklist.md) — see
+# Settings.min_withdrawal_amount_tzs/max_withdrawal_amount_tzs/
+# daily_withdrawal_limit_tzs and
+# app/services/disbursements.py::_check_withdrawal_amount_limits.
 
 
-def test_pilot_mode_blocks_amount_above_max(fake_client, monkeypatch):
-    monkeypatch.setenv("WITHDRAWAL_PILOT_MODE", "true")
-    monkeypatch.setenv("WITHDRAWAL_PILOT_MAX_AMOUNT_TZS", "1000")
+def test_withdrawal_below_minimum_amount_is_rejected(fake_client, monkeypatch):
+    monkeypatch.setenv("MIN_WITHDRAWAL_AMOUNT_TZS", "1000")
     get_settings.cache_clear()
 
     merchant_id, admin_id = _merchant_and_admin(fake_client)
     _fund_wallet(fake_client, merchant_id, "10000.00")
 
-    response = _request_mobile_money(merchant_id, admin_id, "1500.00")
+    response = _request_mobile_money(merchant_id, admin_id, "500.00")
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "withdrawal_restricted"
-    assert "1000" in response.json()["error"]["message"]
+    assert "Minimum" in response.json()["error"]["message"]
     assert fake_client.table("disbursements")._table.rows == []
     assert _wallet_balance(fake_client, merchant_id) == Decimal("10000.00")
 
 
-def test_pilot_mode_allows_amount_at_max(fake_client, monkeypatch):
-    monkeypatch.setenv("WITHDRAWAL_PILOT_MODE", "true")
-    monkeypatch.setenv("WITHDRAWAL_PILOT_MAX_AMOUNT_TZS", "1000")
+def test_withdrawal_at_exactly_minimum_amount_is_allowed(fake_client, monkeypatch):
+    monkeypatch.setenv("MIN_WITHDRAWAL_AMOUNT_TZS", "1000")
     get_settings.cache_clear()
 
     merchant_id, admin_id = _merchant_and_admin(fake_client)
@@ -148,35 +173,128 @@ def test_pilot_mode_allows_amount_at_max(fake_client, monkeypatch):
     assert response.json()["data"]["status"] == "PENDING_ADMIN_APPROVAL"
 
 
-def test_pilot_mode_allows_amount_below_max(fake_client, monkeypatch):
-    monkeypatch.setenv("WITHDRAWAL_PILOT_MODE", "true")
-    monkeypatch.setenv("WITHDRAWAL_PILOT_MAX_AMOUNT_TZS", "1000")
+def test_withdrawal_above_maximum_amount_is_rejected(fake_client, monkeypatch):
+    monkeypatch.setenv("MAX_WITHDRAWAL_AMOUNT_TZS", "5000000")
     get_settings.cache_clear()
 
     merchant_id, admin_id = _merchant_and_admin(fake_client)
-    _fund_wallet(fake_client, merchant_id, "10000.00")
+    _fund_wallet(fake_client, merchant_id, "100000000.00")
 
-    response = _request_mobile_money(merchant_id, admin_id, "500.00")
+    response = _request_mobile_money(merchant_id, admin_id, "5000001.00")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "withdrawal_restricted"
+    assert "Maximum" in response.json()["error"]["message"]
+    assert fake_client.table("disbursements")._table.rows == []
+
+
+def test_withdrawal_at_exactly_maximum_amount_is_allowed(fake_client, monkeypatch):
+    monkeypatch.setenv("MAX_WITHDRAWAL_AMOUNT_TZS", "5000000")
+    get_settings.cache_clear()
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "100000000.00")
+
+    response = _request_mobile_money(merchant_id, admin_id, "5000000.00")
 
     assert response.status_code == 202, response.text
     assert response.json()["data"]["status"] == "PENDING_ADMIN_APPROVAL"
 
 
-def test_pilot_mode_off_does_not_limit_amount(fake_client, monkeypatch):
-    """WITHDRAWAL_PILOT_MODE defaults to false — a large withdrawal behaves
-    exactly as it always has, unaffected by WITHDRAWAL_PILOT_MAX_AMOUNT_TZS
-    even if that var happens to be set."""
-    monkeypatch.setenv("WITHDRAWAL_PILOT_MODE", "false")
-    monkeypatch.setenv("WITHDRAWAL_PILOT_MAX_AMOUNT_TZS", "1000")
+def test_large_withdrawal_within_limits_still_lands_pending_approval(fake_client, monkeypatch):
+    """A large amount, even right up against the configured max, still
+    always requires Super Admin approval — there is no auto-processing
+    branch regardless of amount."""
+    monkeypatch.setenv("MAX_WITHDRAWAL_AMOUNT_TZS", "5000000")
     get_settings.cache_clear()
 
     merchant_id, admin_id = _merchant_and_admin(fake_client)
-    _fund_wallet(fake_client, merchant_id, "10000.00")
+    _fund_wallet(fake_client, merchant_id, "100000000.00")
 
-    response = _request_mobile_money(merchant_id, admin_id, "5000.00")
+    response = _request_mobile_money(merchant_id, admin_id, "4999999.00")
 
     assert response.status_code == 202, response.text
     assert response.json()["data"]["status"] == "PENDING_ADMIN_APPROVAL"
+    assert response.json()["data"]["approved_by"] is None
+
+
+def test_daily_withdrawal_limit_blocks_cumulative_total(fake_client, monkeypatch):
+    """Two requests that individually fit under the per-request max can
+    still be blocked together once their sum crosses the rolling 24-hour
+    cap."""
+    monkeypatch.setenv("DAILY_WITHDRAWAL_LIMIT_TZS", "10000")
+    get_settings.cache_clear()
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "1000000.00")
+
+    first = _request_mobile_money(merchant_id, admin_id, "6000.00")
+    assert first.status_code == 202, first.text
+
+    second = _request_mobile_money(merchant_id, admin_id, "5000.00")
+
+    assert second.status_code == 409
+    assert second.json()["error"]["code"] == "withdrawal_restricted"
+    assert "daily withdrawal limit" in second.json()["error"]["message"]
+    # Only the first request was ever written.
+    assert len(fake_client.table("disbursements")._table.rows) == 1
+
+
+def test_daily_withdrawal_limit_allows_requests_at_exactly_the_cap(fake_client, monkeypatch):
+    monkeypatch.setenv("DAILY_WITHDRAWAL_LIMIT_TZS", "10000")
+    get_settings.cache_clear()
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "1000000.00")
+
+    first = _request_mobile_money(merchant_id, admin_id, "6000.00")
+    second = _request_mobile_money(merchant_id, admin_id, "4000.00")
+
+    assert first.status_code == 202, first.text
+    assert second.status_code == 202, second.text
+
+
+def test_daily_withdrawal_limit_excludes_rejected_requests(fake_client, monkeypatch):
+    """A rejected withdrawal never moved money, so it must not count
+    against the same merchant's remaining daily allowance."""
+    monkeypatch.setenv("DAILY_WITHDRAWAL_LIMIT_TZS", "10000")
+    get_settings.cache_clear()
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "1000000.00")
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+
+    first = _request_mobile_money(merchant_id, admin_id, "9000.00")
+    assert first.status_code == 202, first.text
+    first_id = first.json()["data"]["id"]
+
+    rejected = client.post(
+        f"/v1/admin/withdrawals/{first_id}/reject",
+        headers=auth_headers(super_admin_id),
+        json={"rejection_reason": "Testing daily-limit exclusion"},
+    )
+    assert rejected.status_code == 200, rejected.text
+
+    second = _request_mobile_money(merchant_id, admin_id, "9000.00")
+
+    assert second.status_code == 202, second.text
+
+
+def test_daily_withdrawal_limit_is_scoped_per_merchant(fake_client, monkeypatch):
+    monkeypatch.setenv("DAILY_WITHDRAWAL_LIMIT_TZS", "10000")
+    get_settings.cache_clear()
+
+    merchant_a, admin_a = _merchant_and_admin(fake_client)
+    merchant_b, admin_b = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_a, "1000000.00")
+    _fund_wallet(fake_client, merchant_b, "1000000.00")
+
+    first = _request_mobile_money(merchant_a, admin_a, "9000.00")
+    second = _request_mobile_money(merchant_b, admin_b, "9000.00")
+
+    assert first.status_code == 202, first.text
+    assert second.status_code == 202, second.text
 
 
 # --- insufficient balance (checked against total_reserved_amount) -----------
@@ -199,7 +317,7 @@ def test_disbursement_rejected_when_wallet_has_no_balance_at_all(fake_client):
     treats that as zero rather than erroring."""
     merchant_id, admin_id = _merchant_and_admin(fake_client)
 
-    response = _request_mobile_money(merchant_id, admin_id, "1.00")
+    response = _request_mobile_money(merchant_id, admin_id, "1000.00")
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "insufficient_balance"
@@ -211,9 +329,9 @@ def test_balance_check_includes_fee_not_just_principal(fake_client):
     is what's checked against available balance."""
     merchant_id, admin_id = _merchant_and_admin(fake_client)
     create_pricing_rule(fake_client, merchant_id=merchant_id, flat_fee="200")
-    _fund_wallet(fake_client, merchant_id, "1000.00")
+    _fund_wallet(fake_client, merchant_id, "1100.00")
 
-    response = _request_mobile_money(merchant_id, admin_id, "950.00")
+    response = _request_mobile_money(merchant_id, admin_id, "1000.00")
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "insufficient_balance"

@@ -2,8 +2,25 @@ import sys
 
 import pytest
 
+from app.core.rate_limit import _limiter as rate_limiter
 from app.database import session as session_module
 from tests.fakes import FakeSupabaseClient
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """app/core/rate_limit.py's limiter is a module-level singleton shared
+    across the whole test process (same as it would be across requests to
+    one real running app) — without resetting it, any test file whose
+    tests collectively call a rate-limited endpoint (e.g. POST
+    /v1/disbursements/mobile-money, limited to 10/min/IP) more than its
+    limit across the *whole session* starts getting real 429s later in
+    the run, nothing to do with that specific test. TestClient requests
+    have no real client IP, so every test in the whole suite shares one
+    "unknown" bucket per scope unless this resets between tests."""
+    rate_limiter._hits.clear()
+    yield
+    rate_limiter._hits.clear()
 
 
 @pytest.fixture

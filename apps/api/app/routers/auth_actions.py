@@ -3,9 +3,12 @@ Supabase directly from the browser — currently just forgot-password. Public
 (unauthenticated) by nature: the caller doesn't have a session yet.
 """
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 
 from app.config import get_settings
+from app.core.rate_limit import rate_limit
 from app.database.session import get_supabase_admin
 from app.schemas.auth import ForgotPasswordRequest
 from app.schemas.common import APIResponse
@@ -21,7 +24,10 @@ _GENERIC_MESSAGE = "If an account exists, we've sent password reset instructions
 
 
 @router.post("/forgot-password", response_model=APIResponse[dict])
-def forgot_password(payload: ForgotPasswordRequest):
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="forgot_password", limit=5, window_seconds=60))],
+):
     """Never raises, never returns a different message for a registered
     vs. unregistered email — send_password_reset_email already swallows
     every failure internally (missing account, Supabase error, Resend

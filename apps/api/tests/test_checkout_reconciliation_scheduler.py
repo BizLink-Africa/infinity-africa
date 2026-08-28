@@ -86,6 +86,18 @@ def test_scheduler_disabled_when_interval_is_negative(monkeypatch):
     assert task is None
 
 
+def test_scheduler_disabled_when_auto_reconciliation_flag_is_off(monkeypatch):
+    """ENABLE_AUTO_RECONCILIATION=false must pause this scheduler even
+    with a real positive interval configured — a single flag to stop
+    both reconciliation schedulers at once."""
+    monkeypatch.setattr(main_module.settings, "selcom_checkout_reconcile_interval_seconds", 120)
+    monkeypatch.setattr(main_module.settings, "enable_auto_reconciliation", False)
+
+    task = asyncio.run(_start_and_cancel())
+
+    assert task is None
+
+
 def test_loop_survives_a_failed_sweep_and_keeps_running(monkeypatch):
     """One bad tick (e.g. Selcom/DB unreachable) must never kill the loop
     for the rest of the app's lifetime — the next tick tries again."""

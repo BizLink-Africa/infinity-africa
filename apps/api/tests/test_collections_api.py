@@ -139,6 +139,32 @@ def test_create_collection_returns_payment_url(fake_client, monkeypatch):
     assert fake_client.table("ledger_entries")._table.rows == []
 
 
+def test_create_collection_blocked_when_collections_disabled(fake_client, monkeypatch):
+    """ENABLE_COLLECTIONS=false (app/core/feature_flags.py) must block new
+    collection creation without touching auth/idempotency — the check
+    runs first in every collection-creating endpoint."""
+    merchant_id, raw_key = _merchant_and_key(fake_client, monkeypatch)
+    monkeypatch.setenv("ENABLE_COLLECTIONS", "false")
+    get_settings.cache_clear()
+
+    response = client.post(
+        "/v1/collections",
+        headers=_headers(raw_key),
+        json={
+            "merchant_id": str(merchant_id),
+            "amount": 50000,
+            "currency": "TZS",
+            "customer_name": "Grace Mwakalinga",
+            "customer_phone": "255747730270",
+            "reference": "ORDER-4822",
+        },
+    )
+
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == "feature_disabled"
+    assert fake_client.table("payment_links")._table.rows == []
+
+
 def test_create_collection_wires_redirect_urls(fake_client, monkeypatch):
     merchant_id, raw_key = _merchant_and_key(fake_client, monkeypatch)
 

@@ -219,18 +219,40 @@ class Settings(BaseSettings):
 
     # Platform economics — simple placeholders until real pricing rules exist.
     platform_fee_percentage: Decimal = Decimal("1.5")
-    disbursement_approval_threshold: Decimal = Decimal(1000000)  # TZS
 
-    # Controlled production pilot guardrail (docs/withdrawal-production-pilot-checklist.md)
-    # — a temporary, extra amount cap on top of the platform's normal
-    # withdrawal validation, active only while WITHDRAWAL_PILOT_MODE=true.
-    # Rejects any merchant withdrawal request above the configured amount
-    # with a clear, distinct error rather than a generic validation
-    # failure. Turn WITHDRAWAL_PILOT_MODE off (the default) once the pilot
-    # is reconciled and approved to expand — never leave this on
-    # permanently as a substitute for real per-merchant pricing/limits.
-    withdrawal_pilot_mode: bool = False
-    withdrawal_pilot_max_amount_tzs: Decimal = Decimal(1000)
+    # Backend-controlled withdrawal amount guardrails for MVP launch —
+    # supersedes the old temporary WITHDRAWAL_PILOT_MODE/
+    # WITHDRAWAL_PILOT_MAX_AMOUNT_TZS cap
+    # (docs/withdrawal-production-pilot-checklist.md), which existed only
+    # to keep pilot withdrawals to TZS 1,000 while the end-to-end payout
+    # path was being proven. Real collections and withdrawals have since
+    # been tested successfully — see docs/MVP_LAUNCH_CHECKLIST.md — so
+    # this is now a permanent, always-on set of production limits rather
+    # than a togglable pilot cap. Enforced in
+    # app/services/disbursements.py::_check_withdrawal_amount_limits,
+    # called from execute_disbursement before any withdrawal row is
+    # written — the frontend never decides these, only displays whatever
+    # error message the backend returns.
+    min_withdrawal_amount_tzs: Decimal = Decimal(1000)
+    max_withdrawal_amount_tzs: Decimal = Decimal(5000000)
+    # Rolling 24-hour cumulative cap per merchant, across every
+    # non-rejected/non-failed withdrawal request in that window (a
+    # rejected/failed request never actually moved money, so it doesn't
+    # count against the cap) — catches "many small withdrawals" abuse a
+    # per-request max alone wouldn't.
+    daily_withdrawal_limit_tzs: Decimal = Decimal(10000000)
+
+    # Documents an architectural invariant rather than a real switch: no
+    # code path in this service lets a merchant-submitted withdrawal reach
+    # Selcom without a Super Admin calling approve_disbursement first (see
+    # execute_disbursement's own docstring) — there is no "off" to turn
+    # this to. Kept as an explicit, checkable setting (not just a comment)
+    # so ops/audit tooling can confirm the invariant from config alone;
+    # app/main.py logs a startup warning if this is ever set False, since
+    # no code actually honors a False value here — changing withdrawal
+    # approval policy would mean changing execute_disbursement/
+    # approve_disbursement themselves, not this flag.
+    require_admin_approval_for_all_withdrawals: bool = True
 
     # Transactional email (Resend) — see app/services/email.py and
     # docs/email-delivery.md. Backend/Railway only, NEVER set
@@ -282,6 +304,32 @@ class Settings(BaseSettings):
     # it — see the docs file for why.
     collection_auto_settle_enabled: bool = False
     collection_clearance_delay_minutes: int = 10
+
+    # Production safety switches — MVP launch kill switches, distinct from
+    # selcom_collection_enabled/selcom_withdrawal_enabled above (those two
+    # report whether Selcom credentials are configured at all; these
+    # control whether this backend currently accepts *new* requests,
+    # independent of provider config). All default True so nothing changes
+    # unless deliberately flipped off in Railway. Checked at the top of
+    # every collection-creating / withdrawal-creating endpoint (see
+    # app/core/feature_flags.py) — existing records always remain
+    # viewable/listable regardless of these flags; only new
+    # requests/writes are blocked. Flip ENABLE_COLLECTIONS or
+    # ENABLE_WITHDRAWALS to false in Railway for an immediate, whole-system
+    # pause without a redeploy of code — see docs/MVP_LAUNCH_CHECKLIST.md,
+    # "How to disable withdrawals/collections quickly".
+    enable_collections: bool = True
+    enable_withdrawals: bool = True
+    # Gates new API key creation/rotation only (app/routers/merchant_portal.py)
+    # — existing issued keys keep working (revoke them individually via
+    # the existing revoke endpoint if a key itself needs to be cut off).
+    enable_merchant_api_keys: bool = True
+    # ANDed with selcom_checkout_reconcile_interval_seconds /
+    # selcom_disbursement_reconcile_interval_seconds > 0 in app/main.py —
+    # sweeps never start if either this is False or the relevant interval
+    # is 0. A single flag to pause both schedulers at once without
+    # separately zeroing each interval var.
+    enable_auto_reconciliation: bool = True
 
     @model_validator(mode="after")
     def _reject_wildcard_cors_outside_development(self) -> "Settings":
