@@ -27,7 +27,12 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 interface ApiEnvelope<T> {
   success: boolean;
   data?: T;
-  error?: { code: string; message: string };
+  // `details` is only ever populated on a 422 (app/core/errors.py's
+  // RequestValidationError handler) — the raw list of Pydantic field
+  // errors. `message` alone is always the generic "Invalid request" for
+  // that case, which tells the merchant nothing about what to fix — see
+  // firstValidationMessage below.
+  error?: { code: string; message: string; details?: unknown };
 }
 
 export class OnboardingApiError extends Error {
@@ -36,6 +41,19 @@ export class OnboardingApiError extends Error {
     super(message);
     this.code = code;
   }
+}
+
+// Pulls the actual reason out of a 422's field-level error list, so the
+// merchant sees e.g. "must be a valid Tanzanian phone number..." instead
+// of a bare "Invalid request" with no indication of what to fix.
+function firstValidationMessage(details: unknown): string | null {
+  if (!Array.isArray(details) || details.length === 0) return null;
+  const first = details[0];
+  if (!first || typeof first !== "object" || typeof (first as { msg?: unknown }).msg !== "string") return null;
+  // Pydantic v2 prefixes a field_validator's raised ValueError with
+  // "Value error, " — strip it, it's an implementation detail no
+  // merchant should see.
+  return (first as { msg: string }).msg.replace(/^Value error,\s*/, "");
 }
 
 /** `accessToken` is only ever passed explicitly right after a fresh
@@ -50,7 +68,8 @@ async function authHeader(accessToken?: string): Promise<Record<string, string>>
 async function parseEnvelope<T>(res: Response): Promise<T> {
   const body: ApiEnvelope<T> = await res.json();
   if (!res.ok || !body.success || body.data === undefined) {
-    throw new OnboardingApiError(body.error?.message ?? "Request failed", body.error?.code);
+    const message = firstValidationMessage(body.error?.details) ?? body.error?.message ?? "Request failed";
+    throw new OnboardingApiError(message, body.error?.code);
   }
   return body.data;
 }
