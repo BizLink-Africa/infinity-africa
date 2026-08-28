@@ -22,7 +22,26 @@ interface PayResponseBody {
     payment_token: string | null;
     payment_gateway_url: string | null;
   };
-  error?: { message: string };
+  // `details` is only ever populated on a 422 (app/core/errors.py's
+  // RequestValidationError handler) — the raw list of Pydantic field
+  // errors, e.g. a rejected phone number. `message` alone is always the
+  // generic "Invalid request" for that case, which tells a customer
+  // nothing about what to fix — see firstValidationMessage below.
+  error?: { message: string; details?: unknown };
+}
+
+// Pulls the actual reason out of a 422's field-level error list, so a
+// customer sees e.g. "must be a valid Tanzanian phone number..." instead
+// of a bare "Invalid request" with no indication of what to fix or that
+// retrying with the same input will fail identically.
+function firstValidationMessage(details: unknown): string | null {
+  if (!Array.isArray(details) || details.length === 0) return null;
+  const first = details[0];
+  if (!first || typeof first !== "object" || typeof (first as { msg?: unknown }).msg !== "string") return null;
+  // Pydantic v2 prefixes a field_validator's raised ValueError with
+  // "Value error, " — strip it, it's an implementation detail no
+  // customer should see.
+  return (first as { msg: string }).msg.replace(/^Value error,\s*/, "");
 }
 
 interface CollectionStatusBody {
@@ -166,7 +185,9 @@ export function PaymentForm({ slug, link }: { slug: string; link: PublicPaymentL
 
       if (!response.ok || !body.success || !body.data) {
         setState("failed");
-        setErrorMessage(body.error?.message ?? "Something went wrong. Please try again.");
+        setErrorMessage(
+          firstValidationMessage(body.error?.details) ?? body.error?.message ?? "Something went wrong. Please try again.",
+        );
         return;
       }
 

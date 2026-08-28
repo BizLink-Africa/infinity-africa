@@ -227,6 +227,56 @@ describe("PaymentForm", () => {
     await waitFor(() => expect(screen.getByText("This payment attempt failed.")).toBeInTheDocument());
   });
 
+  it("shows the specific validation reason instead of the generic 'Invalid request' on a 422", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        success: false,
+        error: {
+          code: "validation_error",
+          message: "Invalid request",
+          details: [
+            {
+              type: "value_error",
+              loc: ["body", "customer_phone"],
+              msg: "Value error, must be a valid Tanzanian phone number (e.g. 255747730270, 0747730270, or 747730270)",
+              input: "not-a-phone",
+            },
+          ],
+        },
+      }),
+    });
+
+    render(<PaymentForm slug="test-slug" link={{ ...link, customer_phone: "255747730270" }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Pay by Mobile Money Push/ }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("must be a valid Tanzanian phone number (e.g. 255747730270, 0747730270, or 747730270)"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Invalid request")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the backend's top-level message when no field-level details are present", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        success: false,
+        error: { code: "conflict", message: "This payment link cannot be paid (status: EXPIRED)" },
+      }),
+    });
+
+    render(<PaymentForm slug="test-slug" link={{ ...link, customer_phone: "255747730270" }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Pay by Mobile Money Push/ }));
+
+    await waitFor(() =>
+      expect(screen.getByText("This payment link cannot be paid (status: EXPIRED)")).toBeInTheDocument(),
+    );
+  });
+
   it("polls the collection-status endpoint and shows cancelled/rejected copy distinctly from a generic failure", async () => {
     vi.useFakeTimers();
     try {
