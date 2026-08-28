@@ -49,28 +49,40 @@ async def _checkout_reconciliation_loop(interval_seconds: float) -> None:
     own docstring for why this, not the inbound webhook, is what actually
     keeps Selcom Checkout collections crediting in production. Runs for
     the lifetime of the app process; a single failed sweep is logged and
-    never crashes the loop (or the app) — the next tick tries again."""
+    never crashes the loop (or the app) — the next tick tries again.
+
+    Logs every tick unconditionally (not just when there's work) —
+    deliberately, so "is this actually running at all" is answerable from
+    Railway logs alone without waiting for a real pending collection to
+    show up. Per-collection detail (which id, what it resolved to) comes
+    from reconcile_pending_checkout_collections itself."""
+    logger.info("checkout_reconciliation_loop_running interval_seconds=%s", interval_seconds)
     while True:
         await asyncio.sleep(interval_seconds)
         try:
             client = get_supabase_admin()
             summary = await reconcile_pending_checkout_collections(client)
-            if summary["checked"]:
-                logger.info("scheduled_checkout_reconciliation %s", summary)
+            logger.info("scheduled_checkout_reconciliation %s", summary)
         except Exception:
             logger.exception("scheduled_checkout_reconciliation_failed")
 
 
+def _start_checkout_reconciliation_task() -> asyncio.Task | None:
+    """Split out from lifespan() so tests can exercise the start/no-start
+    decision directly without spinning up the whole app. 0 (the
+    default — see .env.example) disables it entirely, so local dev/tests
+    never have a background task running unless explicitly opted in."""
+    interval = settings.selcom_checkout_reconcile_interval_seconds
+    if interval <= 0:
+        logger.info("checkout_reconciliation_scheduler_disabled interval_seconds=%s", interval)
+        return None
+    logger.info("checkout_reconciliation_scheduler_started interval_seconds=%s", interval)
+    return asyncio.create_task(_checkout_reconciliation_loop(interval))
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    # 0 (the default — see .env.example) disables this entirely, so local
-    # dev/tests never have a background task running unless explicitly
-    # opted in.
-    task = None
-    if settings.selcom_checkout_reconcile_interval_seconds > 0:
-        task = asyncio.create_task(
-            _checkout_reconciliation_loop(settings.selcom_checkout_reconcile_interval_seconds)
-        )
+    task = _start_checkout_reconciliation_task()
     try:
         yield
     finally:

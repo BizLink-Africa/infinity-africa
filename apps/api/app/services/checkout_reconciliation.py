@@ -406,18 +406,34 @@ async def reconcile_pending_checkout_collections(client: Client) -> dict:
     collection just re-confirms the same already-settled outcome."""
     rows = (client.table("collections").select("id, checkout_order_id, status").eq("status", "processing").execute()).data or []
     pending_with_order = [row for row in rows if row.get("checkout_order_id")]
+    # Logged every sweep, even 0/0 — the point is being able to tell from
+    # Railway logs alone whether the sweep ran and what it found, without
+    # waiting for a real pending collection to exist. If processing_no_order
+    # is ever nonzero, that's worth investigating on its own: a
+    # "processing" collection with no checkout_order_id link can never be
+    # picked up by this sweep (or by manual Refresh Status) at all.
+    logger.info(
+        "checkout_reconciliation_sweep_starting processing_total=%s eligible_with_checkout_order=%s processing_no_order=%s",
+        len(rows),
+        len(pending_with_order),
+        len(rows) - len(pending_with_order),
+    )
 
     resolved = 0
     still_pending = 0
     for row in pending_with_order:
+        collection_id = uuid.UUID(row["id"])
         try:
-            outcome = await refresh_checkout_collection_status(client, collection_id=uuid.UUID(row["id"]))
-        except (NotFoundError, ConflictError):
+            outcome = await refresh_checkout_collection_status(client, collection_id=collection_id)
+        except (NotFoundError, ConflictError) as exc:
             # Collection or its linked order vanished between the list
             # query and this call, or lost its order link somehow — skip
             # rather than let one bad row abort the whole sweep.
+            logger.warning("checkout_reconciliation_skipped collection_id=%s reason=%s", collection_id, exc)
             continue
-        if outcome.get("status") == "processing":
+        outcome_status = outcome.get("status")
+        logger.info("checkout_reconciliation_checked collection_id=%s result=%s", collection_id, outcome_status)
+        if outcome_status == "processing":
             still_pending += 1
         else:
             resolved += 1

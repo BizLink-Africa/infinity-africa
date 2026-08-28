@@ -14,6 +14,7 @@ docstring.
 import asyncio
 import uuid
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -519,3 +520,44 @@ def test_reconcile_pending_sweep_is_idempotent_across_multiple_runs(fake_client,
     assert second_summary == {"checked": 0, "resolved": 0, "still_pending": 0}
     balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
     assert Decimal(str(balance)) == Decimal("985.00")
+
+
+def test_reconcile_pending_sweep_ignores_collections_with_a_different_status(fake_client):
+    """The sweep's own .eq("status", "processing") filter, proven against
+    every other real status value collections.status actually allows
+    (supabase/migrations/20260814090009_collections.sql's check
+    constraint) — a collection sitting at any of these must never be
+    picked up (in particular "pending_review", the self-payment fraud
+    hold: Selcom already says it's paid, but crediting it is a deliberate
+    human decision this sweep must never make on its own)."""
+    other_statuses = ["pending", "successful", "failed", "reversed", "cancelled", "pending_review"]
+    for status in other_statuses:
+        fake_client.seed(
+            "collections",
+            {
+                "merchant_id": str(uuid.uuid4()),
+                "status": status,
+                "amount": "500.00",
+                "currency": "TZS",
+                "method": "STK_PUSH",
+                "checkout_order_id": str(uuid.uuid4()),
+            },
+        )
+
+    summary = asyncio.run(reconcile_pending_checkout_collections(fake_client))
+
+    assert summary == {"checked": 0, "resolved": 0, "still_pending": 0}
+
+
+def test_processing_is_a_real_allowed_collections_status(fake_client):
+    """Regression guard against schema drift: if collections.status's
+    check constraint is ever migrated to rename "processing" to
+    something else, this fails loudly instead of the sweep silently
+    finding nothing forever."""
+    migration = (
+        Path(__file__).resolve().parents[3]
+        / "supabase"
+        / "migrations"
+        / "20260814090009_collections.sql"
+    ).read_text()
+    assert "'processing'" in migration
