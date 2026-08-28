@@ -522,6 +522,37 @@ def test_reconcile_pending_sweep_is_idempotent_across_multiple_runs(fake_client,
     assert Decimal(str(balance)) == Decimal("985.00")
 
 
+def test_reconcile_pending_sweep_survives_an_unexpected_error_on_one_row(fake_client, monkeypatch):
+    """A single row raising anything other than NotFoundError/ConflictError
+    must never abort the whole sweep and block every other collection from
+    being checked. Regression test for a live incident (2026-08-28): one
+    collection's Selcom-reported provider_reference collided with another
+    row's (a postgrest.exceptions.APIError unique-constraint violation),
+    which — before this fix — silently aborted the entire sweep on every
+    tick, so no collection ever got auto-credited again."""
+    collection_one, _ = _seed_pending_collection(fake_client, monkeypatch)
+    collection_two, _ = _seed_pending_collection(fake_client, monkeypatch)
+    _patch_get_order_status(monkeypatch, payment_status="COMPLETED")
+
+    import app.services.checkout_reconciliation as reconciliation_module
+
+    real_refresh = reconciliation_module.refresh_checkout_collection_status
+
+    async def _flaky_refresh(client, *, collection_id):
+        if str(collection_id) == collection_one["id"]:
+            raise RuntimeError("simulated unique-constraint violation")
+        return await real_refresh(client, collection_id=collection_id)
+
+    monkeypatch.setattr(reconciliation_module, "refresh_checkout_collection_status", _flaky_refresh)
+
+    summary = asyncio.run(reconcile_pending_checkout_collections(fake_client))
+
+    assert summary == {"checked": 2, "resolved": 1, "still_pending": 0}
+    statuses = {row["id"]: row["status"] for row in fake_client.table("collections")._table.rows}
+    assert statuses[collection_one["id"]] == "processing"  # untouched by the failed row
+    assert statuses[collection_two["id"]] == "successful"  # still resolved despite row 1's failure
+
+
 def test_reconcile_pending_sweep_ignores_collections_with_a_different_status(fake_client):
     """The sweep's own .eq("status", "processing") filter, proven against
     every other real status value collections.status actually allows

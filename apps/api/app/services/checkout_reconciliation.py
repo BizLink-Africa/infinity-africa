@@ -431,6 +431,18 @@ async def reconcile_pending_checkout_collections(client: Client) -> dict:
             # rather than let one bad row abort the whole sweep.
             logger.warning("checkout_reconciliation_skipped collection_id=%s reason=%s", collection_id, exc)
             continue
+        except Exception:
+            # Anything else (e.g. a DB constraint violation on one
+            # malformed/duplicate row) must never take down every other
+            # collection's chance to be checked this sweep — confirmed
+            # live on 2026-08-28: a single collection whose Selcom-reported
+            # provider_reference collided with another row's (a data
+            # problem, not a logic bug) was silently aborting the entire
+            # sweep, every tick, blocking unrelated collections from ever
+            # being reconciled. Logged with the traceback so the
+            # underlying data issue is still visible and fixable.
+            logger.exception("checkout_reconciliation_row_failed collection_id=%s", collection_id)
+            continue
         outcome_status = outcome.get("status")
         logger.info("checkout_reconciliation_checked collection_id=%s result=%s", collection_id, outcome_status)
         if outcome_status == "processing":
