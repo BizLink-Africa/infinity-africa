@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
 import { acceptMyInvite } from "@/lib/portal/api";
 import { PASSWORD_RULES, validatePassword } from "@/lib/auth/password";
+import { useRecoveryLinkSession } from "@/lib/auth/use-recovery-link-session";
 
 const INVALID_INVITE_MESSAGE = "Invitation expired or invalid. Please ask your merchant admin to send a new invitation.";
 
@@ -26,23 +27,11 @@ export function AcceptInviteForm({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
-  const [linkError, setLinkError] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "success">("idle");
-
-  useEffect(() => {
-    // A dead invite link (already used, expired, or revoked) comes back as
-    // #error=...&error_description=... rather than a working invite
-    // session — surface that immediately instead of letting the staff
-    // member fill out a form that can only fail. window.location.hash only
-    // exists client-side, so this can't be a lazy useState initializer
-    // without a hydration mismatch — see reset-password-form.tsx for the
-    // same pattern.
-    const hash = window.location.hash;
-    if (hash.includes("error_description")) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLinkError(INVALID_INVITE_MESSAGE);
-    }
-  }, []);
+  // "recovery" too, not just "invite" — resend-invite
+  // (app/routers/merchant_portal.py) reuses the recovery link type for an
+  // already-existing user, since Supabase invite links only work once.
+  const linkSession = useRecoveryLinkSession(["invite", "recovery"]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -85,10 +74,16 @@ export function AcceptInviteForm({
     setTimeout(() => router.push(portalPath), 1500);
   }
 
-  if (linkError) {
+  if (linkSession.status === "verifying") {
+    return <p className="text-sm text-on-surface-variant">Verifying your invitation…</p>;
+  }
+
+  if (linkSession.status === "invalid") {
     return (
       <div className="space-y-4">
-        <div className="rounded-lg bg-error/10 px-4 py-3 text-sm font-medium text-error">{linkError}</div>
+        <div className="rounded-lg bg-error/10 px-4 py-3 text-sm font-medium text-error">
+          {linkSession.errorDescription || INVALID_INVITE_MESSAGE}
+        </div>
         <a
           href={loginPath}
           className="block w-full text-center bg-primary-container text-on-primary text-sm font-medium px-8 py-3.5 rounded-lg hover:opacity-90 transition-opacity"

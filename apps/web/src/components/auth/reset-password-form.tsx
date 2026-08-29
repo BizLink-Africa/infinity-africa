@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
 import { PASSWORD_RULES, validatePassword } from "@/lib/auth/password";
+import { useRecoveryLinkSession } from "@/lib/auth/use-recovery-link-session";
+
+const EXPIRED_MESSAGE = "This reset link is invalid or has expired. Please request a new one.";
 
 const inputClass =
   "w-full border-0 border-b border-outline-variant bg-transparent pb-2 text-sm text-on-surface placeholder-outline focus:outline-none focus:border-primary-container transition-colors";
@@ -23,27 +26,8 @@ export function ResetPasswordForm({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
-  const [linkError, setLinkError] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "success">("idle");
-
-  useEffect(() => {
-    // A link Supabase rejects outright (expired, already used) comes back
-    // as #error=...&error_description=... in the redirect URL rather than
-    // a working recovery session — surface that immediately instead of
-    // letting the merchant fill out a form that can only fail.
-    const hash = window.location.hash;
-    if (hash.includes("error_description")) {
-      const params = new URLSearchParams(hash.slice(1));
-      const description = params.get("error_description");
-      // Deliberately a post-mount sync, not a derivable-from-props value:
-      // window.location.hash only exists client-side, so a lazy useState
-      // initializer would desync from the server-rendered default and
-      // produce a hydration mismatch (see role-context.tsx for the same
-      // pattern).
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLinkError(description ? description.replace(/\+/g, " ") : "This reset link is invalid or has expired.");
-    }
-  }, []);
+  const linkSession = useRecoveryLinkSession(["recovery"]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -59,9 +43,7 @@ export function ResetPasswordForm({
 
     if (error) {
       setStatus("idle");
-      const message = error.message.toLowerCase().includes("session")
-        ? "This reset link is invalid or has expired. Request a new one."
-        : error.message;
+      const message = error.message.toLowerCase().includes("session") ? EXPIRED_MESSAGE : error.message;
       setErrors([message]);
       return;
     }
@@ -71,10 +53,16 @@ export function ResetPasswordForm({
     setTimeout(() => router.push(loginPath), 2000);
   }
 
-  if (linkError) {
+  if (linkSession.status === "verifying") {
+    return <p className="text-sm text-on-surface-variant">Verifying your reset link…</p>;
+  }
+
+  if (linkSession.status === "invalid") {
     return (
       <div className="space-y-4">
-        <div className="rounded-lg bg-error/10 px-4 py-3 text-sm font-medium text-error">{linkError}</div>
+        <div className="rounded-lg bg-error/10 px-4 py-3 text-sm font-medium text-error">
+          {linkSession.errorDescription || EXPIRED_MESSAGE}
+        </div>
         <a
           href={forgotPasswordPath}
           className="block w-full text-center bg-primary-container text-on-primary text-sm font-medium px-8 py-3.5 rounded-lg hover:opacity-90 transition-opacity"

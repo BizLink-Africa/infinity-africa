@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // requireCurrentUser/getCurrentUser would redirect an unauthenticated
 // visitor to /merchant/login — the exact bug this page exists to fix. If
@@ -19,13 +19,28 @@ vi.mock("@/lib/portal/api", () => ({ acceptMyInvite: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
+// The page renders the real AcceptInviteForm, which now establishes its
+// own Supabase session from the URL (apps/web/src/lib/auth/recovery-link.ts)
+// before showing the password fields — mock the client so that resolves,
+// same pattern as accept-invite-form.test.tsx.
+const setSession = vi.fn();
+vi.mock("@/lib/supabase/client", () => ({
+  createClient: () => ({ auth: { updateUser: vi.fn(), setSession, verifyOtp: vi.fn(), exchangeCodeForSession: vi.fn() } }),
+}));
+
 describe("MerchantInviteAcceptPage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setSession.mockResolvedValue({ error: null });
+    window.history.replaceState(null, "", "/merchant/invite/accept#access_token=at&refresh_token=rt&type=invite");
+  });
+
   it("renders the set-password form without any existing session or auth guard", async () => {
     const { default: MerchantInviteAcceptPage } = await import("./page");
     render(<MerchantInviteAcceptPage />);
 
     expect(screen.getByRole("heading", { name: "Set your password" })).toBeInTheDocument();
-    expect(screen.getByLabelText("New Password")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("New Password")).toBeInTheDocument());
     expect(screen.getByLabelText("Confirm Password")).toBeInTheDocument();
     expect(requireCurrentUser).not.toHaveBeenCalled();
     expect(getCurrentUser).not.toHaveBeenCalled();

@@ -5,6 +5,7 @@ errored, or whether Resend rejected the send — every path returns the
 exact same response.
 """
 
+import re
 import uuid
 
 import pytest
@@ -139,3 +140,34 @@ def test_forgot_password_does_not_log_the_reset_token_or_link(fake_client, fake_
     serialized = str(delivery)
     assert "token=" not in serialized
     assert "action_link" not in serialized
+
+
+def test_forgot_password_button_and_fallback_link_are_identical(fake_client, fake_resend):
+    """_cta_button renders the same url in both the button's href and the
+    plain-text "Or copy this link" fallback — the link must never be
+    modified, truncated, or re-escaped differently between the two."""
+    user_id = uuid.uuid4()
+    fake_client.seed_auth_user(user_id, email="amina@example.com", full_name="Amina")
+
+    client.post("/v1/auth/forgot-password", json={"email": "amina@example.com"})
+
+    html = fake_resend.calls[0]["html"]
+    hrefs = re.findall(r'href="([^"]+)"', html)
+    reset_hrefs = [h for h in hrefs if h.startswith("https://fake.supabase.test/auth/v1/verify")]
+    assert len(reset_hrefs) == 2  # the button, and the plain-text fallback
+    assert reset_hrefs[0] == reset_hrefs[1]
+
+
+def test_forgot_password_redirect_to_matches_the_production_reset_page(fake_client, fake_resend):
+    """The recovery link's redirect_to must point at the exact route the
+    frontend serves this on — a mismatch here is a real link Supabase
+    itself would refuse (unlisted redirect URL), or would land the
+    merchant on the wrong page entirely."""
+    settings = get_settings()
+    user_id = uuid.uuid4()
+    fake_client.seed_auth_user(user_id, email="amina@example.com", full_name="Amina")
+
+    client.post("/v1/auth/forgot-password", json={"email": "amina@example.com"})
+
+    html = fake_resend.calls[0]["html"]
+    assert f"redirect_to={settings.app_url}/merchant/reset-password" in html
