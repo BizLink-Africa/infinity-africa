@@ -240,7 +240,7 @@ export function OnboardingForm({
           </div>
           <div>
             <label htmlFor="licenceDocument" className={labelClass}>
-              Upload Business Licence
+              Upload Business Licence <span className="normal-case font-normal text-outline">(optional)</span>
             </label>
             <input
               id="licenceDocument"

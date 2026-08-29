@@ -29,6 +29,27 @@ function validateDocument(
   return file;
 }
 
+// Business licence only — see app/services/onboarding.py's
+// _REQUIRED_APPROVAL_DOCUMENTS, which already excludes it (a sole
+// proprietor may not have one). No file selected is a valid choice here,
+// not an error; a file that *was* selected still has to be a real,
+// correctly-typed document.
+function validateOptionalDocument(
+  file: FormDataEntryValue | null,
+  errors: Record<string, string[]>,
+  field: string,
+  label: string,
+): File | null {
+  if (!(file instanceof File) || file.size === 0 || !file.name) {
+    return null;
+  }
+  if (!ALLOWED_DOCUMENT_TYPES.has(file.type)) {
+    errors[field] = [`${label} must be a PDF, JPG, or PNG file.`];
+    return null;
+  }
+  return file;
+}
+
 export async function submitOnboardingAction(_prevState: FormState, formData: FormData): Promise<FormState> {
   const user = await getCurrentUser();
   if (!user) {
@@ -63,7 +84,12 @@ export async function submitOnboardingAction(_prevState: FormState, formData: Fo
 
   const nidaFile = validateDocument(formData.get("nidaDocument"), errors, "nidaDocument", "NIDA upload");
   const tinFile = validateDocument(formData.get("tinDocument"), errors, "tinDocument", "TIN certificate upload");
-  const licenceFile = validateDocument(formData.get("licenceDocument"), errors, "licenceDocument", "Business licence upload");
+  const licenceFile = validateOptionalDocument(
+    formData.get("licenceDocument"),
+    errors,
+    "licenceDocument",
+    "Business licence upload",
+  );
 
   if (!agreedToTerms) errors.agreedToTerms = ["You must agree to the Infinity Africa Terms of Service."];
   if (!agreedToPrivacy) errors.agreedToPrivacy = ["You must agree to the Infinity Africa Privacy Policy."];
@@ -97,11 +123,14 @@ export async function submitOnboardingAction(_prevState: FormState, formData: Fo
       accepted_privacy: agreedToPrivacy,
     });
 
-    await Promise.all([
+    const uploads = [
       uploadOnboardingDocument(DocumentType.NIDA, nidaFile as File),
       uploadOnboardingDocument(DocumentType.TIN_CERTIFICATE, tinFile as File),
-      uploadOnboardingDocument(DocumentType.BUSINESS_LICENCE, licenceFile as File),
-    ]);
+    ];
+    if (licenceFile) {
+      uploads.push(uploadOnboardingDocument(DocumentType.BUSINESS_LICENCE, licenceFile));
+    }
+    await Promise.all(uploads);
   } catch (err) {
     const formError =
       err instanceof OnboardingApiError
