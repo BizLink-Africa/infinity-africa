@@ -30,10 +30,10 @@ export function OnboardingReviewActions({
     </div>
   );
 
+  const feedbackColor =
+    outcome?.type === "success" ? "text-primary" : outcome?.type === "warning" ? "text-amber-600" : "text-error";
   const feedback = outcome && (
-    <p className={`text-xs font-medium ${outcome.type === "success" ? "text-primary" : "text-error"}`}>
-      {isPending ? "" : outcome.message}
-    </p>
+    <p className={`text-xs font-medium ${feedbackColor}`}>{isPending ? "" : outcome.message}</p>
   );
 
   if (variant === "compact") {

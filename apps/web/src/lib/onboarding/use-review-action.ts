@@ -9,7 +9,10 @@ import {
 } from "./admin-actions";
 
 export interface ReviewOutcome {
-  type: "success" | "error";
+  // "warning": the action itself succeeded, but something non-blocking
+  // needs attention — currently only "approved, but the welcome email
+  // couldn't be sent" (app/services/onboarding.py::approve_onboarding_submission).
+  type: "success" | "warning" | "error";
   message: string;
 }
 
@@ -27,12 +30,12 @@ export function useOnboardingReviewAction(id: string) {
   const [outcome, setOutcome] = useState<ReviewOutcome | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function run(action: () => Promise<void>, successMessage: string, failureMessage: string) {
+  function run<T>(action: () => Promise<T>, buildSuccess: (result: T) => ReviewOutcome, failureMessage: string) {
     setOutcome(null);
     startTransition(async () => {
       try {
-        await action();
-        setOutcome({ type: "success", message: successMessage });
+        const result = await action();
+        setOutcome(buildSuccess(result));
         setNote("");
       } catch (err) {
         setOutcome({ type: "error", message: err instanceof Error ? err.message : failureMessage });
@@ -43,15 +46,25 @@ export function useOnboardingReviewAction(id: string) {
   const approve = () =>
     run(
       () => approveOnboardingAction(id),
-      "Approved. Welcome email sent — the merchant will get their next steps in their inbox.",
+      (result) =>
+        result.welcomeEmailWarning
+          ? { type: "warning", message: result.welcomeEmailWarning }
+          : {
+              type: "success",
+              message: "Approved. Welcome email sent — the merchant will get their next steps in their inbox.",
+            },
       "Couldn't approve — try again.",
     );
   const reject = () =>
-    run(() => rejectOnboardingAction(id, note.trim() || null), "Rejected.", "Couldn't reject — try again.");
+    run(
+      () => rejectOnboardingAction(id, note.trim() || null),
+      () => ({ type: "success", message: "Rejected." }),
+      "Couldn't reject — try again.",
+    );
   const requestInfo = () =>
     run(
       () => requestInfoOnboardingAction(id, note.trim() || null),
-      "Requested more information.",
+      () => ({ type: "success", message: "Requested more information." }),
       "Couldn't send the request — try again.",
     );
 

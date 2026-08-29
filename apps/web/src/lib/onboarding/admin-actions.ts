@@ -9,9 +9,10 @@ function revalidateOnboarding(id: string) {
   revalidatePath(`/super-admin/onboarding/${id}`);
 }
 
-export async function approveOnboardingAction(id: string) {
-  await approveOnboardingSubmission(id);
+export async function approveOnboardingAction(id: string): Promise<{ welcomeEmailWarning: string | null }> {
+  const result = await approveOnboardingSubmission(id);
   revalidateOnboarding(id);
+  return { welcomeEmailWarning: result.welcome_email_warning ?? null };
 }
 
 export async function rejectOnboardingAction(id: string, note: string | null) {

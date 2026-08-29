@@ -82,6 +82,11 @@ class OnboardingSubmissionResponse(BaseModel):
     submitted_at: datetime
     updated_at: datetime
     documents: list[OnboardingDocumentResponse] = Field(default_factory=list)
+    # Set only in the response to an approve action, and only when the
+    # merchant's welcome email couldn't be sent because contact_email is
+    # missing — see app/services/onboarding.py::approve_onboarding_submission.
+    # None on every ordinary GET; never persisted.
+    welcome_email_warning: str | None = None
 
 
 class OnboardingReviewAction(BaseModel):

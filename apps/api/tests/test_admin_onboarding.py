@@ -3,6 +3,7 @@ against the in-memory FakeSupabaseClient, same pattern as
 test_merchant_portal.py / test_onboarding.py.
 """
 
+import logging
 import uuid
 
 import pytest
@@ -207,6 +208,157 @@ def test_approval_succeeds_even_when_welcome_email_delivery_fails(fake_client, f
     assert response.status_code == 200, response.text
     merchant = next(r for r in fake_client.table("merchants")._table.rows if r["id"] == merchant_id)
     assert merchant["status"] == "active"
+
+
+def test_welcome_email_never_goes_to_ceo(fake_client, fake_resend, monkeypatch):
+    """Regression test for the exact live bug this was reported against:
+    the welcome/approval email must go to the merchant's own contact
+    email, never to CEO_EMAIL, even when CEO_EMAIL is configured."""
+    monkeypatch.setenv("CEO_EMAIL", "ceo@infinityafrica.net")
+    get_settings.cache_clear()
+
+    submitted = _submit_onboarding(uuid.uuid4())
+    merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)
+    submission_id = next(
+        r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
+    )
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+
+    response = client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
+    assert response.status_code == 200, response.text
+
+    welcome_calls = [c for c in fake_resend.calls if c["subject"] == "Welcome to Infinity Africa"]
+    assert len(welcome_calls) == 1
+    assert welcome_calls[0]["to"] == ["user@example.com"]
+    assert welcome_calls[0]["to"] != ["ceo@infinityafrica.net"]
+
+
+def test_welcome_email_reply_to_is_info_email(fake_client, fake_resend):
+    submitted = _submit_onboarding(uuid.uuid4())
+    merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)
+    submission_id = next(
+        r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
+    )
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+
+    client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
+
+    welcome_call = next(c for c in fake_resend.calls if c["subject"] == "Welcome to Infinity Africa")
+    assert welcome_call["reply_to"] == "info@infinityafrica.net"
+
+
+def test_email_delivery_log_for_welcome_email_uses_merchant_email(fake_client, fake_resend):
+    submitted = _submit_onboarding(uuid.uuid4())
+    merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)
+    submission_id = next(
+        r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
+    )
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+
+    client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
+
+    delivery = next(
+        d for d in fake_client.table("email_deliveries")._table.rows if d["email_type"] == "merchant_welcome"
+    )
+    assert delivery["recipient_email"] == "user@example.com"
+    assert delivery["merchant_id"] == merchant_id
+    assert delivery["related_resource_type"] == "merchant"
+    assert delivery["related_resource_id"] == merchant_id
+    assert delivery["status"] == "sent"
+    assert delivery["provider_message_id"]
+
+
+def test_missing_merchant_email_does_not_fall_back_to_ceo(fake_client, fake_resend, monkeypatch, caplog):
+    """A merchant with no contact_email must never receive the welcome
+    email at CEO_EMAIL instead — no email should be sent at all, approval
+    must still succeed, and the gap must be logged and surfaced to the
+    Super Admin."""
+    monkeypatch.setenv("CEO_EMAIL", "ceo@infinityafrica.net")
+    get_settings.cache_clear()
+
+    submitted = _submit_onboarding(uuid.uuid4())
+    merchant_id = submitted["merchant"]["id"]
+    _seed_required_documents(fake_client, merchant_id)
+    submission_id = next(
+        r["id"] for r in fake_client.table("onboarding_submissions")._table.rows if r["merchant_id"] == merchant_id
+    )
+
+    # Simulate a merchant with no contact_email on file.
+    for row in fake_client.table("merchants")._table.rows:
+        if row["id"] == merchant_id:
+            row["contact_email"] = None
+
+    admin_id = uuid.uuid4()
+    make_super_admin(fake_client, admin_id)
+
+    # caplog's capturing handler is only attached to the root logger by
+    # default — app/main.py::_configure_logging deliberately sets
+    # propagate=False on the "infinity" logger namespace (so production
+    # logs aren't duplicated/interfered with), which also means those
+    # records never bubble up to caplog's handler unless it's attached
+    # here directly.
+    infinity_logger = logging.getLogger("infinity")
+    infinity_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level("WARNING", logger="infinity.email"):
+            response = client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
+    finally:
+        infinity_logger.removeHandler(caplog.handler)
+
+    assert response.status_code == 200, response.text
+    # Approval itself still succeeds.
+    merchant = next(r for r in fake_client.table("merchants")._table.rows if r["id"] == merchant_id)
+    assert merchant["status"] == "active"
+
+    # No welcome email sent anywhere — in particular, never to CEO_EMAIL.
+    welcome_calls = [c for c in fake_resend.calls if c["subject"] == "Welcome to Infinity Africa"]
+    assert welcome_calls == []
+    assert not any(d["email_type"] == "merchant_welcome" for d in fake_client.table("email_deliveries")._table.rows)
+
+    # Clearly logged.
+    assert "Merchant welcome email not sent: merchant email missing." in caplog.text
+
+    # Surfaced to the Super Admin in the approve response.
+    assert (
+        response.json()["data"]["welcome_email_warning"]
+        == "Merchant approved, but welcome email was not sent because merchant email is missing."
+    )
+
+
+def test_new_merchant_signup_notification_goes_to_ceo(fake_client, fake_resend, monkeypatch):
+    """The internal 'new merchant signup submitted for review' email is a
+    distinct notification from the merchant welcome email — this one goes
+    to CEO_EMAIL, fired at submission time, not approval time."""
+    monkeypatch.setenv("CEO_EMAIL", "ceo@infinityafrica.net")
+    get_settings.cache_clear()
+
+    _submit_onboarding(uuid.uuid4())
+
+    signup_calls = [c for c in fake_resend.calls if c["subject"].startswith("New merchant signup")]
+    assert len(signup_calls) == 1
+    assert signup_calls[0]["to"] == ["ceo@infinityafrica.net"]
+    assert "Kilimanjaro Fresh Produce" in signup_calls[0]["html"]
+
+    delivery = next(
+        d for d in fake_client.table("email_deliveries")._table.rows if d["email_type"] == "merchant_signup_notification"
+    )
+    assert delivery["recipient_email"] == "ceo@infinityafrica.net"
+
+
+def test_no_signup_notification_without_ceo_email_configured(fake_client, fake_resend):
+    """CEO_EMAIL unset (the default in tests/most local dev) must never
+    raise or block submission — same convention as every other
+    CEO-notification email in this codebase."""
+    _submit_onboarding(uuid.uuid4())
+
+    assert fake_resend.calls == []
+    assert fake_client.table("email_deliveries")._table.rows == []
 
 
 def test_cannot_approve_without_required_documents(fake_client):

@@ -672,9 +672,23 @@ def send_merchant_welcome_email(client: Client, *, merchant: dict, portal_url: s
     """Best-effort — never raises. Called once a merchant's onboarding is
     approved (app/services/onboarding.py::approve_onboarding_submission),
     wrapped in try/except there for defense in depth — a welcome email
-    failing to send must never fail the approval itself."""
+    failing to send must never fail the approval itself.
+
+    Always sent to the merchant's own contact_email — never
+    settings.ceo_email, which is reserved for internal notifications (see
+    send_new_merchant_signup_notification_email below, and
+    send_withdrawal_request_notification_email). If contact_email is
+    missing, this never falls back to any other address — it logs and
+    stops. No email_deliveries row is written for that case (its
+    recipient_email column is NOT NULL, and nothing was actually
+    attempted) — the logger line plus the caller's own audit log entry
+    (app/services/onboarding.py::approve_onboarding_submission) are the
+    durable record instead."""
     recipient = merchant.get("contact_email")
     if not recipient:
+        logger.warning(
+            "Merchant welcome email not sent: merchant email missing. merchant_id=%s", merchant.get("id")
+        )
         return None
 
     settings = get_settings()
@@ -734,6 +748,92 @@ def send_merchant_welcome_email(client: Client, *, merchant: dict, portal_url: s
         related_resource_type="merchant",
         related_resource_id=merchant.get("id"),
         recipient_email=recipient,
+        sender_email=sender,
+        subject=subject,
+        status="sent",
+        provider_message_id=message_id or None,
+    )
+
+
+# --- 6b. New merchant signup notification (to CEO) ------------------------------
+
+
+def send_new_merchant_signup_notification_email(client: Client, *, merchant: dict) -> dict | None:
+    """Best-effort — never raises. Called right after a *new* onboarding
+    submission is created (app/services/onboarding.py::submit_onboarding_account,
+    the fresh-signup path only — a resubmission after rejection/
+    info-requested isn't a new merchant, so it doesn't fire this again).
+
+    Distinct from send_merchant_welcome_email above and never to be
+    confused with it: this one always goes to settings.ceo_email (an
+    internal notification), never to the merchant; the welcome email
+    always goes to the merchant's own contact_email, never to
+    settings.ceo_email. Keeping them as two separate functions, each
+    hardcoded to its own recipient source, is deliberate — it's what
+    makes it structurally impossible for a future edit to one to
+    accidentally redirect the other's mail."""
+    settings = get_settings()
+    if not settings.ceo_email:
+        return None
+
+    business_name = merchant.get("business_name") or "A merchant"
+    merchant_code = merchant.get("merchant_code")
+    contact_email = merchant.get("contact_email") or "—"
+    subject = f"New merchant signup: {business_name}"
+    sender = settings.email_from
+    review_url = f"{settings.app_url}/super-admin/onboarding"
+
+    rows: list[tuple[str, str]] = [
+        ("Business", business_name),
+        ("Merchant ID", merchant_code or "—"),
+        ("Contact email", contact_email),
+    ]
+    rows_html = "".join(
+        f"""
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#6b7280;">{label}</td>
+          <td style="padding:6px 0;font-size:14px;color:#1f2937;text-align:right;">{value}</td>
+        </tr>"""
+        for label, value in rows
+        if value
+    )
+
+    body = f"""
+    <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">New Merchant Signup</p>
+    <h1 style="margin:0 0 20px;font-size:20px;color:#1f2937;">{business_name} submitted an application</h1>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      {rows_html}
+    </table>
+    {_cta_button(review_url, "Review Submission")}
+    """
+    html = _email_shell(body_html=body)
+
+    try:
+        message_id = send_email(
+            to=settings.ceo_email, subject=subject, html=html, sender=sender, reply_to=settings.email_reply_to
+        )
+    except EmailDeliveryError as exc:
+        _log_delivery(
+            client,
+            merchant_id=merchant.get("id"),
+            email_type="merchant_signup_notification",
+            related_resource_type="merchant",
+            related_resource_id=merchant.get("id"),
+            recipient_email=settings.ceo_email,
+            sender_email=sender,
+            subject=subject,
+            status="failed",
+            error_message=str(exc),
+        )
+        return None
+
+    return _log_delivery(
+        client,
+        merchant_id=merchant.get("id"),
+        email_type="merchant_signup_notification",
+        related_resource_type="merchant",
+        related_resource_id=merchant.get("id"),
+        recipient_email=settings.ceo_email,
         sender_email=sender,
         subject=subject,
         status="sent",

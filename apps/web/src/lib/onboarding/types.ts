@@ -84,4 +84,8 @@ export interface OnboardingSubmission {
   submitted_at: string;
   updated_at: string;
   documents: OnboardingDocument[];
+  // Set only in the response to an approve action, and only when the
+  // merchant's welcome email couldn't be sent because their email is
+  // missing — see app/schemas/onboarding.py::OnboardingSubmissionResponse.
+  welcome_email_warning?: string | null;
 }

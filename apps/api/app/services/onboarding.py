@@ -28,7 +28,10 @@ from app.schemas.onboarding import OnboardingMerchantAccountCreate
 from app.schemas.withdrawals import PricingRuleCreate
 from app.services.audit import write_audit_log
 from app.services.crud import get_by_id, insert_row, update_row
-from app.services.email import send_merchant_welcome_email
+from app.services.email import (
+    send_merchant_welcome_email,
+    send_new_merchant_signup_notification_email,
+)
 from app.services.ledger import get_wallet_balance
 from app.services.merchant_code import generate_merchant_code
 
@@ -171,6 +174,16 @@ def create_merchant_onboarding(
         resource_type="merchant",
         resource_id=merchant_id,
     )
+
+    # Internal notification only — never confuse with send_merchant_welcome_email
+    # (that one fires on *approval*, to the merchant; this one fires on
+    # *submission*, to the CEO). Best-effort, same defense-in-depth
+    # try/except as every other courtesy email in this codebase.
+    try:
+        send_new_merchant_signup_notification_email(client, merchant=merchant)
+    except Exception:  # noqa: BLE001, S110
+        pass
+
     return merchant
 
 
@@ -287,7 +300,12 @@ def _to_submission_row(submission: dict, merchant: dict, documents: list[dict]) 
         "merchant_id": submission["merchant_id"],
         "merchant_code": merchant.get("merchant_code"),
         "business_name": merchant.get("business_name", ""),
-        "owner_email": merchant.get("contact_email", ""),
+        # `or ""`, not `.get(..., "")` — the merchant row can have the key
+        # present but set to None (contact_email is DB-required today, but
+        # this response must never 500 if that's ever not true — see
+        # app/services/email.py::send_merchant_welcome_email's own handling
+        # of a missing merchant email).
+        "owner_email": merchant.get("contact_email") or "",
         "contact_phone": merchant.get("contact_phone"),
         "nature_of_business": submission["nature_of_business"],
         "business_category": submission["business_category"],
@@ -422,13 +440,27 @@ def approve_onboarding_submission(
     # Welcome email is a courtesy, not part of approval itself — never let
     # it fail the approval (send_merchant_welcome_email already never
     # raises on its own; this is a second layer of defense in depth).
+    # Always calls send_merchant_welcome_email regardless of whether
+    # contact_email looks present — it already handles a missing
+    # recipient itself (logs + no-ops, never falls back to CEO_EMAIL).
+    # Checked independently here too, not by inspecting that function's
+    # return value, so the Super Admin warning below is specifically about
+    # a missing address, not conflated with a Resend delivery failure.
+    welcome_email_warning = None
     try:
         settings = get_settings()
-        send_merchant_welcome_email(client, merchant=merchant, portal_url=f"{settings.public_app_url}/merchant/login")
+        if not merchant.get("contact_email"):
+            welcome_email_warning = "Merchant approved, but welcome email was not sent because merchant email is missing."
+        send_merchant_welcome_email(
+            client, merchant=merchant, portal_url=f"{settings.public_app_url}/merchant/login"
+        )
     except Exception:  # noqa: BLE001, S110
         pass
 
-    return get_onboarding_submission(client, submission_id) if updated else submission
+    result = get_onboarding_submission(client, submission_id) if updated else submission
+    if welcome_email_warning:
+        result = {**result, "welcome_email_warning": welcome_email_warning}
+    return result
 
 
 def _set_review_status(
