@@ -676,7 +676,7 @@ def send_merchant_welcome_email(client: Client, *, merchant: dict, portal_url: s
 
     Always sent to the merchant's own contact_email — never
     settings.ceo_email, which is reserved for internal notifications (see
-    send_new_merchant_signup_notification_email below, and
+    send_merchant_signup_notification_email below, and
     send_withdrawal_request_notification_email). If contact_email is
     missing, this never falls back to any other address — it logs and
     stops. No email_deliveries row is written for that case (its
@@ -758,9 +758,18 @@ def send_merchant_welcome_email(client: Client, *, merchant: dict, portal_url: s
 # --- 6b. New merchant signup notification (to CEO) ------------------------------
 
 
-def send_new_merchant_signup_notification_email(client: Client, *, merchant: dict) -> dict | None:
+def send_merchant_signup_notification_email(
+    client: Client,
+    *,
+    merchant: dict,
+    contact_name: str | None = None,
+    nature_of_business: str | None = None,
+    business_category: str | None = None,
+    business_location: str | None = None,
+    submitted_at: str | None = None,
+) -> dict | None:
     """Best-effort — never raises. Called right after a *new* onboarding
-    submission is created (app/services/onboarding.py::submit_onboarding_account,
+    submission is created (app/services/onboarding.py::create_merchant_onboarding,
     the fresh-signup path only — a resubmission after rejection/
     info-requested isn't a new merchant, so it doesn't fire this again).
 
@@ -771,7 +780,12 @@ def send_new_merchant_signup_notification_email(client: Client, *, merchant: dic
     settings.ceo_email. Keeping them as two separate functions, each
     hardcoded to its own recipient source, is deliberate — it's what
     makes it structurally impossible for a future edit to one to
-    accidentally redirect the other's mail."""
+    accidentally redirect the other's mail.
+
+    Status is always "Pending Review" — this only ever fires the moment a
+    submission is created, which is the one point in its lifecycle where
+    that's guaranteed true (see AccountStatus.PENDING_VERIFICATION, the
+    fixed initial review_status _submission_data sets)."""
     settings = get_settings()
     if not settings.ceo_email:
         return None
@@ -779,14 +793,23 @@ def send_new_merchant_signup_notification_email(client: Client, *, merchant: dic
     business_name = merchant.get("business_name") or "A merchant"
     merchant_code = merchant.get("merchant_code")
     contact_email = merchant.get("contact_email") or "—"
-    subject = f"New merchant signup: {business_name}"
+    contact_phone = merchant.get("contact_phone")
+    subject = "New merchant signup submitted"
     sender = settings.email_from
     review_url = f"{settings.app_url}/super-admin/onboarding"
 
+    business_type = ", ".join(v for v in (nature_of_business, business_category) if v) or None
+
     rows: list[tuple[str, str]] = [
         ("Business", business_name),
+        ("Contact person", contact_name or "—"),
+        ("Merchant email", contact_email),
+        ("Phone number", contact_phone or "—"),
+        ("Business type/category", business_type or "—"),
+        ("Business location", business_location or "—"),
+        ("Submitted", submitted_at or "—"),
         ("Merchant ID", merchant_code or "—"),
-        ("Contact email", contact_email),
+        ("Status", "Pending Review"),
     ]
     rows_html = "".join(
         f"""
@@ -795,7 +818,6 @@ def send_new_merchant_signup_notification_email(client: Client, *, merchant: dic
           <td style="padding:6px 0;font-size:14px;color:#1f2937;text-align:right;">{value}</td>
         </tr>"""
         for label, value in rows
-        if value
     )
 
     body = f"""

@@ -26,11 +26,12 @@ from app.schemas.auth import AuthenticatedUser
 from app.schemas.enums import AccountStatus, DocumentType
 from app.schemas.onboarding import OnboardingMerchantAccountCreate
 from app.schemas.withdrawals import PricingRuleCreate
+from app.services.admin_directory import best_effort_user_profile
 from app.services.audit import write_audit_log
 from app.services.crud import get_by_id, insert_row, update_row
 from app.services.email import (
+    send_merchant_signup_notification_email,
     send_merchant_welcome_email,
-    send_new_merchant_signup_notification_email,
 )
 from app.services.ledger import get_wallet_balance
 from app.services.merchant_code import generate_merchant_code
@@ -159,10 +160,11 @@ def create_merchant_onboarding(
         },
     )
 
+    submitted_at = utc_now_iso()
     insert_row(
         client,
         "onboarding_submissions",
-        {"merchant_id": str(merchant_id), "submitted_at": utc_now_iso(), **_submission_data(payload)},
+        {"merchant_id": str(merchant_id), "submitted_at": submitted_at, **_submission_data(payload)},
     )
 
     write_audit_log(
@@ -178,9 +180,22 @@ def create_merchant_onboarding(
     # Internal notification only — never confuse with send_merchant_welcome_email
     # (that one fires on *approval*, to the merchant; this one fires on
     # *submission*, to the CEO). Best-effort, same defense-in-depth
-    # try/except as every other courtesy email in this codebase.
+    # try/except as every other courtesy email in this codebase — a
+    # failed/slow notification must never fail (or even delay reporting
+    # success on) the merchant's own signup submission, which already
+    # succeeded by this point.
     try:
-        send_new_merchant_signup_notification_email(client, merchant=merchant)
+        profile = best_effort_user_profile(client, user.id)
+        business_location = ", ".join(v for v in (payload.physical_address, payload.region_city) if v) or None
+        send_merchant_signup_notification_email(
+            client,
+            merchant=merchant,
+            contact_name=profile.get("full_name"),
+            nature_of_business=payload.nature_of_business,
+            business_category=payload.business_category,
+            business_location=business_location,
+            submitted_at=submitted_at,
+        )
     except Exception:  # noqa: BLE001, S110
         pass
 

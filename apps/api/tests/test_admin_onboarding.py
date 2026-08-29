@@ -334,13 +334,14 @@ def test_missing_merchant_email_does_not_fall_back_to_ceo(fake_client, fake_rese
 def test_new_merchant_signup_notification_goes_to_ceo(fake_client, fake_resend, monkeypatch):
     """The internal 'new merchant signup submitted for review' email is a
     distinct notification from the merchant welcome email — this one goes
-    to CEO_EMAIL, fired at submission time, not approval time."""
+    to CEO_EMAIL, fired at submission time, not approval time, with subject
+    exactly 'New merchant signup submitted'."""
     monkeypatch.setenv("CEO_EMAIL", "ceo@infinityafrica.net")
     get_settings.cache_clear()
 
     _submit_onboarding(uuid.uuid4())
 
-    signup_calls = [c for c in fake_resend.calls if c["subject"].startswith("New merchant signup")]
+    signup_calls = [c for c in fake_resend.calls if c["subject"] == "New merchant signup submitted"]
     assert len(signup_calls) == 1
     assert signup_calls[0]["to"] == ["ceo@infinityafrica.net"]
     assert "Kilimanjaro Fresh Produce" in signup_calls[0]["html"]
@@ -349,6 +350,40 @@ def test_new_merchant_signup_notification_goes_to_ceo(fake_client, fake_resend, 
         d for d in fake_client.table("email_deliveries")._table.rows if d["email_type"] == "merchant_signup_notification"
     )
     assert delivery["recipient_email"] == "ceo@infinityafrica.net"
+    assert delivery["merchant_id"] is not None
+    assert delivery["related_resource_type"] == "merchant"
+    assert delivery["status"] == "sent"
+    assert delivery["provider_message_id"]
+
+
+def test_signup_notification_includes_merchant_business_and_contact_details(fake_client, fake_resend, monkeypatch):
+    """Every field the brief asks for: business name, contact person name,
+    merchant email, phone, business type/category, business location,
+    submitted date, merchant ID, and status."""
+    monkeypatch.setenv("CEO_EMAIL", "ceo@infinityafrica.net")
+    get_settings.cache_clear()
+
+    user_id = uuid.uuid4()
+    # seed_auth_user only backs best_effort_user_profile's lookup (full_name)
+    # — auth_headers(user_id) below always embeds a fixed "user@example.com"
+    # as the JWT's own email claim, independent of this, and that's what
+    # ends up as the merchant's contact_email (see
+    # test_list_returns_submitted_merchant's identical assumption).
+    fake_client.seed_auth_user(user_id, email="owner@kilimanjarofresh.co.tz", full_name="Amina Juma")
+
+    submitted = _submit_onboarding(user_id, contact_phone="+255712345678")
+
+    signup_call = next(c for c in fake_resend.calls if c["subject"] == "New merchant signup submitted")
+    html = signup_call["html"]
+    assert "Kilimanjaro Fresh Produce" in html  # business name
+    assert "Amina Juma" in html  # contact person name
+    assert "user@example.com" in html  # merchant email (= the JWT's own email claim)
+    assert "255712345678" in html  # phone number
+    assert "Agriculture" in html  # nature_of_business
+    assert "Wholesale" in html  # business_category
+    assert "Njiro Road" in html and "Arusha" in html  # business location
+    assert "Pending Review" in html  # status
+    assert submitted["merchant"]["merchant_code"] in html  # merchant ID
 
 
 def test_no_signup_notification_without_ceo_email_configured(fake_client, fake_resend):
@@ -359,6 +394,26 @@ def test_no_signup_notification_without_ceo_email_configured(fake_client, fake_r
 
     assert fake_resend.calls == []
     assert fake_client.table("email_deliveries")._table.rows == []
+
+
+def test_signup_submission_succeeds_even_when_ceo_notification_delivery_fails(fake_client, fake_resend, monkeypatch):
+    """A Resend failure on the internal CEO notification must never fail
+    the merchant's own signup submission — the merchant record is already
+    saved by the time this email is even attempted."""
+    monkeypatch.setenv("CEO_EMAIL", "ceo@infinityafrica.net")
+    get_settings.cache_clear()
+    fake_resend.should_fail = True
+
+    response = client.post(
+        "/v1/onboarding/merchant-account", headers=auth_headers(uuid.uuid4()), json=_valid_payload()
+    )
+
+    assert response.status_code == 201, response.text
+    delivery = next(
+        d for d in fake_client.table("email_deliveries")._table.rows if d["email_type"] == "merchant_signup_notification"
+    )
+    assert delivery["status"] == "failed"
+    assert delivery["error_message"]
 
 
 def test_cannot_approve_without_required_documents(fake_client):
