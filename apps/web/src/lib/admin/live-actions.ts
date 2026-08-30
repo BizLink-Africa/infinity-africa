@@ -3,13 +3,17 @@
 import { revalidatePath } from "next/cache";
 
 import {
+  activateCollectionPricingRule,
   addRiskAlertNote,
   approveDocumentRequest,
   approveIpAllowlistEntry,
   approveMerchantOnboarding,
   approveWithdrawal,
+  createMerchantCollectionPricingRule,
   createMerchantPricingRule,
+  createPlatformFallbackCollectionPricingRule,
   createPlatformFallbackPricingRule,
+  deactivateCollectionPricingRule,
   deactivatePricingRule,
   reinstateMerchantApiAccess,
   rejectDocumentRequest,
@@ -22,11 +26,13 @@ import {
   requestRefundForDispute,
   revokeAdminApiKey,
   suspendMerchantApiAccess,
+  updateCollectionPricingRule,
   updateDisputeStatus,
   updateMerchantStatus,
   updatePricingRule,
   updateRefundStatus,
   updateRiskAlertStatus,
+  type CollectionPricingRuleInput,
   type PricingRuleInput,
 } from "./live-api";
 import type { MerchantAccountStatus } from "./types";
@@ -232,5 +238,76 @@ export async function updatePricingRuleAction(
 
 export async function deactivatePricingRuleAction(ruleId: string) {
   await deactivatePricingRule(ruleId);
+  revalidatePath("/super-admin/pricing-rules");
+}
+
+// --- Collection pricing rules ---------------------------------------------------
+
+function collectionPricingRuleInputFromFormData(formData: FormData): CollectionPricingRuleInput {
+  const get = (key: string) => {
+    const value = String(formData.get(key) ?? "").trim();
+    return value ? value : undefined;
+  };
+  return {
+    channel: get("channel") ?? null,
+    percentage_fee: get("percentage_fee") ?? "0",
+    flat_fee: get("flat_fee") ?? "0",
+    minimum_fee: get("minimum_fee") ?? null,
+    maximum_fee: get("maximum_fee") ?? null,
+    effective_from: get("effective_from") ?? null,
+    effective_to: get("effective_to") ?? null,
+    label: get("label") ?? null,
+    notes: get("notes") ?? null,
+  };
+}
+
+export type CollectionPricingRuleActionState = PricingRuleActionState;
+
+async function runCollectionPricingRuleAction(run: () => Promise<unknown>): Promise<CollectionPricingRuleActionState> {
+  try {
+    await run();
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Couldn't save this collection pricing rule. Try again." };
+  }
+  revalidatePath("/super-admin/pricing-rules");
+  return { error: null };
+}
+
+export async function createMerchantCollectionPricingRuleAction(
+  merchantId: string,
+  _prevState: CollectionPricingRuleActionState | null,
+  formData: FormData,
+): Promise<CollectionPricingRuleActionState> {
+  return runCollectionPricingRuleAction(() =>
+    createMerchantCollectionPricingRule(merchantId, collectionPricingRuleInputFromFormData(formData)),
+  );
+}
+
+export async function createPlatformFallbackCollectionPricingRuleAction(
+  _prevState: CollectionPricingRuleActionState | null,
+  formData: FormData,
+): Promise<CollectionPricingRuleActionState> {
+  return runCollectionPricingRuleAction(() =>
+    createPlatformFallbackCollectionPricingRule(collectionPricingRuleInputFromFormData(formData)),
+  );
+}
+
+export async function updateCollectionPricingRuleAction(
+  ruleId: string,
+  _prevState: CollectionPricingRuleActionState | null,
+  formData: FormData,
+): Promise<CollectionPricingRuleActionState> {
+  return runCollectionPricingRuleAction(() =>
+    updateCollectionPricingRule(ruleId, collectionPricingRuleInputFromFormData(formData)),
+  );
+}
+
+export async function deactivateCollectionPricingRuleAction(ruleId: string) {
+  await deactivateCollectionPricingRule(ruleId);
+  revalidatePath("/super-admin/pricing-rules");
+}
+
+export async function activateCollectionPricingRuleAction(ruleId: string) {
+  await activateCollectionPricingRule(ruleId);
   revalidatePath("/super-admin/pricing-rules");
 }

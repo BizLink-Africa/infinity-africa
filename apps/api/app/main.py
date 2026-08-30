@@ -12,6 +12,7 @@ from app.database.session import get_supabase_admin
 from app.middleware.api_request_log import ApiRequestLogMiddleware
 from app.routers import (
     admin,
+    admin_collection_pricing,
     admin_disputes,
     admin_onboarding,
     admin_pricing,
@@ -212,6 +213,7 @@ app.include_router(admin_risk.router, prefix="/v1")
 app.include_router(admin_disputes.router, prefix="/v1")
 app.include_router(admin_withdrawals.router, prefix="/v1")
 app.include_router(admin_pricing.router, prefix="/v1")
+app.include_router(admin_collection_pricing.router, prefix="/v1")
 app.include_router(public_disputes.router, prefix="/v1")
 app.include_router(payment_links.router, prefix="/v1")
 app.include_router(payment_links.public_router)  # /public/payment-links — no /v1 prefix

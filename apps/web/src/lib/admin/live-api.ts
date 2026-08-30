@@ -23,6 +23,7 @@ import type {
   AdminWebhookEventRow,
   AdminWithdrawalRow,
   AuditLogRow,
+  CollectionPricingRuleRow,
   Merchant,
   MerchantAccountStatus,
   MerchantUserRow,
@@ -327,6 +328,58 @@ export async function updatePricingRule(ruleId: string, input: Partial<PricingRu
 
 export async function deactivatePricingRule(ruleId: string): Promise<PricingRuleRow> {
   return apiWrite<PricingRuleRow>(`/v1/admin/pricing-rules/${ruleId}/deactivate`, "POST");
+}
+
+// --- Collection pricing rules (LIVE) — the collection-side sibling of the
+// (now inactive-for-fees) withdrawal pricing rules above. -------------------
+
+export async function listCollectionPricingRulesForMerchant(merchantId: string): Promise<CollectionPricingRuleRow[]> {
+  return apiList<CollectionPricingRuleRow>(`/v1/admin/merchants/${merchantId}/collection-pricing-rules`);
+}
+
+export async function listPlatformFallbackCollectionPricingRules(): Promise<CollectionPricingRuleRow[]> {
+  return apiList<CollectionPricingRuleRow>(`/v1/admin/collection-pricing-rules`);
+}
+
+export interface CollectionPricingRuleInput {
+  channel?: string | null;
+  percentage_fee?: string;
+  flat_fee?: string;
+  minimum_fee?: string | null;
+  maximum_fee?: string | null;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  is_active?: boolean;
+  label?: string | null;
+  notes?: string | null;
+}
+
+export async function createMerchantCollectionPricingRule(
+  merchantId: string,
+  input: CollectionPricingRuleInput,
+): Promise<CollectionPricingRuleRow> {
+  return apiWrite<CollectionPricingRuleRow>(`/v1/admin/merchants/${merchantId}/collection-pricing-rules`, "POST", input);
+}
+
+export async function createPlatformFallbackCollectionPricingRule(
+  input: CollectionPricingRuleInput,
+): Promise<CollectionPricingRuleRow> {
+  return apiWrite<CollectionPricingRuleRow>(`/v1/admin/collection-pricing-rules/platform-fallback`, "POST", input);
+}
+
+export async function updateCollectionPricingRule(
+  ruleId: string,
+  input: Partial<CollectionPricingRuleInput>,
+): Promise<CollectionPricingRuleRow> {
+  return apiWrite<CollectionPricingRuleRow>(`/v1/admin/collection-pricing-rules/${ruleId}`, "PATCH", input);
+}
+
+export async function deactivateCollectionPricingRule(ruleId: string): Promise<CollectionPricingRuleRow> {
+  return apiWrite<CollectionPricingRuleRow>(`/v1/admin/collection-pricing-rules/${ruleId}/deactivate`, "POST");
+}
+
+export async function activateCollectionPricingRule(ruleId: string): Promise<CollectionPricingRuleRow> {
+  return apiWrite<CollectionPricingRuleRow>(`/v1/admin/collection-pricing-rules/${ruleId}/activate`, "POST");
 }
 
 // --- Transactions / Webhooks / Audit Logs (read-only) ----------------------

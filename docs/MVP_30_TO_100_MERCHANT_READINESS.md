@@ -160,7 +160,12 @@ below, not a sixth set of guarantees to separately verify:
   the database level, not just in application code.
 - **Merchant charges apply to collections only** (2026-08-31 pricing
   policy) — this is the one and only place a merchant fee is ever
-  charged; see [`docs/collection-and-withdrawal-pricing.md`](./collection-and-withdrawal-pricing.md)
+  charged, and it's flexible per merchant/channel now
+  (`merchant_collection_pricing_rules`, Super Admin-managed at
+  `/super-admin/pricing-rules` → "Collection Pricing Rules"), falling
+  back to the original flat `PLATFORM_FEE_PERCENTAGE` for any merchant
+  nobody has explicitly priced. See
+  [`docs/collection-and-withdrawal-pricing.md`](./collection-and-withdrawal-pricing.md)
   and §5's own pricing note below for the withdrawal side of this split.
 
 ## 5. Withdrawals and wallet debit safety

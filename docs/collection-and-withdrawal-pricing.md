@@ -12,26 +12,64 @@ for how withdrawal pricing worked before this change, and for the
 still-current approval-flow/status-glossary/Selcom-sequencing mechanics,
 which this change didn't touch.
 
-## Collections — unchanged
+## Collections — flexible, per-merchant pricing (2026-08-31, same day)
 
 Every collection flow (Request Collection, Wallet Push, Push to Selcom
 Pesa, TanQR, Payment Links, [Pay by Link](./PAY_BY_LINK.md), Invoices,
-Merchant API collections) computes its fee the same way it always has,
-through the single shared chokepoint
-`app/services/collections.py::create_processing_transaction`:
+Merchant API collections) still computes its fee through the single
+shared chokepoint `app/services/collections.py::create_processing_transaction`
+— unchanged since before this policy — but that function now delegates
+the actual rate lookup to
+`app/services/collection_pricing.py::calculate_collection_fee`:
 
 ```
-fee_amount = gross_amount * settings.platform_fee_percentage / 100
-net_amount = gross_amount - fee_amount
+fee_amount = clamp(amount * rule.percentage_fee / 100 + rule.flat_fee, rule.minimum_fee, rule.maximum_fee)
+net_amount = amount - fee_amount
 ```
 
-`settings.platform_fee_percentage` (`PLATFORM_FEE_PERCENTAGE` env var,
-default `1.5`) is a single flat platform-wide rate — not per-merchant,
-and not read from `merchant_pricing_rules` (that table has never driven
-collection fees; it was, and is, a withdrawal-specific mechanism — see
-below). This computation was not changed by this policy update; it's
-documented here because this file is the "what does a merchant actually
-pay" reference, not because anything about it moved.
+`rule` is the most specific active row in `merchant_collection_pricing_rules`
+(Super Admin-managed at `/super-admin/pricing-rules`, "Collection Pricing
+Rules" — the primary content of that page now; the pre-existing
+withdrawal pricing UI is collapsed below it, inactive). Precedence, most
+to least specific:
+
+1. merchant + channel (`channel` = `CollectionMethod`: `STK_PUSH`,
+   `SELCOM_PESA_PUSH`, `DYNAMIC_QR`, `HOSTED_CHECKOUT`, `USSD_PUSH` — how
+   the customer paid, not which product page/API created the
+   collection; Payment Links, Pay by Link, Invoices, and API collections
+   all funnel through `HOSTED_CHECKOUT` today, so they share one rate
+   unless a merchant is given a `HOSTED_CHECKOUT`-specific override)
+2. merchant default (channel null)
+3. platform fallback + channel (`merchant_id` null)
+4. platform fallback, fully generic
+
+**If no row matches at all — not even a platform fallback — this falls
+back to `settings.platform_fee_percentage`** (`PLATFORM_FEE_PERCENTAGE`
+env var, default `1.5`), the original flat rate every collection used
+before this per-merchant engine existed. That preserves exact backward
+compatibility: a merchant nobody has explicitly priced yet keeps seeing
+the same rate they always did, never a silent 0%.
+
+`merchant_collection_pricing_rules` is a **separate table** from
+`merchant_pricing_rules` (the withdrawal-only one, inactive for fee
+purposes as of the same date — see below) — not a repurposing of it.
+Collections have no "destination" concept and no processor-charge-pass-
+through concept; the collection table instead adds a free-text `notes`
+column for a commercial-agreement reference, since collection pricing is
+explicitly negotiated per merchant/customer.
+
+No business-specific rate range (e.g. "0.4%-2.0%") is hardcoded anywhere
+— `percentage_fee` accepts any value from 0-100% (a basic sanity bound,
+not a policy), so Super Admin can set exactly what was actually
+negotiated.
+
+**Worked examples** (TZS 10,000 collected):
+
+| Merchant | Rate | Fee | Wallet credit |
+|---|---|---|---|
+| A | 0.4% | TZS 40 | TZS 9,960 |
+| B | 0.8% | TZS 80 | TZS 9,920 |
+| C | 2.0% | TZS 200 | TZS 9,800 |
 
 ## Withdrawals — fees removed
 
@@ -61,10 +99,11 @@ none of which this change touched.
 production-API-key-eligibility gate
 (`app/services/api_access.py::has_resolvable_pricing_rule` — "has this
 merchant been assigned pricing at all"), which is unrelated to fee
-amounts. The Super Admin "Pricing Rules" page
-(`/super-admin/pricing-rules`) still edits this same table for that
-reason, but is now labeled inactive for withdrawal-fee purposes — see
-its own on-page notice.
+amounts, and are a fully separate table from `merchant_collection_pricing_rules`
+above. `/super-admin/pricing-rules` still edits this table — now a
+collapsed "Withdrawal Pricing Rules (Inactive)" section on the same page
+as (and below) the primary "Collection Pricing Rules" UI — see its own
+on-page notice.
 
 ### If a real provider disbursement cost needs tracking later
 

@@ -208,6 +208,29 @@ export interface PricingRuleRow {
   updated_at: string;
 }
 
+/** merchant_collection_pricing_rules — the collection-side sibling of
+ * PricingRuleRow above (which, per the 2026-08-31 "fees apply to
+ * collections only" policy, no longer charges anything — see
+ * docs/collection-and-withdrawal-pricing.md). `channel` mirrors
+ * CollectionMethod (how the customer paid), not DisbursementMethod. */
+export interface CollectionPricingRuleRow {
+  id: string;
+  merchant_id: string | null;
+  channel: "USSD_PUSH" | "STK_PUSH" | "SELCOM_PESA_PUSH" | "DYNAMIC_QR" | "HOSTED_CHECKOUT" | null;
+  percentage_fee: string;
+  flat_fee: string;
+  minimum_fee: string | null;
+  maximum_fee: string | null;
+  effective_from: string;
+  effective_to: string | null;
+  is_active: boolean;
+  label: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** GET /v1/admin/customers — derived from real collections (grouped by
  * merchant + customer phone), not read from a table; see the backend's
  * own admin_customers.py docstring for why. Distinct from the older,

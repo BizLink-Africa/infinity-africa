@@ -92,6 +92,32 @@ def create_pricing_rule(fake_client, *, merchant_id: uuid.UUID | None = None, **
     return fake_client.seed("merchant_pricing_rules", data)
 
 
+def create_collection_pricing_rule(fake_client, *, merchant_id: uuid.UUID | None = None, **overrides) -> dict:
+    """Seeds a merchant_collection_pricing_rules row (see
+    app/services/collection_pricing.py) — the collection-side sibling of
+    create_pricing_rule above. merchant_id=None means a platform fallback
+    rule. Defaults to a zero-fee, always-active, no-channel-scope rule —
+    override whichever fields a given test needs to exercise
+    precedence/fee math."""
+    now = utc_now_iso()
+    data = {
+        "merchant_id": str(merchant_id) if merchant_id else None,
+        "channel": None,
+        "percentage_fee": "0",
+        "flat_fee": "0",
+        "minimum_fee": None,
+        "maximum_fee": None,
+        "effective_from": now,
+        "effective_to": None,
+        "is_active": True,
+        "label": None,
+        "notes": None,
+        "created_by": None,
+        **overrides,
+    }
+    return fake_client.seed("merchant_collection_pricing_rules", data)
+
+
 def seed_fraud_rules(fake_client, *rule_codes: str, config_overrides: dict | None = None) -> None:
     """Seeds only the given fraud_rules rows (enabled), matching
     supabase/migrations/20260817090000_fraud_monitoring.sql's defaults —

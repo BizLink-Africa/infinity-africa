@@ -20,16 +20,16 @@ Two ways a collection reaches resolve_collection():
 """
 
 import uuid
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from supabase import Client
 
-from app.config import get_settings
 from app.core.errors import InsufficientBalanceError
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
 from app.schemas.enums import CollectionMethod, NotificationType
 from app.services.audit import write_audit_log
+from app.services.collection_pricing import calculate_collection_fee
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
 from app.services.email import send_payment_receipt_email
 from app.services.fraud_monitoring_service import (
@@ -144,10 +144,7 @@ def create_processing_transaction(
     needs exactly one linked transaction row for ledger posting
     (gross/fee/net amounts), regardless of which client actually
     initiated it."""
-    settings = get_settings()
-    fee_amount = (amount * settings.platform_fee_percentage / Decimal(100)).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
+    fee_amount = calculate_collection_fee(client, merchant_id=merchant_id, amount=amount, channel=method)
     net_amount = amount - fee_amount
 
     return insert_row(

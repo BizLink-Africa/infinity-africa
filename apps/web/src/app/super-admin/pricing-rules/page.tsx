@@ -1,9 +1,16 @@
 import { PageHeader } from "@/components/portal/page-header";
+import { CollectionPricingRulesView } from "@/components/super-admin/collection-pricing-rules-view";
 import { PricingRulesView } from "@/components/super-admin/pricing-rules-view";
-import { listAdminMerchants, listPlatformFallbackPricingRules, listPricingRulesForMerchant } from "@/lib/admin/live-api";
+import {
+  listAdminMerchants,
+  listCollectionPricingRulesForMerchant,
+  listPlatformFallbackCollectionPricingRules,
+  listPlatformFallbackPricingRules,
+  listPricingRulesForMerchant,
+} from "@/lib/admin/live-api";
 
 export const metadata = {
-  title: "Pricing Rules | Infinity Africa Super Admin",
+  title: "Collection Pricing Rules | Infinity Africa Super Admin",
 };
 
 export default async function SuperAdminPricingRulesPage({
@@ -13,24 +20,41 @@ export default async function SuperAdminPricingRulesPage({
 }) {
   const { merchant_id: selectedMerchantId } = await searchParams;
 
-  const [merchants, platformRules, merchantRules] = await Promise.all([
-    listAdminMerchants(),
-    listPlatformFallbackPricingRules(),
-    selectedMerchantId ? listPricingRulesForMerchant(selectedMerchantId) : Promise.resolve([]),
-  ]);
+  const [merchants, collectionPlatformRules, collectionMerchantRules, withdrawalPlatformRules, withdrawalMerchantRules] =
+    await Promise.all([
+      listAdminMerchants(),
+      listPlatformFallbackCollectionPricingRules(),
+      selectedMerchantId ? listCollectionPricingRulesForMerchant(selectedMerchantId) : Promise.resolve([]),
+      listPlatformFallbackPricingRules(),
+      selectedMerchantId ? listPricingRulesForMerchant(selectedMerchantId) : Promise.resolve([]),
+    ]);
 
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Withdrawal Pricing Rules (Inactive)"
-        description="These rules no longer charge merchants — withdrawal fees were removed platform-wide. Infinity Africa now earns fees from collections only."
+        title="Collection Pricing Rules"
+        description="Configure flexible, per-merchant collection fees — the exact rate is negotiated separately with each merchant/customer."
       />
-      <PricingRulesView
+      <CollectionPricingRulesView
         merchants={merchants}
-        platformRules={platformRules}
+        platformRules={collectionPlatformRules}
         selectedMerchantId={selectedMerchantId ?? null}
-        merchantRules={merchantRules}
+        merchantRules={collectionMerchantRules}
       />
+
+      <details className="rounded-lg border border-surface-container-highest">
+        <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-on-surface-variant">
+          Withdrawal Pricing Rules (Inactive) — no longer charges any merchant
+        </summary>
+        <div className="p-5 pt-0 space-y-8">
+          <PricingRulesView
+            merchants={merchants}
+            platformRules={withdrawalPlatformRules}
+            selectedMerchantId={selectedMerchantId ?? null}
+            merchantRules={withdrawalMerchantRules}
+          />
+        </div>
+      </details>
     </div>
   );
 }
