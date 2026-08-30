@@ -13,44 +13,6 @@ const QR_PRINT_HELPER =
   "Print this on a poster, table tent, or receipt — anyone who scans it with a phone camera or barcode scanner lands on your Pay by Link page.";
 const QR_PDF_FOOTER = "Secure payments powered by Infinity Africa.";
 
-/** Fetches a same-origin public asset and returns it as a data URL plus
- * its natural pixel size — the size is what lets the PDF fit the logo
- * with object-contain math (never stretched, never cropped) instead of
- * guessing a fixed aspect ratio. Returns null on any failure (offline,
- * asset missing, ...) so the PDF still generates without a logo rather
- * than failing outright over a decorative image. */
-async function loadImageAsDataUrl(url: string): Promise<{ dataUrl: string; width: number; height: number } | null> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    const blob = await response.blob();
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(blob);
-    });
-    const { width, height } = await new Promise<{ width: number; height: number }>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-      img.onerror = () => reject(new Error("Couldn't read image dimensions"));
-      img.src = dataUrl;
-    });
-    return { dataUrl, width, height };
-  } catch {
-    return null;
-  }
-}
-
-/** CSS object-contain, computed for a PDF's fixed-size image placement:
- * the largest (width, height) that fits inside (maxWidth, maxHeight)
- * without changing the aspect ratio — so the logo is never stretched or
- * cropped, only ever scaled down (or up) uniformly. */
-function containSize(width: number, height: number, maxWidth: number, maxHeight: number) {
-  const scale = Math.min(maxWidth / width, maxHeight / height);
-  return { width: width * scale, height: height * scale };
-}
-
 async function generateQrPdf({
   merchantName,
   slug,
@@ -68,7 +30,6 @@ async function generateQrPdf({
     margin: 2,
     color: { dark: "#000000", light: "#ffffff" },
   });
-  const logo = await loadImageAsDataUrl("/brand/infinity-mark.png");
 
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -76,28 +37,17 @@ async function generateQrPdf({
   const centerX = pageWidth / 2;
   const textWidth = pageWidth - 40;
 
-  let cursorY = 22;
-
-  if (logo) {
-    const { width, height } = containSize(logo.width, logo.height, 22, 22);
-    doc.addImage(logo.dataUrl, "PNG", centerX - width / 2, cursorY, width, height);
-    cursorY += height + 6;
-  }
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.setTextColor("#04332A");
-  doc.text("Infinity Africa", centerX, cursorY, { align: "center" });
-  cursorY += 14;
-
-  doc.setFontSize(22);
-  doc.setTextColor("#111111");
-  doc.text(merchantName, centerX, cursorY, { align: "center" });
-  cursorY += 14;
+  let cursorY = 30;
 
   const qrSize = 100;
   doc.addImage(qrDataUrl, "PNG", centerX - qrSize / 2, cursorY, qrSize, qrSize);
-  cursorY += qrSize + 10;
+  cursorY += qrSize + 12;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor("#111111");
+  doc.text(merchantName, centerX, cursorY, { align: "center" });
+  cursorY += 12;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
