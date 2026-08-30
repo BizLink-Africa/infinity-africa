@@ -31,6 +31,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { label: "Onboarding & Compliance/KYC", href: "/super-admin/onboarding", icon: "assignment_ind" },
   { label: "Collections", href: "/super-admin/collections", icon: "payments" },
   { label: "Payment Links", href: "/super-admin/payment-links", icon: "link" },
+  { label: "Pay by Link", href: "/super-admin/pay-by-link", icon: "storefront" },
   { label: "Invoices", href: "/super-admin/invoices", icon: "receipt" },
   { label: "Customers", href: "/super-admin/customers", icon: "group" },
   { label: "Withdrawals", href: "/super-admin/withdrawals", icon: "receipt_long" },

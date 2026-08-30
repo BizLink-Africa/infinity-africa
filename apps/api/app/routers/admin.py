@@ -33,6 +33,7 @@ from app.schemas.admin import (
     AdminMerchantResponse,
     AdminMerchantUserResponse,
     AdminOverviewResponse,
+    AdminPayByLinkResponse,
     AdminPaymentLinkResponse,
     AdminTransactionResponse,
     AdminWebhookEventResponse,
@@ -279,8 +280,9 @@ def get_admin_merchant_pay_by_link(
     _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
 ):
     """Super Admin visibility into a merchant's permanent Pay by Link
-    page — slug and active/disabled status (feature brief Part 10).
-    Payments created through it already show up in the regular
+    page — slug and active/disabled status (feature brief Part 10). See
+    GET /pay-by-link below for the platform-wide equivalent of this same
+    row. Payments created through it already show up in the regular
     collections/transactions endpoints with source="PAY_BY_LINK"
     (app/services/collection_source.py); slug create/update/enable/
     disable events already show up in the regular audit-log endpoint
@@ -291,6 +293,46 @@ def get_admin_merchant_pay_by_link(
         raise NotFoundError("Merchant not found")
     row = get_own_pay_link(client, merchant_id=merchant_id)
     return APIResponse(data=PayByLinkResponse(**row, public_url=build_public_url(row["slug"])) if row else None)
+
+
+@router.get("/pay-by-link", response_model=APIResponse[list[AdminPayByLinkResponse]])
+def list_admin_pay_by_links(
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+    pagination: Annotated[PaginationParams, Depends(pagination_params)],
+    merchant_id: Annotated[uuid.UUID | None, Query()] = None,
+    is_active: Annotated[bool | None, Query()] = None,
+):
+    """Platform-wide view of every merchant's permanent Pay by Link page —
+    separate from GET /payment-links above (which lists the payments
+    created through them, alongside every other payment link, tagged
+    created_via="pay_by_link"). This is the pages themselves: how many
+    exist, how many are active, which merchant owns which slug."""
+    client = get_supabase_admin()
+    query = client.table("merchant_pay_links").select("*", count="exact")
+    if merchant_id is not None:
+        query = query.eq("merchant_id", str(merchant_id))
+    if is_active is not None:
+        query = query.eq("is_active", is_active)
+    result = query.order("created_at", desc=True).range(pagination.start, pagination.end).execute()
+    rows = result.data or []
+    merchant_names = batch_merchant_names(client, {r["merchant_id"] for r in rows})
+    merchant_codes = batch_merchant_codes(client, {r["merchant_id"] for r in rows})
+
+    data = [
+        AdminPayByLinkResponse(
+            pay_by_link_id=row["id"],
+            merchant_id=row["merchant_id"],
+            merchant_name=merchant_names.get(row["merchant_id"], ""),
+            merchant_code=merchant_codes.get(row["merchant_id"]),
+            slug=row["slug"],
+            display_name=row["display_name"],
+            is_active=row["is_active"],
+            created_at=row["created_at"],
+            last_used_at=row.get("last_used_at"),
+        )
+        for row in rows
+    ]
+    return APIResponse(data=data, meta=build_page_meta(pagination, result.count or 0))
 
 
 @router.get("/api-keys", response_model=APIResponse[list[AdminApiKeyResponse]])

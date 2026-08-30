@@ -500,6 +500,76 @@ def test_non_super_admin_cannot_view_via_admin_endpoint(fake_client):
     assert response.status_code == 403
 
 
+# --- Super Admin platform-wide monitoring ---------------------------------------
+
+
+def test_admin_can_list_all_pay_by_links(fake_client):
+    """GET /v1/admin/pay-by-link — separate from /v1/admin/payment-links
+    (which lists the payments created *through* a Pay by Link page,
+    tagged created_via="pay_by_link", alongside every other payment
+    link) — this lists the permanent pages themselves, platform-wide."""
+    _m1, admin1 = _merchant_and_admin(fake_client, business_name="Paul Masanja")
+    _m2, admin2 = _merchant_and_admin(fake_client, business_name="Kariakoo Fresh Produce")
+    _create(admin1)
+    _create(admin2)
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+    response = client.get("/v1/admin/pay-by-link", headers=auth_headers(super_admin_id))
+    assert response.status_code == 200, response.text
+    rows = response.json()["data"]
+    assert len(rows) == 2
+    slugs = {row["slug"] for row in rows}
+    assert slugs == {"paul-masanja", "kariakoo-fresh-produce"}
+    row = next(r for r in rows if r["slug"] == "paul-masanja")
+    assert row["merchant_name"] == "Paul Masanja"
+    assert row["is_active"] is True
+    assert row["last_used_at"] is None
+
+
+def test_admin_list_reflects_disabled_status_and_last_used(fake_client):
+    _merchant_id, admin_id = _merchant_and_admin(fake_client, business_name="Paul Masanja")
+    _create(admin_id)
+    _checkout("paul-masanja")
+    client.patch("/v1/merchant/pay-by-link/me", headers=auth_headers(admin_id), json={"is_active": False})
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+    response = client.get("/v1/admin/pay-by-link", headers=auth_headers(super_admin_id))
+    row = response.json()["data"][0]
+    assert row["is_active"] is False
+    assert row["last_used_at"] is not None
+
+
+def test_admin_list_can_filter_by_merchant_and_active_status(fake_client):
+    m1, admin1 = _merchant_and_admin(fake_client, business_name="Paul Masanja")
+    _m2, admin2 = _merchant_and_admin(fake_client, business_name="Kariakoo Fresh Produce")
+    _create(admin1)
+    _create(admin2)
+    client.patch("/v1/merchant/pay-by-link/me", headers=auth_headers(admin2), json={"is_active": False})
+
+    super_admin_id = uuid.uuid4()
+    make_super_admin(fake_client, super_admin_id)
+
+    by_merchant = client.get(
+        f"/v1/admin/pay-by-link?merchant_id={m1}", headers=auth_headers(super_admin_id)
+    ).json()["data"]
+    assert len(by_merchant) == 1
+    assert by_merchant[0]["merchant_name"] == "Paul Masanja"
+
+    active_only = client.get(
+        "/v1/admin/pay-by-link?is_active=true", headers=auth_headers(super_admin_id)
+    ).json()["data"]
+    assert len(active_only) == 1
+    assert active_only[0]["merchant_name"] == "Paul Masanja"
+
+
+def test_non_super_admin_cannot_list_pay_by_links(fake_client):
+    _merchant_id, admin_id = _merchant_and_admin(fake_client)
+    response = client.get("/v1/admin/pay-by-link", headers=auth_headers(admin_id))
+    assert response.status_code == 403
+
+
 # --- Rate limiting -------------------------------------------------------------
 
 

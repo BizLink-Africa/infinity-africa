@@ -260,6 +260,22 @@ export interface AdminPayByLinkRow {
   last_used_at: string | null;
 }
 
+/** One row of GET /v1/admin/pay-by-link — the platform-wide Pay by Link
+ * Monitoring list. Distinct from AdminPayByLinkRow above (a single
+ * merchant's own page, shown on their detail page, no merchant_name/code
+ * since the caller already has that context). */
+export interface AdminPayByLinkListRow {
+  pay_by_link_id: string;
+  merchant_id: string;
+  merchant_name: string;
+  merchant_code: string | null;
+  slug: string;
+  display_name: string;
+  is_active: boolean;
+  created_at: string;
+  last_used_at: string | null;
+}
+
 export interface AdminIpAllowlistRow {
   id: string;
   merchant_id: string;

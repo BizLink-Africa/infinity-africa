@@ -15,6 +15,7 @@ import type {
   AdminIpAllowlistRow,
   AdminNotificationRow,
   AdminOverview,
+  AdminPayByLinkListRow,
   AdminPayByLinkRow,
   AdminPaymentLinkRow,
   AdminRefundRow,
@@ -194,6 +195,19 @@ export async function listAdminPaymentLinks(filters?: { merchantId?: string }): 
   const params = new URLSearchParams(LIST_ALL_PARAMS);
   if (filters?.merchantId) params.set("merchant_id", filters.merchantId);
   return apiList<AdminPaymentLinkRow>(`/v1/admin/payment-links?${params.toString()}`);
+}
+
+/** Platform-wide Pay by Link Monitoring — every merchant's permanent
+ * checkout page, separate from listAdminPaymentLinks above (which lists
+ * payments, including ones created through a Pay by Link page). */
+export async function listAdminPayByLinks(filters?: {
+  merchantId?: string;
+  isActive?: boolean;
+}): Promise<AdminPayByLinkListRow[]> {
+  const params = new URLSearchParams(LIST_ALL_PARAMS);
+  if (filters?.merchantId) params.set("merchant_id", filters.merchantId);
+  if (filters?.isActive !== undefined) params.set("is_active", String(filters.isActive));
+  return apiList<AdminPayByLinkListRow>(`/v1/admin/pay-by-link?${params.toString()}`);
 }
 
 export async function listAdminInvoices(filters?: { merchantId?: string }): Promise<AdminInvoiceRow[]> {

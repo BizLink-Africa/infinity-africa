@@ -111,6 +111,25 @@ class AdminPaymentLinkResponse(BaseModel):
     created_via: str
 
 
+class AdminPayByLinkResponse(BaseModel):
+    """Platform-wide row for GET /v1/admin/pay-by-link — a merchant's
+    permanent public checkout page, distinct from AdminPaymentLinkResponse
+    above (a one-off generated link, or a payment created *through* a Pay
+    by Link page — see created_via="pay_by_link" there). This response is
+    about the page itself: does it exist, is it active, when was it last
+    used."""
+
+    pay_by_link_id: uuid.UUID
+    merchant_id: uuid.UUID
+    merchant_name: str
+    merchant_code: str | None = None
+    slug: str
+    display_name: str
+    is_active: bool
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+
 class AdminInvoiceResponse(BaseModel):
     invoice_id: uuid.UUID
     invoice_number: str
