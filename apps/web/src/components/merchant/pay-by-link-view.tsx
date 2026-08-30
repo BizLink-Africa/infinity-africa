@@ -88,14 +88,14 @@ export function PayByLinkView() {
 }
 
 function CreatePanel({ defaultName, onCreated }: { defaultName: string; onCreated: (link: PayByLink) => void }) {
+  // PayByLinkView only renders this panel once its own load of
+  // getMyMerchant() has resolved (loading === false) and defaultName is
+  // already set — so this initializer always sees the real business
+  // name on first mount, no effect needed to sync it in afterwards.
   const [displayName, setDisplayName] = useState(defaultName);
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDisplayName((current) => current || defaultName);
-  }, [defaultName]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();

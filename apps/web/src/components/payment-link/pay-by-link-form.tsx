@@ -88,12 +88,8 @@ export function PayByLinkForm({ slug, link }: { slug: string; link: PublicPayByL
           className="h-10 w-10 shrink-0 rounded-lg sm:h-11 sm:w-11"
         />
       </div>
-      <p className="flex items-center justify-center gap-1.5 py-4 text-center text-xs text-on-surface-variant">
-        <LockIcon />
-        Secure payment powered by Infinity Africa
-      </p>
 
-      <form onSubmit={handleSubmit} className="space-y-4 px-6 pb-6 sm:px-8 sm:pb-8">
+      <form onSubmit={handleSubmit} className="space-y-4 px-6 py-6 sm:px-8 sm:py-8">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>First name</label>
@@ -196,14 +192,5 @@ export function PayByLinkForm({ slug, link }: { slug: string; link: PublicPayByL
         </button>
       </form>
     </div>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" className="h-3.5 w-3.5">
-      <rect x="4.5" y="10.5" width="15" height="9.75" rx="1.5" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 10.5V7.5a3.75 3.75 0 017.5 0v3" />
-    </svg>
   );
 }
