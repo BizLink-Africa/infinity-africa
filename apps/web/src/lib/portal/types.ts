@@ -51,6 +51,22 @@ export interface PaymentLink {
   customer_email_sent: boolean | null;
 }
 
+/** A merchant's permanent public "Pay by Link" checkout page
+ * (/pay/{slug}) — distinct from PaymentLink above, which is a one-off
+ * generated/shareable link with a fixed amount. See docs/PAY_BY_LINK.md. */
+export interface PayByLink {
+  id: string;
+  merchant_id: string;
+  slug: string;
+  public_url: string;
+  display_name: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
 export interface InvoiceItem {
   id: string;
   description: string;

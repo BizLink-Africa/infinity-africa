@@ -61,6 +61,7 @@ class CollectionSource(StrEnum):
     API_WALLET_PUSH = "API_WALLET_PUSH"
     API_SELCOM_PESA = "API_SELCOM_PESA"
     API_TANQR = "API_TANQR"
+    PAY_BY_LINK = "PAY_BY_LINK"
 
 
 class DisbursementMethod(StrEnum):

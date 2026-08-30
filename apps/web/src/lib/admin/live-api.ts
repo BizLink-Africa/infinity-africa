@@ -15,6 +15,7 @@ import type {
   AdminIpAllowlistRow,
   AdminNotificationRow,
   AdminOverview,
+  AdminPayByLinkRow,
   AdminPaymentLinkRow,
   AdminRefundRow,
   AdminTransactionRow,
@@ -121,6 +122,12 @@ export async function getAdminMerchant(merchantId: string): Promise<Merchant | n
 
 export async function listAdminMerchantApiKeys(merchantId: string): Promise<AdminApiKeyRow[]> {
   return apiList<AdminApiKeyRow>(`/v1/admin/merchants/${merchantId}/api-keys`);
+}
+
+/** Null when the merchant hasn't created their permanent Pay by Link
+ * page yet — see docs/PAY_BY_LINK.md. */
+export async function getAdminMerchantPayByLink(merchantId: string): Promise<AdminPayByLinkRow | null> {
+  return apiGet<AdminPayByLinkRow>(`/v1/admin/merchants/${merchantId}/pay-by-link`);
 }
 
 export async function suspendMerchantApiAccess(merchantId: string): Promise<void> {

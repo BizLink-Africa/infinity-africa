@@ -9,6 +9,7 @@ export const PORTAL_NAV_ITEMS: PortalNavItem[] = [
   { label: "Wallet", href: "/portal/wallet", icon: "account_balance" },
   { label: "Collections", href: "/portal/collections", icon: "payments" },
   { label: "Payment Links", href: "/merchant/payment-links", icon: "link" },
+  { label: "Pay by Link", href: "/merchant/pay-by-link", icon: "storefront" },
   { label: "Withdrawals", href: "/merchant/withdrawals", icon: "account_balance_wallet" },
   { label: "Transactions", href: "/portal/transactions", icon: "receipt_long" },
   { label: "Customers", href: "/portal/customers", icon: "group" },

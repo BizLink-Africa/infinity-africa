@@ -34,6 +34,7 @@ import type {
   IpAllowlistEntry,
   MerchantProfile,
   MerchantUser,
+  PayByLink,
   PaymentLink,
   Refund,
   SupportTicket,
@@ -160,6 +161,45 @@ export async function updatePaymentLink(id: string, input: UpdatePaymentLinkInpu
 
 export async function cancelPaymentLink(id: string): Promise<PaymentLink> {
   return apiWrite<PaymentLink>(`/v1/merchant/payment-links/${id}/cancel`, "PATCH", {});
+}
+
+// --- Pay by Link (LIVE) -------------------------------------------------------
+// The merchant's one permanent public checkout page — see
+// docs/PAY_BY_LINK.md. Additive to Payment Links above, never a
+// replacement for it.
+
+export async function getMyPayByLink(): Promise<PayByLink | null> {
+  return apiGet<PayByLink>("/v1/merchant/pay-by-link/me");
+}
+
+export interface CreatePayByLinkInput {
+  display_name?: string | null;
+  slug?: string | null;
+  description?: string | null;
+}
+
+export async function createPayByLink(input: CreatePayByLinkInput): Promise<PayByLink> {
+  return apiWrite<PayByLink>("/v1/merchant/pay-by-link", "POST", input);
+}
+
+export interface UpdatePayByLinkInput {
+  display_name?: string;
+  slug?: string;
+  description?: string;
+  is_active?: boolean;
+}
+
+export async function updatePayByLink(input: UpdatePayByLinkInput): Promise<PayByLink> {
+  return apiWrite<PayByLink>("/v1/merchant/pay-by-link/me", "PATCH", input);
+}
+
+export async function checkPayByLinkSlugAvailability(
+  slug: string,
+): Promise<{ available: boolean; reason?: string }> {
+  const result = await apiGet<{ available: boolean; reason?: string }>(
+    `/v1/merchant/pay-by-link/slug-availability?slug=${encodeURIComponent(slug)}`,
+  );
+  return result ?? { available: false, reason: "Couldn't check availability. Try again." };
 }
 
 // --- Invoices (LIVE) ---------------------------------------------------------

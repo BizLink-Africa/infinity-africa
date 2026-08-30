@@ -43,6 +43,7 @@ from app.schemas.api_logs import AdminApiRequestLogResponse
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.common import APIResponse
 from app.schemas.ip_allowlist import AdminIpAllowlistResponse
+from app.schemas.pay_by_link import PayByLinkResponse
 from app.schemas.webhook_config import WebhookConfigResponse
 from app.services.admin_customers import list_admin_customers
 from app.services.admin_directory import (
@@ -59,6 +60,8 @@ from app.services.checkout_reconciliation import refresh_checkout_collection_sta
 from app.services.crud import execute_maybe_single, get_by_id, update_row
 from app.services.email import batch_latest_email_deliveries
 from app.services.ledger import get_wallet_balance
+from app.services.pay_by_link import get_own_pay_link
+from app.services.payment_links import build_public_url
 from app.services.webhooks import last_webhook_delivery
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -268,6 +271,26 @@ def list_admin_merchant_api_keys(
         .execute()
     ).data or []
     return APIResponse(data=[ApiKeyResponse(**row) for row in rows])
+
+
+@router.get("/merchants/{merchant_id}/pay-by-link", response_model=APIResponse[PayByLinkResponse | None])
+def get_admin_merchant_pay_by_link(
+    merchant_id: uuid.UUID,
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    """Super Admin visibility into a merchant's permanent Pay by Link
+    page — slug and active/disabled status (feature brief Part 10).
+    Payments created through it already show up in the regular
+    collections/transactions endpoints with source="PAY_BY_LINK"
+    (app/services/collection_source.py); slug create/update/enable/
+    disable events already show up in the regular audit-log endpoint
+    below (action starting "pay_by_link.") — nothing extra needed for
+    either. Null (not 404) when the merchant hasn't created one."""
+    client = get_supabase_admin()
+    if not get_by_id(client, "merchants", merchant_id):
+        raise NotFoundError("Merchant not found")
+    row = get_own_pay_link(client, merchant_id=merchant_id)
+    return APIResponse(data=PayByLinkResponse(**row, public_url=build_public_url(row["slug"])) if row else None)
 
 
 @router.get("/api-keys", response_model=APIResponse[list[AdminApiKeyResponse]])

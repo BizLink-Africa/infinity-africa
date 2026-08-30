@@ -29,6 +29,7 @@ export enum CollectionSource {
   API_WALLET_PUSH = "API_WALLET_PUSH",
   API_SELCOM_PESA = "API_SELCOM_PESA",
   API_TANQR = "API_TANQR",
+  PAY_BY_LINK = "PAY_BY_LINK",
 }
 
 export const COLLECTION_SOURCE_LABELS: Record<CollectionSource, string> = {
@@ -39,4 +40,5 @@ export const COLLECTION_SOURCE_LABELS: Record<CollectionSource, string> = {
   [CollectionSource.API_WALLET_PUSH]: "API Wallet Push",
   [CollectionSource.API_SELCOM_PESA]: "API Selcom Pesa",
   [CollectionSource.API_TANQR]: "API TanQR",
+  [CollectionSource.PAY_BY_LINK]: "Pay by Link",
 };

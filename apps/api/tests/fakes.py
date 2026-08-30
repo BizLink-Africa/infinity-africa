@@ -5,6 +5,7 @@ select/insert/update/delete, .eq()/.is_()/.in_(), .order(), .range(),
 code end-to-end in tests without a real Supabase project.
 """
 
+import re
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -31,6 +32,10 @@ class _FakeQuery:
 
     def eq(self, column, value):
         self._filters.append(("eq", column, value))
+        return self
+
+    def ilike(self, column, pattern):
+        self._filters.append(("ilike", column, pattern))
         return self
 
     def neq(self, column, value):
@@ -96,11 +101,40 @@ class _FakeQuery:
             a, b = str(row_value), str(value)
         return -1 if a < b else (1 if a > b else 0)
 
+    @staticmethod
+    def _ilike_matches(row_value, pattern: str) -> bool:
+        """Mirrors Postgres ILIKE: `%`/`_` are wildcards, `\\` escapes the
+        next character — the same default escape rules real Postgres
+        uses, so callers that escape a literal string before passing it
+        in (app/services/pay_by_link.py's cross-table slug check) get an
+        exact, case-insensitive comparison here too."""
+        if row_value is None:
+            return False
+
+        regex_parts = []
+        i = 0
+        while i < len(pattern):
+            ch = pattern[i]
+            if ch == "\\" and i + 1 < len(pattern):
+                regex_parts.append(re.escape(pattern[i + 1]))
+                i += 2
+                continue
+            if ch == "%":
+                regex_parts.append(".*")
+            elif ch == "_":
+                regex_parts.append(".")
+            else:
+                regex_parts.append(re.escape(ch))
+            i += 1
+        return re.fullmatch("".join(regex_parts), str(row_value), re.IGNORECASE) is not None
+
     def _matches(self, row: dict) -> bool:
         for kind, column, value in self._filters:
             if kind == "eq" and str(row.get(column)) != str(value):
                 return False
             if kind == "neq" and str(row.get(column)) == str(value):
+                return False
+            if kind == "ilike" and not self._ilike_matches(row.get(column), value):
                 return False
             if kind == "is" and value == "null" and row.get(column) is not None:
                 return False

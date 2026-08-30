@@ -10,7 +10,9 @@ shapes:
   it from the payment_links row it's linked through:
   invoice-linked -> INVOICE; created via POST /v1/collections (an API
   key) -> API_PAYMENT_PAGE; created via Merchant Portal's "Request
-  Collection" form -> DASHBOARD_REQUEST; otherwise a genuine Payment
+  Collection" form -> DASHBOARD_REQUEST; created via a customer
+  submitting a merchant's permanent Pay by Link page ->
+  PAY_BY_LINK (app/services/pay_by_link.py); otherwise a genuine Payment
   Link -> PAYMENT_LINK.
 """
 
@@ -30,6 +32,8 @@ def resolve_payment_link_collection_source(client: Client, *, payment_link: dict
         return CollectionSource.API_PAYMENT_PAGE
     if payment_link.get("created_via") == "request_collection":
         return CollectionSource.DASHBOARD_REQUEST
+    if payment_link.get("created_via") == "pay_by_link":
+        return CollectionSource.PAY_BY_LINK
     return CollectionSource.PAYMENT_LINK
 
 

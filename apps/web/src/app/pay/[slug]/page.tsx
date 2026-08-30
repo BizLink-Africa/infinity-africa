@@ -1,5 +1,7 @@
+import { PayByLinkForm } from "@/components/payment-link/pay-by-link-form";
 import { PaymentForm } from "@/components/payment-link/payment-form";
 import { StatusCard } from "@/components/payment-link/status-card";
+import { fetchPublicPayByLink } from "@/lib/pay-by-link";
 import { fetchPublicPaymentLink, type PaymentLinkStatus, type PublicPaymentLink } from "@/lib/payment-links";
 
 export const metadata = {
@@ -27,7 +29,14 @@ export default async function CustomerPaymentPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
+
+  // Resolver rule (feature brief, Pay by Link Part 2): an existing
+  // generated/shareable payment link's slug always wins first — a
+  // merchant's permanent Pay by Link page is only ever checked as a
+  // fallback, so no existing shared /pay/{slug} link can ever be
+  // shadowed by a later-created permanent page.
   const link = await fetchPublicPaymentLink(slug);
+  const payByLink = link ? null : await fetchPublicPayByLink(slug);
 
   return (
     <div className="flex flex-1 flex-col items-center bg-surface-container px-4 py-6 sm:py-16">
@@ -36,16 +45,28 @@ export default async function CustomerPaymentPage({
           aria-live="polite"
           className="overflow-hidden rounded-lg border border-outline-variant bg-surface shadow-sm"
         >
-          {!link ? (
+          {link ? (
+            link.status === "ACTIVE" ? (
+              <PaymentForm slug={slug} link={link} />
+            ) : (
+              <NonActiveState link={link} />
+            )
+          ) : payByLink ? (
+            payByLink.is_active ? (
+              <PayByLinkForm slug={slug} link={payByLink} />
+            ) : (
+              <StatusCard
+                variant="unavailable"
+                title="Payments are currently paused"
+                message={`${payByLink.display_name} isn't accepting payments through this link right now. Please check back later.`}
+              />
+            )
+          ) : (
             <StatusCard
               variant="unavailable"
               title="Link unavailable"
               message="This payment link doesn't exist. Double-check the link and try again."
             />
-          ) : link.status === "ACTIVE" ? (
-            <PaymentForm slug={slug} link={link} />
-          ) : (
-            <NonActiveState link={link} />
           )}
         </div>
 

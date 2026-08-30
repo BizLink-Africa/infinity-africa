@@ -28,6 +28,7 @@ from app.routers import (
     merchant_webhooks,
     merchants,
     onboarding,
+    pay_by_link,
     payment_links,
     public_disputes,
     public_inquiries,
@@ -214,6 +215,8 @@ app.include_router(admin_pricing.router, prefix="/v1")
 app.include_router(public_disputes.router, prefix="/v1")
 app.include_router(payment_links.router, prefix="/v1")
 app.include_router(payment_links.public_router)  # /public/payment-links — no /v1 prefix
+app.include_router(pay_by_link.router, prefix="/v1")
+app.include_router(pay_by_link.public_router)  # /public/pay-by-link — no /v1 prefix
 app.include_router(invoices.router, prefix="/v1")
 app.include_router(collections.router, prefix="/v1")
 app.include_router(collections.initiate_router, prefix="/v1")

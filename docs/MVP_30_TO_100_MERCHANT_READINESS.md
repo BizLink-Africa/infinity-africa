@@ -2,8 +2,9 @@
 
 Readiness review and hardening pass for opening Infinity Africa to a
 controlled cohort of 30–100 real merchants using collections, payment
-links, invoices, withdrawals, merchant API keys, and email notifications
-daily. This supersedes nothing in [`MVP_LAUNCH_CHECKLIST.md`](./MVP_LAUNCH_CHECKLIST.md)
+links, Pay by Link permanent checkout pages, invoices, withdrawals,
+merchant API keys, and email notifications daily. This supersedes
+nothing in [`MVP_LAUNCH_CHECKLIST.md`](./MVP_LAUNCH_CHECKLIST.md)
 — that doc's env vars, kill-switch mechanics, and incident steps are still
 current and linked throughout below rather than repeated. This doc adds
 what changed and what to verify specifically for sustained multi-merchant
@@ -124,8 +125,15 @@ Railway, not just assumed.
 
 ## 4. Collections and wallet credit safety
 
-Confirmed across all four collection entry points (Request Collection,
-Payment Link, Invoice, Merchant API):
+Confirmed across all five collection entry points (Request Collection,
+Payment Link, **Pay by Link**, Invoice, Merchant API). Pay by Link
+([`docs/PAY_BY_LINK.md`](./PAY_BY_LINK.md)) is a merchant's permanent
+public checkout page (`/pay/{merchant_slug}`) — its checkout endpoint
+only ever creates an ordinary `payment_links` row
+(`created_via="pay_by_link"`, tagged `source="PAY_BY_LINK"` for
+Super Admin/reporting) and hands off to the exact same "Choose how you
+want to pay" flow, so it's a fifth entry point into the guarantees
+below, not a sixth set of guarantees to separately verify:
 
 - `merchant_id` for authorization always comes from the authenticated
   caller, never trusted from the request body.
@@ -287,6 +295,12 @@ password, both Selcom webhook callback endpoints, withdrawal request
 creation, withdrawal approve/reject, merchant API key create/rotate,
 every collection-creation endpoint, public payment-link pay endpoints.
 
+**Added with the Pay by Link feature**: `POST /public/pay-by-link/{slug}/checkout`
+(`pay_by_link_checkout`, 20/min/IP, public), `POST /v1/merchant/pay-by-link`
+and `PATCH /v1/merchant/pay-by-link/me` (`pay_by_link_manage`, 10/min/IP,
+merchant-authenticated), `GET /v1/merchant/pay-by-link/slug-availability`
+(`pay_by_link_slug_check`, 30/min/IP, merchant-authenticated).
+
 **Not covered, by design**: real login goes directly to Supabase Auth
 from the browser — this backend never sees the request, so it can't be
 limited here (Supabase has its own Auth rate limiting). Plain GET/list
@@ -417,6 +431,9 @@ before scaling past the numbers in the rollout plan.
   `POST /v1/admin/withdrawals/{id}/refresh-status` before end of day.
 - Any fraud-alert-flagged merchant with a pending withdrawal — review
   before it reaches approval.
+- Spot-check the Collections view filtered to `source = PAY_BY_LINK` —
+  confirm amounts/customer emails look sane for merchants using a
+  permanent Pay by Link page, same as any other source.
 
 ### Withdrawal approval checklist
 - Confirm requested amount is within the merchant's normal pattern.

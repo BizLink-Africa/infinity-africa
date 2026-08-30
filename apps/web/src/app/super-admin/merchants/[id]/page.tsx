@@ -14,6 +14,7 @@ import {
 } from "@/lib/admin/live-actions";
 import {
   getAdminMerchant,
+  getAdminMerchantPayByLink,
   listAdminCollections,
   listAdminInvoices,
   listAdminIpAllowlist,
@@ -56,18 +57,29 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
   const merchant = await getAdminMerchant(merchantId);
   if (!merchant) notFound();
 
-  const [collections, paymentLinks, invoices, apiKeys, withdrawals, pricingRules, kyc, riskAlerts, ipAllowlist] =
-    await Promise.all([
-      listAdminCollections({ merchantId }),
-      listAdminPaymentLinks({ merchantId }),
-      listAdminInvoices({ merchantId }),
-      listAdminMerchantApiKeys(merchantId),
-      listAdminWithdrawals({ merchantId }),
-      listPricingRulesForMerchant(merchantId),
-      getOnboardingSubmission(merchantId),
-      listAdminRiskAlerts({ merchantId }),
-      listAdminIpAllowlist({ merchantId }),
-    ]);
+  const [
+    collections,
+    paymentLinks,
+    invoices,
+    apiKeys,
+    withdrawals,
+    pricingRules,
+    kyc,
+    riskAlerts,
+    ipAllowlist,
+    payByLink,
+  ] = await Promise.all([
+    listAdminCollections({ merchantId }),
+    listAdminPaymentLinks({ merchantId }),
+    listAdminInvoices({ merchantId }),
+    listAdminMerchantApiKeys(merchantId),
+    listAdminWithdrawals({ merchantId }),
+    listPricingRulesForMerchant(merchantId),
+    getOnboardingSubmission(merchantId),
+    listAdminRiskAlerts({ merchantId }),
+    listAdminIpAllowlist({ merchantId }),
+    getAdminMerchantPayByLink(merchantId),
+  ]);
 
   const totalCollected = collections
     .filter((c) => c.status === "successful")
@@ -198,6 +210,35 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Pay by Link">
+          {!payByLink ? (
+            <EmptyRow label="No permanent Pay by Link page created yet." />
+          ) : (
+            <div className="px-5 pb-5 space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-on-surface-variant">Slug</span>
+                <span className="font-mono text-xs text-on-background">/{payByLink.slug}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-on-surface-variant">Status</span>
+                <span className={payByLink.is_active ? "text-primary font-medium" : "text-on-surface-variant"}>
+                  {payByLink.is_active ? "Active" : "Disabled"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-on-surface-variant">Created</span>
+                <span className="text-xs text-on-surface-variant">{formatDateTime(payByLink.created_at)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-on-surface-variant">Last used</span>
+                <span className="text-xs text-on-surface-variant">
+                  {payByLink.last_used_at ? formatDateTime(payByLink.last_used_at) : "Never"}
+                </span>
+              </div>
             </div>
           )}
         </SectionCard>

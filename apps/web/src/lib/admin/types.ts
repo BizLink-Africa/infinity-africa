@@ -235,6 +235,24 @@ export interface AdminApiKeyRow {
   updated_at: string;
 }
 
+/** A merchant's permanent public "Pay by Link" page, as seen by Super
+ * Admin — same shape as apps/web's own PayByLink (lib/portal/types.ts),
+ * duplicated here rather than shared since lib/admin and lib/portal are
+ * deliberately independent data-access boundaries (see this file's own
+ * module docstring). */
+export interface AdminPayByLinkRow {
+  id: string;
+  merchant_id: string;
+  slug: string;
+  public_url: string;
+  display_name: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
 export interface AdminIpAllowlistRow {
   id: string;
   merchant_id: string;
