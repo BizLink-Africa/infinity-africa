@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/portal/card";
 import { Icon } from "@/components/portal/icon";
 import { PageHeader } from "@/components/portal/page-header";
-import { QrCode } from "@/components/payment-link/qr-code";
 import {
   checkPayByLinkSlugAvailability,
   createPayByLink,
@@ -14,6 +13,8 @@ import {
   updatePayByLink,
 } from "@/lib/portal/api";
 import type { PayByLink } from "@/lib/portal/types";
+
+import { PayByLinkQrCard } from "./pay-by-link-qr-card";
 
 function whatsappShareUrl(link: PayByLink): string {
   return `https://wa.me/?text=${encodeURIComponent(
@@ -400,13 +401,7 @@ function ManagePanel({
         )}
       </div>
 
-      <div className="lg:col-span-2 bg-surface rounded-xl border border-surface-container-highest shadow-ambient p-6 flex flex-col items-center gap-4 h-fit">
-        <h3 className="text-lg font-semibold text-on-background self-start">QR Code</h3>
-        <QrCode payload={link.public_url} expiresAt={null} />
-        <p className="text-xs text-on-surface-variant text-center">
-          Print this on a poster, table tent, or receipt — anyone who scans it lands on your Pay by Link page.
-        </p>
-      </div>
+      <PayByLinkQrCard merchantName={link.display_name} slug={link.slug} publicUrl={link.public_url} />
     </div>
   );
 }
