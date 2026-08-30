@@ -28,7 +28,7 @@ function RuleFields({ rule }: { rule?: CollectionPricingRuleRow }) {
       <div>
         <label className={labelClass}>Channel / Method (optional)</label>
         <select name="channel" defaultValue={rule?.channel ?? ""} className={inputClass}>
-          <option value="">Any channel</option>
+          <option value="">All channels</option>
           {Object.values(CollectionMethod).map((method) => (
             <option key={method} value={method}>
               {COLLECTION_METHOD_LABELS[method]}
@@ -148,7 +148,7 @@ function RuleRow({ rule, onEdit }: { rule: CollectionPricingRuleRow; onEdit: () 
     <tr className="border-t border-surface-container-highest">
       <td className={`${tdClass} text-on-surface-variant`}>{rule.label || "—"}</td>
       <td className={`${tdClass} text-on-surface-variant`}>
-        {rule.channel ? COLLECTION_METHOD_LABELS[rule.channel] : "Any channel"}
+        {rule.channel ? COLLECTION_METHOD_LABELS[rule.channel] : "All channels"}
       </td>
       <td className={tdClass}>{rule.percentage_fee}%</td>
       <td className={tdClass}>{formatCurrency(rule.flat_fee, "TZS")}</td>
