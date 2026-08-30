@@ -79,17 +79,21 @@ export function PayByLinkForm({ slug, link }: { slug: string; link: PublicPayByL
   }
 
   return (
-    <div className="p-6 sm:p-8">
-      <div className="mb-6 text-center">
-        <h1 className="text-xl font-bold text-on-surface">{link.display_name}</h1>
-        {link.description && <p className="mt-1.5 text-sm text-on-surface-variant">{link.description}</p>}
-        <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-on-surface-variant">
-          <LockIcon />
-          Secure payment powered by Infinity Africa
-        </p>
+    <div>
+      <div className="flex items-center justify-between gap-4 bg-primary px-6 py-5 sm:px-8">
+        <h1 className="text-lg font-bold text-on-primary sm:text-xl">{link.display_name}</h1>
+        <img
+          src="/brand/infinity-mark.png"
+          alt="Infinity Africa"
+          className="h-10 w-10 shrink-0 rounded-lg sm:h-11 sm:w-11"
+        />
       </div>
+      <p className="flex items-center justify-center gap-1.5 py-4 text-center text-xs text-on-surface-variant">
+        <LockIcon />
+        Secure payment powered by Infinity Africa
+      </p>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4 px-6 pb-6 sm:px-8 sm:pb-8">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>First name</label>
