@@ -154,6 +154,25 @@ def test_developer_cannot_create_payment_link(fake_client):
     assert response.status_code == 403
 
 
+def test_create_payment_link_is_rate_limited(fake_client):
+    """Wiring test for app/core/rate_limit.py's payment_link_create scope
+    (added during the MVP-readiness rate-limiting sweep) — pre-fills the
+    shared in-memory bucket directly rather than firing 30 real requests,
+    then confirms one more real request is actually rejected."""
+    from app.core.rate_limit import _limiter
+
+    _merchant_id, user_id = _merchant_and_member(fake_client)
+    for _ in range(30):
+        _limiter.check("payment_link_create:testclient", limit=30, window_seconds=60)
+
+    response = client.post(
+        "/v1/merchant/payment-links",
+        headers={**auth_headers(user_id), "Idempotency-Key": _idem()},
+        json={"amount": "1000", "currency": "TZS"},
+    )
+    assert response.status_code == 429
+
+
 # --- Payment link extended fields / edit route -------------------------------
 
 

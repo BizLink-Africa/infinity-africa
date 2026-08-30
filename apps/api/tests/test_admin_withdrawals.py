@@ -141,6 +141,16 @@ def test_approve_reserves_funds_and_calls_selcom(fake_client):
     events = fake_client.table("webhook_events")._table.rows
     assert any(e["event_name"] == "disbursement.success" for e in events)
 
+    # Regression: a successful payout never wrote an audit_logs row at all
+    # until this was found during the MVP-readiness audit-log sweep —
+    # disbursement.failed/reversed were both audited, but the far more
+    # common successful path left no audit trail for "who/when this
+    # merchant's money actually left."
+    audit_events = [a for a in fake_client.table("audit_logs")._table.rows if a["action"] == "disbursement.completed"]
+    assert len(audit_events) == 1
+    assert audit_events[0]["actor_type"] == "system"
+    assert audit_events[0]["merchant_id"] == str(merchant_id)
+
 
 def test_approve_rechecks_merchant_standing_and_blocks_if_suspended_since_request(fake_client):
     """The merchant could have been suspended after requesting but before

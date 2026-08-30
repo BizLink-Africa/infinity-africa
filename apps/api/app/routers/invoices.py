@@ -21,6 +21,7 @@ from app.auth import (
 )
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
+from app.core.rate_limit import rate_limit
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
 from app.database.session import get_supabase_admin
@@ -75,6 +76,7 @@ def _to_payment_link_response(row: dict) -> PaymentLinkResponse:
 def create_invoice(
     payload: InvoiceCreate,
     caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="invoice_create", limit=30, window_seconds=60))],
 ):
     """Callable from the dashboard (JWT) or a merchant's own backend (API key)."""
     authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
@@ -209,6 +211,7 @@ def update_invoice(
 def send_invoice(
     invoice_id: uuid.UUID,
     caller: Annotated[AuthenticatedCaller, Depends(get_authenticated_caller)],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="invoice_send", limit=30, window_seconds=60))],
 ):
     """DRAFT -> SENT — but only once the customer's payment-request email
     has actually been delivered via Resend (app/services/email.py).

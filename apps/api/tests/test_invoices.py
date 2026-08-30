@@ -134,6 +134,31 @@ def test_create_invoice_generates_number_and_computes_totals(fake_client):
     assert row["invoice_number"] == invoice["invoice_number"]
 
 
+def test_create_invoice_is_rate_limited(fake_client):
+    """Wiring test for app/core/rate_limit.py's invoice_create scope (added
+    during the MVP-readiness rate-limiting sweep) — pre-fills the shared
+    in-memory bucket directly rather than firing 30 real creates, then
+    confirms one more real request is actually rejected."""
+    from app.core.rate_limit import _limiter
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    for _ in range(30):
+        _limiter.check("invoice_create:testclient", limit=30, window_seconds=60)
+
+    response = client.post(
+        "/v1/invoices",
+        headers=auth_headers(admin_id),
+        json={
+            "merchant_id": str(merchant_id),
+            "customer_name": "Amina Hassan",
+            "customer_phone": "+255700000000",
+            "due_date": "2026-09-01",
+            "items": _DEFAULT_ITEMS,
+        },
+    )
+    assert response.status_code == 429
+
+
 def test_create_invoice_via_api_key(fake_client):
     merchant = create_merchant(fake_client)
     merchant_id = uuid.UUID(merchant["id"])
@@ -299,6 +324,22 @@ def test_send_invoice_transitions_draft_to_sent(fake_client):
     sent = _send(invoice["id"], admin_id)
 
     assert sent["status"] == "SENT"
+
+
+def test_send_invoice_is_rate_limited(fake_client):
+    """Wiring test for app/core/rate_limit.py's invoice_send scope (added
+    during the MVP-readiness rate-limiting sweep) — pre-fills the shared
+    in-memory bucket directly rather than firing 30 real sends, then
+    confirms one more real request is actually rejected."""
+    from app.core.rate_limit import _limiter
+
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    invoice = _create_invoice(merchant_id, admin_id)
+    for _ in range(30):
+        _limiter.check("invoice_send:testclient", limit=30, window_seconds=60)
+
+    response = client.post(f"/v1/invoices/{invoice['id']}/send", headers=auth_headers(admin_id))
+    assert response.status_code == 429
 
 
 def test_send_invoice_twice_rejected(fake_client):

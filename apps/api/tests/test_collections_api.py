@@ -400,6 +400,17 @@ def test_refresh_status_is_idempotent(fake_client, monkeypatch):
     wallet_after_second = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
     assert wallet_after_second == balance_after_first  # not double-credited
 
+    # Regression: this endpoint never recorded "who/what triggered this
+    # refresh" — found missing during the MVP-readiness audit-log sweep.
+    # Logged on every call regardless of whether anything actually changed
+    # (matching the existing admin.py::refresh_admin_collection_status
+    # pattern) — the underlying resolve_collection() no-op is what keeps
+    # the *wallet* from being double-credited, not this audit trail.
+    refresh_events = [
+        a for a in fake_client.table("audit_logs")._table.rows if a["action"] == "collection.status_refreshed"
+    ]
+    assert len(refresh_events) == 2
+
 
 def test_refresh_status_noop_when_no_method_chosen_yet(fake_client, monkeypatch):
     merchant_id, raw_key = _merchant_and_key(fake_client, monkeypatch)

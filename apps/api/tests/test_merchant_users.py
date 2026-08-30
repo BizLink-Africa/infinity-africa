@@ -108,6 +108,25 @@ def test_staff_cannot_invite_a_new_merchant_user(fake_client):
     assert response.status_code == 403
 
 
+def test_invite_is_rate_limited(fake_client):
+    """Wiring test for app/core/rate_limit.py's staff_invite scope (added
+    during the MVP-readiness rate-limiting sweep) — pre-fills the shared
+    in-memory bucket directly rather than firing 10 real invites, then
+    confirms one more real request is actually rejected."""
+    from app.core.rate_limit import _limiter
+
+    _merchant_id, admin_id = _admin(fake_client)
+    for _ in range(10):
+        _limiter.check("staff_invite:testclient", limit=10, window_seconds=60)
+
+    response = client.post(
+        "/v1/merchant/users",
+        headers=auth_headers(admin_id),
+        json={"full_name": "David Komba", "email": "david@example.com", "role": "MERCHANT_STAFF"},
+    )
+    assert response.status_code == 429
+
+
 def test_invite_requires_a_full_name(fake_client):
     _merchant_id, admin_id = _admin(fake_client)
     response = client.post(

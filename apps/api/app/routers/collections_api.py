@@ -435,4 +435,15 @@ async def refresh_collection_status(
         resolved = await refresh_checkout_collection_status(client, collection_id=uuid.UUID(row["id"]))
     except ConflictError:
         return APIResponse(data=_status_response(row))
+
+    write_audit_log(
+        client,
+        actor_id=caller.actor_id,
+        actor_type=caller.actor_type,
+        merchant_id=merchant_id,
+        action="collection.status_refreshed",
+        resource_type="collection",
+        resource_id=uuid.UUID(row["id"]),
+        metadata={"status": resolved["status"]},
+    )
     return APIResponse(data=_status_response(resolved))

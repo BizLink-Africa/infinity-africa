@@ -139,6 +139,16 @@ def test_merchant_refresh_status_completes_and_credits(fake_client, monkeypatch)
     balance = fake_client.table("ledger_accounts")._table.rows[0]["balance"]
     assert Decimal(str(balance)) == Decimal("985.00")
 
+    # Regression: this endpoint never recorded *who clicked refresh* — only
+    # the underlying resolve_collection() money-movement outcome was
+    # audited. Distinct from that: "collection.status_refreshed" recording
+    # the actor, found missing during the MVP-readiness audit-log sweep.
+    refresh_events = [
+        a for a in fake_client.table("audit_logs")._table.rows if a["action"] == "collection.status_refreshed"
+    ]
+    assert len(refresh_events) == 1
+    assert refresh_events[0]["actor_id"] == str(user_id)
+
 
 def test_merchant_refresh_status_scoped_to_own_merchant(fake_client, monkeypatch):
     collection, _merchant_id, _user_id = _seed_pending_collection(fake_client, monkeypatch)

@@ -487,6 +487,15 @@ def test_resolve_via_callback_marks_successful_and_posts_ledger(fake_client):
     events = fake_client.table("webhook_events")._table.rows
     assert any(e["event_name"] == "collection.success" for e in events)
 
+    # Regression: resolve_collection() — the single chokepoint every
+    # crediting path (webhook, manual refresh, scheduled reconciliation)
+    # funnels through — never wrote an audit_logs row until the MVP-
+    # readiness audit-log sweep found the gap.
+    audit_events = [a for a in fake_client.table("audit_logs")._table.rows if a["action"] == "collection.credited"]
+    assert len(audit_events) == 1
+    assert audit_events[0]["actor_type"] == "system"
+    assert audit_events[0]["merchant_id"] == str(merchant_id)
+
 
 def test_resolve_via_callback_marks_failed_without_ledger_entries(fake_client):
     merchant_id, admin_id = _merchant_and_admin(fake_client, webhook_url="https://merchant.example.com/hooks")
@@ -518,6 +527,11 @@ def test_resolve_via_callback_marks_failed_without_ledger_entries(fake_client):
 
     events = fake_client.table("webhook_events")._table.rows
     assert any(e["event_name"] == "collection.failed" for e in events)
+
+    audit_events = [a for a in fake_client.table("audit_logs")._table.rows if a["action"] == "collection.failed"]
+    assert len(audit_events) == 1
+    assert audit_events[0]["actor_type"] == "system"
+    assert audit_events[0]["merchant_id"] == str(merchant_id)
 
 
 def test_resolve_collection_leaves_a_processing_result_unchanged(fake_client):

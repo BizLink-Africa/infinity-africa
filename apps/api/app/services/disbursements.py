@@ -707,6 +707,15 @@ async def _reserve_and_run_disbursement_provider(client: Client, disbursement: d
                 "completed_at": utc_now_iso(),
             },
         )
+        write_audit_log(
+            client,
+            action="disbursement.completed",
+            resource_type="disbursement",
+            resource_id=disbursement_id,
+            actor_type="system",
+            merchant_id=merchant_id,
+            metadata={"amount": str(amount), "currency": currency, "provider_reference": trans_id},
+        )
         enqueue_webhook_event(
             client,
             merchant_id=merchant_id,
@@ -801,6 +810,15 @@ def _resolve_processing_disbursement(
         if raw_response is not None:
             update_data["selcom_raw_response"] = raw_response
         disbursement = update_row(client, "disbursements", disbursement_id, update_data)
+        write_audit_log(
+            client,
+            action="disbursement.completed",
+            resource_type="disbursement",
+            resource_id=disbursement_id,
+            actor_type="system",
+            merchant_id=merchant_id,
+            metadata={"amount": str(amount), "currency": currency},
+        )
         enqueue_webhook_event(
             client,
             merchant_id=merchant_id,

@@ -29,6 +29,7 @@ from app.core.errors import InsufficientBalanceError
 from app.core.references import generate_reference
 from app.core.time import utc_now_iso
 from app.schemas.enums import CollectionMethod, NotificationType
+from app.services.audit import write_audit_log
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
 from app.services.email import send_payment_receipt_email
 from app.services.fraud_monitoring_service import (
@@ -378,6 +379,29 @@ def resolve_collection(client: Client, *, collection_id: uuid.UUID, result: Coll
                 collection=collection, external_status="successful", transaction=transaction
             ),
         )
+        # Every crediting path (webhook-triggered lookup, manual "Refresh
+        # status", the scheduled reconciliation sweep) funnels through this
+        # one function — auditing here, once, covers wallet credit for all
+        # of them without scattering the same call across every caller.
+        # actor_type="system": none of those three callers are a human
+        # clicking a button in this exact function — the manual-refresh
+        # endpoints already audit their own request-level action
+        # separately (app/routers/admin.py / merchant_portal.py), actor
+        # "user"; this is specifically the money-movement event itself.
+        write_audit_log(
+            client,
+            actor_type="system",
+            merchant_id=merchant_id,
+            action="collection.credited",
+            resource_type="collection",
+            resource_id=collection_id,
+            metadata={
+                "amount": str(transaction["net_amount"]),
+                "currency": currency,
+                "provider": result.provider,
+                "provider_reference": result.provider_reference,
+            },
+        )
     else:
         update_row(client, "transactions", uuid.UUID(transaction["id"]), {"status": "failed"})
         enqueue_webhook_event(
@@ -387,6 +411,15 @@ def resolve_collection(client: Client, *, collection_id: uuid.UUID, result: Coll
             payload=_collection_webhook_payload(
                 collection=collection, external_status="failed", reason=result.failure_reason
             ),
+        )
+        write_audit_log(
+            client,
+            actor_type="system",
+            merchant_id=merchant_id,
+            action="collection.failed",
+            resource_type="collection",
+            resource_id=collection_id,
+            metadata={"reason": result.failure_reason, "provider": result.provider},
         )
 
     return collection

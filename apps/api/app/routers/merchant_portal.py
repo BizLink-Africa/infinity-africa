@@ -261,6 +261,7 @@ async def create_my_payment_link(
     payload: MerchantPaymentLinkCreate,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="payment_link_create", limit=30, window_seconds=60))],
 ):
     client = get_supabase_admin()
 
@@ -646,6 +647,15 @@ async def refresh_my_collection_status(
         raise NotFoundError("Collection not found")
 
     resolved = await refresh_checkout_collection_status(client, collection_id=collection_id)
+    write_audit_log(
+        client,
+        actor_id=membership.user_id,
+        merchant_id=membership.merchant_id,
+        action="collection.status_refreshed",
+        resource_type="collection",
+        resource_id=collection_id,
+        metadata={"status": resolved["status"]},
+    )
     return APIResponse(data=CollectionResponse(**resolved))
 
 
@@ -1811,6 +1821,7 @@ def list_my_merchant_users(
 def create_my_merchant_user(
     payload: MerchantUserCreate,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_ONLY))],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="staff_invite", limit=10, window_seconds=60))],
 ):
     """Invites a brand new Supabase Auth user by email (never reuses or
     silently attaches an already-registered account to this merchant) and
