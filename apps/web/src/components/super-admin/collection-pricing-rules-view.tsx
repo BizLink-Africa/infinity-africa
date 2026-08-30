@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Fragment, useActionState, useState } from "react";
+import { Fragment, useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { COLLECTION_METHOD_LABELS, CollectionMethod } from "@infinity/shared";
 
@@ -132,8 +132,23 @@ function RuleCreateForm({
   );
 }
 
-function RuleEditForm({ rule }: { rule: CollectionPricingRuleRow }) {
+function RuleEditForm({ rule, onSaved }: { rule: CollectionPricingRuleRow; onSaved: () => void }) {
   const [state, formAction] = useActionState(updateCollectionPricingRuleAction.bind(null, rule.id), { error: null });
+  // useActionState's initial state and a real "saved with no error" state are
+  // both { error: null } — indistinguishable by value alone. Skip the effect
+  // on mount (state is still the initial object then) so it only fires after
+  // an actual submission resolves, then close the row once that submission
+  // succeeded instead of leaving it open until the admin closes it by hand.
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (!state.error) {
+      onSaved();
+    }
+  }, [state, onSaved]);
   return (
     <form action={formAction} className="space-y-4">
       <RuleFields rule={rule} />
@@ -246,7 +261,7 @@ function RuleSection({
                   {editingId === rule.id && (
                     <tr className="border-t border-surface-container-highest bg-surface-container-low">
                       <td className={tdClass} colSpan={7}>
-                        <RuleEditForm rule={rule} />
+                        <RuleEditForm rule={rule} onSaved={() => setEditingId(null)} />
                       </td>
                     </tr>
                   )}

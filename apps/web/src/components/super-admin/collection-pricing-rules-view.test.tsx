@@ -154,6 +154,28 @@ describe("CollectionPricingRulesView", () => {
     expect(submittedFormData.get("maximum_fee")).toBeNull();
   });
 
+  it("closes the edit row after a successful save instead of leaving it open", async () => {
+    const { updateCollectionPricingRuleAction } = await import("@/lib/admin/live-actions");
+    vi.mocked(updateCollectionPricingRuleAction).mockResolvedValue({ error: null });
+
+    const { CollectionPricingRulesView } = await import("./collection-pricing-rules-view");
+    render(
+      <CollectionPricingRulesView
+        merchants={[merchant]}
+        platformRules={[platformRule]}
+        selectedMerchantId={null}
+        merchantRules={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle("Edit"));
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Save Changes" })).not.toBeInTheDocument());
+  });
+
   it("shows an Activate action for a deactivated rule, not a second Deactivate", async () => {
     const inactiveRule: CollectionPricingRuleRow = { ...platformRule, is_active: false };
     const { CollectionPricingRulesView } = await import("./collection-pricing-rules-view");
