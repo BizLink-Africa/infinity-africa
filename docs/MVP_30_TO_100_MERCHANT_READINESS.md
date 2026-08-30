@@ -244,6 +244,22 @@ Two structurally separate flows, confirmed not to cross:
 - No raw reset/invite token or link is ever logged — `app/services/email.py`
   and the auth action logging around `generate_link` log only metadata
   (recipient, type, success/failure), never the link/token itself.
+- **Merchant collection notification email** (added 2026-09-01, full
+  detail in `docs/merchant-collection-notifications.md`): up to 2
+  merchant-configured email addresses (`merchant_notification_settings`),
+  sent from `_apply_collection_success` — the single chokepoint every
+  collection source (Request Collection, Payment Link, Pay by Link,
+  Invoice, API Collection, Wallet Push, Push to Selcom Pesa, TanQR)
+  funnels through — right after the customer's own receipt email, in its
+  own separate `try/except` so a failure sending it never blocks the
+  wallet credit or the receipt email. Idempotent per
+  `(collection_id, recipient_email)` via an `email_deliveries` lookup
+  before every send (`email_deliveries.status` now also accepts
+  `'skipped'`), so a webhook redelivery/manual refresh/reconciliation
+  sweep can never double-send. Uses the same `EMAIL_FROM`/`EMAIL_REPLY_TO`
+  as everything else — no new Railway env var. Never exposes
+  `RESEND_API_KEY` or any provider secret, in the email itself or in
+  Super Admin's Notification Details view.
 
 ## 8. Password reset and invite link readiness
 

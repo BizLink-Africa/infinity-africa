@@ -31,7 +31,10 @@ from app.schemas.enums import CollectionMethod, NotificationType
 from app.services.audit import write_audit_log
 from app.services.collection_pricing import calculate_collection_fee
 from app.services.crud import execute_maybe_single, get_by_id, insert_row, update_row
-from app.services.email import send_payment_receipt_email
+from app.services.email import (
+    send_merchant_collection_notification_email,
+    send_payment_receipt_email,
+)
 from app.services.fraud_monitoring_service import (
     check_self_payment_risk,
     evaluate_collection,
@@ -437,14 +440,31 @@ def _apply_collection_success(client: Client, collection: dict, transaction: dic
     if invoice_id:
         _apply_payment_to_invoice(client, invoice_id=uuid.UUID(invoice_id), amount=Decimal(str(collection["amount"])))
 
-    # Receipt email is a courtesy, not part of the payment itself — never
-    # let it fail collection resolution (defense in depth: send_payment_
-    # receipt_email already never raises on its own, this is a second
-    # layer in case that contract is ever violated by a future change).
+    # Receipt email (to the paying customer) and the merchant's own
+    # collection notification email (to their configured notification
+    # address(es), if any) are both couriers, not part of the payment
+    # itself — never let either fail collection resolution (defense in
+    # depth: send_payment_receipt_email/send_merchant_collection_notification_email
+    # already never raise on their own, this is a second layer in case
+    # that contract is ever violated by a future change). Kept as two
+    # separate try/excepts so a failure sending one never prevents the
+    # other from being attempted; `merchant` starts out None so the second
+    # block can still look it up itself if the first try raised before
+    # ever assigning it.
+    merchant = None
     try:
         merchant = get_by_id(client, "merchants", uuid.UUID(collection["merchant_id"]))
         if merchant:
             send_payment_receipt_email(
+                client, merchant=merchant, transaction=transaction or {}, collection=collection
+            )
+    except Exception:  # noqa: BLE001, S110 — best-effort, never blocks payment completion
+        pass
+
+    try:
+        merchant = merchant or get_by_id(client, "merchants", uuid.UUID(collection["merchant_id"]))
+        if merchant:
+            send_merchant_collection_notification_email(
                 client, merchant=merchant, transaction=transaction or {}, collection=collection
             )
     except Exception:  # noqa: BLE001, S110 — best-effort, never blocks payment completion

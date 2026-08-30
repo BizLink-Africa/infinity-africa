@@ -283,6 +283,41 @@ export interface AdminPayByLinkRow {
   last_used_at: string | null;
 }
 
+/** One email_deliveries row, narrowed to email_type =
+ * 'merchant_collection_notification' — Super Admin's per-recipient
+ * delivery history on the Notification Details card. */
+export interface NotificationDeliveryLogRow {
+  id: string;
+  recipient_email: string;
+  status: "sent" | "failed" | "skipped";
+  provider_message_id: string | null;
+  error_message: string | null;
+  related_resource_id: string | null;
+  created_at: string;
+}
+
+/** GET/PATCH /v1/admin/merchants/{id}/notification-settings — Super
+ * Admin's Notification Details view for one merchant: the same settings
+ * shape as apps/web's own NotificationSettings (lib/portal/types.ts),
+ * plus the delivery summary a Super Admin needs to spot a merchant whose
+ * notification email is silently failing. */
+export interface AdminNotificationSettingsRow {
+  id: string;
+  merchant_id: string;
+  merchant_name: string;
+  merchant_code: string | null;
+  primary_notification_email: string | null;
+  secondary_notification_email: string | null;
+  collection_notifications_enabled: boolean;
+  last_notification_sent_at: string | null;
+  last_notification_status: "sent" | "failed" | "skipped" | null;
+  failed_notification_count: number;
+  recent_deliveries: NotificationDeliveryLogRow[];
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+}
+
 /** One row of GET /v1/admin/pay-by-link — the platform-wide Pay by Link
  * Monitoring list. Distinct from AdminPayByLinkRow above (a single
  * merchant's own page, shown on their detail page, no merchant_name/code

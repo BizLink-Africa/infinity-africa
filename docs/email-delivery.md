@@ -13,7 +13,7 @@ reproduced here since they're config, not code).
 
 ## What's wired up
 
-Nine email types, all built on the same `send_email()` primitive and all
+Ten email types, all built on the same `send_email()` primitive and all
 logged to `email_deliveries` (success or failure, every attempt):
 
 | Email type | Sent from | Trigger |
@@ -22,6 +22,7 @@ logged to `email_deliveries` (success or failure, every attempt):
 | Staff / developer invite | `send_staff_invite_email` | `POST /v1/merchant/users` (inviting a teammate) |
 | Password reset | `send_password_reset_email` | `POST /v1/auth/forgot-password` |
 | Payment receipt | `send_payment_receipt_email` | `app/services/collections.py::_apply_collection_success` (a collection reaching genuinely `successful`/cleared) |
+| Merchant collection notification | `send_merchant_collection_notification_email` | Same call site as Payment receipt, right after it — see `docs/merchant-collection-notifications.md` |
 | Inquiry notification (to CEO) | `send_inquiry_notification_email` | `POST /v1/public/inquiries` (the marketing site's Contact form) |
 | Merchant welcome | `send_merchant_welcome_email` | `app/services/onboarding.py::approve_onboarding_submission` (a merchant's KYC being approved) |
 | Withdrawal request notification (to CEO) | `send_withdrawal_request_notification_email` | `app/services/disbursements.py::execute_disbursement` (right after a withdrawal request row is saved) |
@@ -48,7 +49,7 @@ doesn't go through — the parent action refuses to claim success:
   email_delivery_failed` rather than silently leaving an admin thinking
   the invite went out.
 
-The other seven are best-effort (fail-open) — they never raise, and the
+The other eight are best-effort (fail-open) — they never raise, and the
 call sites additionally wrap them in `try/except` for defense in depth:
 
 - **Password reset**: must never let a caller distinguish "no such
@@ -57,6 +58,11 @@ call sites additionally wrap them in `try/except` for defense in depth:
   message regardless of what happened internally.
 - **Payment receipt**: a receipt failing to send must never fail the
   payment itself.
+- **Merchant collection notification**: same requirement as the receipt —
+  a failure here must never block the wallet credit it's reporting on.
+  Kept in its own separate `try/except`, next to (not inside) the receipt
+  email's, so a failure sending one never prevents the other from being
+  attempted.
 - **Inquiry notification**: a notification failing to send must never
   lose the saved inquiry.
 - **Merchant welcome**: a courtesy email failing to send must never fail
@@ -80,7 +86,7 @@ deployment:
 | Email type | Sender | Env var |
 | --- | --- | --- |
 | Invoice payment requests | `Infinity Africa Invoices <invoice@infinityafrica.net>` | `INVOICE_EMAIL_FROM` |
-| Everything else (staff invites, password resets, payment receipts, welcome emails, inquiry notifications, withdrawal request/success, payment link delivery) | `Infinity Africa <notification@infinityafrica.net>` | `EMAIL_FROM` |
+| Everything else (staff invites, password resets, payment receipts, merchant collection notifications, welcome emails, inquiry notifications, withdrawal request/success, payment link delivery) | `Infinity Africa <notification@infinityafrica.net>` | `EMAIL_FROM` |
 
 If `INVOICE_EMAIL_FROM` isn't set, invoice emails fall back to whatever
 `EMAIL_FROM` is set to (see `Settings.invoice_email_from` in
@@ -148,6 +154,14 @@ at (the existing public receipt route needs one); otherwise the email
 shows the full receipt inline with no button, rather than linking to a
 broken URL.
 
+**Merchant collection notification** — see `docs/merchant-collection-notifications.md`
+for the full feature (Notification Settings in the Merchant Portal, Super
+Admin's Notification Details view, and the idempotency rule). In short:
+distinct from the payment-receipt email above — that goes to the paying
+*customer*; this goes to the *merchant's own* configured notification
+email(s) (`merchant_notification_settings`, up to 2), only while
+`collection_notifications_enabled` is true.
+
 **Inquiry notification** — `POST /v1/public/inquiries` is the only inquiry
 source currently wired up (the marketing site's Contact form,
 `components/landing/contact-form.tsx`). The site's other pages
@@ -210,3 +224,6 @@ the payment-receipt flow note above for the same underlying fact).
   Supabase-generated action link, which itself is never logged.
 - Withdrawal emails never show a destination account/phone number in
   full — always masked to the last 4 digits (`_mask_identifier`).
+- The merchant collection notification email masks the paying customer's
+  phone number the same way (`_mask_identifier`, `•••• 1234`) — never the
+  raw number.

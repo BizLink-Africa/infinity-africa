@@ -5,6 +5,7 @@ import { getOnboardingStatus } from "@/lib/onboarding/api";
 import { PageHeader } from "@/components/portal/page-header";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { UpdatePasswordForm } from "@/components/auth/update-password-form";
+import { NotificationSettingsCard } from "@/components/merchant/notification-settings-card";
 
 export const metadata = {
   title: "Settings | Infinity Africa",
@@ -21,7 +22,8 @@ export default async function MerchantSettingsPage() {
   return (
     <PortalShell>
       <div className="space-y-8">
-        <PageHeader title="Settings" description="Manage your account security." />
+        <PageHeader title="Settings" description="Manage your account security and notifications." />
+        <NotificationSettingsCard />
         <UpdatePasswordForm email={user.email} source={user.source} />
       </div>
     </PortalShell>

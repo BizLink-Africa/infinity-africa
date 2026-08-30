@@ -34,6 +34,7 @@ import type {
   IpAllowlistEntry,
   MerchantProfile,
   MerchantUser,
+  NotificationSettings,
   PayByLink,
   PaymentLink,
   Refund,
@@ -567,6 +568,27 @@ export async function updateMyMerchantProfile(
   input: UpdateMerchantProfileInput,
 ): Promise<MerchantProfile> {
   return apiWrite<MerchantProfile>(`/v1/merchants/${merchantId}`, "PATCH", input);
+}
+
+// --- Notification settings (LIVE) ----------------------------------------------
+// Where THIS merchant wants collection transaction notifications emailed —
+// separate from the customer's own payment receipt, which is never
+// configurable.
+
+export async function getMyNotificationSettings(): Promise<NotificationSettings | null> {
+  return apiGet<NotificationSettings>("/v1/merchant/notification-settings");
+}
+
+export interface UpdateNotificationSettingsInput {
+  primary_notification_email: string | null;
+  secondary_notification_email: string | null;
+  collection_notifications_enabled: boolean;
+}
+
+export async function updateMyNotificationSettings(
+  input: UpdateNotificationSettingsInput,
+): Promise<NotificationSettings> {
+  return apiWrite<NotificationSettings>("/v1/merchant/notification-settings", "PATCH", input);
 }
 
 // --- Team / Users (LIVE) ------------------------------------------------------

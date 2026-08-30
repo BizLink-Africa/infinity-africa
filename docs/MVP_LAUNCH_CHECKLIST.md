@@ -11,7 +11,8 @@ Related docs: [`docs/withdrawal-pricing-and-approval.md`](./withdrawal-pricing-a
 [`docs/selcom-live-go-live.md`](./selcom-live-go-live.md),
 [`docs/collections-production-go-live-checklist.md`](./collections-production-go-live-checklist.md),
 [`docs/ledger-reconciliation.md`](./ledger-reconciliation.md),
-[`docs/email-delivery.md`](./email-delivery.md).
+[`docs/email-delivery.md`](./email-delivery.md),
+[`docs/merchant-collection-notifications.md`](./merchant-collection-notifications.md).
 
 ## 1. Railway backend env vars
 
@@ -310,3 +311,26 @@ resolved once) plus the `Idempotency-Key` header mechanism on every
 money-moving endpoint. `merchant_id`/fee/net/provider_reference/status
 live on the separate `transactions` table, joined to `ledger_entries` for
 display — this is standard double-entry-ledger shape, not a gap.
+
+## 17. Merchant collection notification emails
+
+Full detail: [`docs/merchant-collection-notifications.md`](./merchant-collection-notifications.md).
+
+- Merchant Portal → Settings → Notification Settings: up to 2 email
+  addresses, an enable/disable toggle. Backend is the source of truth for
+  every rule (valid format, max 2, no duplicates, at least 1 required
+  while enabled) — the frontend only guides.
+- Sent from `_apply_collection_success` (the single chokepoint every
+  collection source funnels through) right after the customer's own
+  receipt email — separate `try/except`, so a failure sending one never
+  blocks the other or the wallet credit itself.
+- Idempotent per `(collection_id, recipient_email)` — a webhook
+  redelivery, manual "Refresh status", or reconciliation sweep can never
+  double-send. `email_deliveries.status` now also accepts `'skipped'` for
+  the case where a retry was correctly suppressed.
+- Super Admin → a merchant's detail page → Notification Details: settings,
+  last-sent status, failed-delivery count, and recent per-recipient
+  delivery history. Editable there too, same validation, own audit-log
+  action (`notification_settings.updated_by_admin`).
+- Sender/reply-to reuse the existing `EMAIL_FROM`/`EMAIL_REPLY_TO` — no
+  new Railway env var needed for this feature.

@@ -15,17 +15,18 @@ import {
   createPlatformFallbackPricingRule,
   deactivateCollectionPricingRule,
   deactivatePricingRule,
+  reconcilePendingWithdrawals,
+  refreshWithdrawalStatus,
   reinstateMerchantApiAccess,
   rejectDocumentRequest,
   rejectIpAllowlistEntry,
   rejectWithdrawal,
-  reconcilePendingWithdrawals,
-  refreshWithdrawalStatus,
   requestDocumentsForAlert,
   requestInfoWithdrawal,
   requestRefundForDispute,
   revokeAdminApiKey,
   suspendMerchantApiAccess,
+  updateAdminMerchantNotificationSettings,
   updateCollectionPricingRule,
   updateDisputeStatus,
   updateMerchantStatus,
@@ -318,4 +319,30 @@ export async function deactivateCollectionPricingRuleAction(ruleId: string) {
 export async function activateCollectionPricingRuleAction(ruleId: string) {
   await activateCollectionPricingRule(ruleId);
   revalidatePath("/super-admin/pricing-rules");
+}
+
+// --- Notification settings (Super Admin editing a merchant's own) --------------
+
+export type NotificationSettingsActionState = PricingRuleActionState;
+
+export async function updateAdminMerchantNotificationSettingsAction(
+  merchantId: string,
+  _prevState: NotificationSettingsActionState | null,
+  formData: FormData,
+): Promise<NotificationSettingsActionState> {
+  const get = (key: string) => {
+    const value = String(formData.get(key) ?? "").trim();
+    return value ? value : null;
+  };
+  try {
+    await updateAdminMerchantNotificationSettings(merchantId, {
+      primary_notification_email: get("primary_notification_email"),
+      secondary_notification_email: get("secondary_notification_email"),
+      collection_notifications_enabled: formData.get("collection_notifications_enabled") === "on",
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Couldn't save notification settings. Try again." };
+  }
+  revalidatePath(`/super-admin/merchants/${merchantId}`);
+  return { error: null };
 }

@@ -67,6 +67,21 @@ export interface PayByLink {
   last_used_at: string | null;
 }
 
+/** Up to 2 email addresses this merchant wants notified when a collection
+ * transaction is successfully confirmed — distinct from a customer's own
+ * payment receipt email, which is never configurable. See
+ * docs/merchant-collection-notifications.md. */
+export interface NotificationSettings {
+  id: string;
+  merchant_id: string;
+  primary_notification_email: string | null;
+  secondary_notification_email: string | null;
+  collection_notifications_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+}
+
 export interface InvoiceItem {
   id: string;
   description: string;

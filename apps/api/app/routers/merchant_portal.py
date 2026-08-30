@@ -71,6 +71,10 @@ from app.schemas.enums import CollectionMethod, UserRole
 from app.schemas.fraud import FraudAlertResponse
 from app.schemas.invoices import InvoiceItemResponse, InvoiceResponse, InvoiceUpdate
 from app.schemas.ip_allowlist import IpAllowlistCreate, IpAllowlistResponse
+from app.schemas.merchant_notifications import (
+    MerchantNotificationSettingsResponse,
+    MerchantNotificationSettingsUpdate,
+)
 from app.schemas.merchant_portal import (
     CreateOrderMinimalRequest,
     MerchantDynamicQrCollectionRequest,
@@ -119,6 +123,11 @@ from app.services.email import (
 from app.services.hosted_checkout import execute_hosted_checkout_collection
 from app.services.idempotency import run_idempotent
 from app.services.ledger import export_wallet_ledger_rows, list_wallet_ledger
+from app.services.merchant_notifications import (
+    get_or_create_notification_settings,
+    upsert_notification_settings,
+    validate_notification_emails,
+)
 from app.services.merchant_overview import get_merchant_overview
 from app.services.payment_links import (
     batch_collection_counts,
@@ -1701,6 +1710,58 @@ def list_my_notifications(
         .execute()
     ).data or []
     return APIResponse(data=[NotificationResponse(**row) for row in rows])
+
+
+# --- Notification settings (collection emails) --------------------------------
+# Where THIS merchant wants collection transaction notifications emailed —
+# distinct from the /notifications above (in-app notification feed) and
+# from a customer's payment receipt email (never configurable, always the
+# customer's own address). See app/services/email.py::
+# send_merchant_collection_notification_email and
+# app/services/merchant_notifications.py.
+
+
+@router.get("/notification-settings", response_model=APIResponse[MerchantNotificationSettingsResponse])
+def get_my_notification_settings(
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_ONLY))],
+):
+    client = get_supabase_admin()
+    row = get_or_create_notification_settings(client, membership.merchant_id)
+    return APIResponse(data=MerchantNotificationSettingsResponse(**row))
+
+
+@router.patch("/notification-settings", response_model=APIResponse[MerchantNotificationSettingsResponse])
+def update_my_notification_settings(
+    payload: MerchantNotificationSettingsUpdate,
+    membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_ONLY))],
+):
+    client = get_supabase_admin()
+    emails = validate_notification_emails(
+        [payload.primary_notification_email, payload.secondary_notification_email],
+        enabled=payload.collection_notifications_enabled,
+    )
+    row = upsert_notification_settings(
+        client,
+        membership.merchant_id,
+        primary_notification_email=emails[0] if len(emails) > 0 else None,
+        secondary_notification_email=emails[1] if len(emails) > 1 else None,
+        collection_notifications_enabled=payload.collection_notifications_enabled,
+        updated_by=membership.user_id,
+    )
+    write_audit_log(
+        client,
+        actor_id=membership.user_id,
+        actor_type="user",
+        merchant_id=membership.merchant_id,
+        action="notification_settings.updated",
+        resource_type="merchant_notification_settings",
+        resource_id=uuid.UUID(row["id"]),
+        metadata={
+            "collection_notifications_enabled": payload.collection_notifications_enabled,
+            "notification_email_count": len(emails),
+        },
+    )
+    return APIResponse(data=MerchantNotificationSettingsResponse(**row))
 
 
 # --- Team / Users -------------------------------------------------------------

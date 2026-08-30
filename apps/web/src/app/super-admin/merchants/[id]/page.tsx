@@ -5,6 +5,7 @@ import { Card, tdClass, thClass } from "@/components/portal/card";
 import { Icon } from "@/components/portal/icon";
 import { PageHeader } from "@/components/portal/page-header";
 import { StatusBadge } from "@/components/portal/status-badge";
+import { NotificationSettingsCard } from "@/components/super-admin/notification-settings-card";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import {
   reinstateMerchantApiAccessAction,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/admin/live-actions";
 import {
   getAdminMerchant,
+  getAdminMerchantNotificationSettings,
   getAdminMerchantPayByLink,
   listAdminCollections,
   listAdminInvoices,
@@ -68,6 +70,7 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
     riskAlerts,
     ipAllowlist,
     payByLink,
+    notificationSettings,
   ] = await Promise.all([
     listAdminCollections({ merchantId }),
     listAdminPaymentLinks({ merchantId }),
@@ -79,6 +82,7 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
     listAdminRiskAlerts({ merchantId }),
     listAdminIpAllowlist({ merchantId }),
     getAdminMerchantPayByLink(merchantId),
+    getAdminMerchantNotificationSettings(merchantId),
   ]);
 
   const totalCollected = collections
@@ -242,6 +246,8 @@ export default async function SuperAdminMerchantDetailPage({ params }: { params:
             </div>
           )}
         </SectionCard>
+
+        {notificationSettings && <NotificationSettingsCard merchantId={merchantId} settings={notificationSettings} />}
 
         <SectionCard title="Invoices">
           {invoices.length === 0 ? (

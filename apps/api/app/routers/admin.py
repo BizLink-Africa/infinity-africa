@@ -44,6 +44,10 @@ from app.schemas.api_logs import AdminApiRequestLogResponse
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.common import APIResponse
 from app.schemas.ip_allowlist import AdminIpAllowlistResponse
+from app.schemas.merchant_notifications import (
+    AdminMerchantNotificationSettingsResponse,
+    MerchantNotificationSettingsUpdate,
+)
 from app.schemas.pay_by_link import PayByLinkResponse
 from app.schemas.webhook_config import WebhookConfigResponse
 from app.services.admin_customers import list_admin_customers
@@ -61,6 +65,12 @@ from app.services.checkout_reconciliation import refresh_checkout_collection_sta
 from app.services.crud import execute_maybe_single, get_by_id, update_row
 from app.services.email import batch_latest_email_deliveries
 from app.services.ledger import get_wallet_balance
+from app.services.merchant_notifications import (
+    get_or_create_notification_settings,
+    notification_delivery_summary,
+    upsert_notification_settings,
+    validate_notification_emails,
+)
 from app.services.pay_by_link import get_own_pay_link
 from app.services.payment_links import build_public_url
 from app.services.webhooks import last_webhook_delivery
@@ -464,6 +474,90 @@ def get_admin_merchant_webhook_config(
             subscribed_events=merchant.get("webhook_subscribed_events"),
             has_secret=bool(merchant.get("webhook_secret_encrypted")),
             last_delivery=last_webhook_delivery(client, merchant_id),
+        )
+    )
+
+
+@router.get(
+    "/merchants/{merchant_id}/notification-settings",
+    response_model=APIResponse[AdminMerchantNotificationSettingsResponse],
+)
+def get_admin_merchant_notification_settings(
+    merchant_id: uuid.UUID,
+    _admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    """Super Admin's Notification Details view for one merchant — settings
+    plus the delivery summary (feature brief Part 7). Never exposes
+    RESEND_API_KEY or any other provider secret; email_deliveries itself
+    never stores one."""
+    client = get_supabase_admin()
+    merchant = get_by_id(client, "merchants", merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
+    row = get_or_create_notification_settings(client, merchant_id)
+    summary = notification_delivery_summary(client, merchant_id)
+    return APIResponse(
+        data=AdminMerchantNotificationSettingsResponse(
+            **row,
+            merchant_name=merchant.get("business_name", ""),
+            merchant_code=merchant.get("merchant_code"),
+            **summary,
+        )
+    )
+
+
+@router.patch(
+    "/merchants/{merchant_id}/notification-settings",
+    response_model=APIResponse[AdminMerchantNotificationSettingsResponse],
+)
+def update_admin_merchant_notification_settings(
+    merchant_id: uuid.UUID,
+    payload: MerchantNotificationSettingsUpdate,
+    admin: Annotated[AuthenticatedUser, Depends(require_super_admin)],
+):
+    """Super Admin editing a merchant's notification settings — same
+    validation (format, max 2, no duplicates, at least 1 required while
+    enabled) as the merchant's own PUT, via the same shared validator.
+    Always audit-logged with the admin's own user id as actor, distinct
+    from the merchant-actor audit entry the merchant's own PATCH writes."""
+    client = get_supabase_admin()
+    merchant = get_by_id(client, "merchants", merchant_id)
+    if not merchant:
+        raise NotFoundError("Merchant not found")
+
+    emails = validate_notification_emails(
+        [payload.primary_notification_email, payload.secondary_notification_email],
+        enabled=payload.collection_notifications_enabled,
+    )
+    row = upsert_notification_settings(
+        client,
+        merchant_id,
+        primary_notification_email=emails[0] if len(emails) > 0 else None,
+        secondary_notification_email=emails[1] if len(emails) > 1 else None,
+        collection_notifications_enabled=payload.collection_notifications_enabled,
+        updated_by=admin.id,
+    )
+    write_audit_log(
+        client,
+        actor_id=admin.id,
+        actor_type="user",
+        merchant_id=merchant_id,
+        action="notification_settings.updated_by_admin",
+        resource_type="merchant_notification_settings",
+        resource_id=uuid.UUID(row["id"]),
+        metadata={
+            "collection_notifications_enabled": payload.collection_notifications_enabled,
+            "notification_email_count": len(emails),
+        },
+    )
+    summary = notification_delivery_summary(client, merchant_id)
+    return APIResponse(
+        data=AdminMerchantNotificationSettingsResponse(
+            **row,
+            merchant_name=merchant.get("business_name", ""),
+            merchant_code=merchant.get("merchant_code"),
+            **summary,
         )
     )
 

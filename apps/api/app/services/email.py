@@ -14,6 +14,7 @@ let a caller distinguish "no such account" from "email provider down").
 """
 
 import logging
+import uuid
 from decimal import Decimal
 from typing import Any
 
@@ -23,6 +24,7 @@ from supabase import Client
 from app.config import get_settings
 from app.core.errors import EmailDeliveryError
 from app.services.crud import execute_maybe_single, insert_row
+from app.services.merchant_notifications import get_notification_settings
 from app.services.payment_links import build_public_url
 
 logger = logging.getLogger("infinity.email")
@@ -1133,3 +1135,236 @@ def send_payment_link_customer_email(client: Client, *, merchant: dict, payment_
         status="sent",
         provider_message_id=message_id or None,
     )
+
+
+# --- 10. Merchant collection notification (to the merchant's own inbox) --------
+
+
+def _resolve_collection_customer_details(client: Client, collection: dict) -> dict[str, str | None]:
+    """name/email/phone for a collection's payer, for the merchant-facing
+    notification email — a superset of _resolve_collection_customer_email
+    above (email only). Kept as its own function rather than extending
+    that one: send_payment_receipt_email is already relied on in
+    production and this avoids touching its signature/behavior at all.
+    Same three sources, in the same precedence order: the linked
+    payment_link/invoice row, then collection.metadata (where a direct
+    "Request Collection"/API push stores whatever the caller supplied,
+    since collections has no customer_name/customer_email columns of its
+    own). customer_phone is the one field collections *does* store
+    directly (USSD/STK/wallet-push collections are inherently
+    phone-first)."""
+    name: str | None = None
+    email: str | None = None
+    phone = collection.get("customer_phone")
+
+    payment_link_id = collection.get("payment_link_id")
+    if payment_link_id:
+        link = execute_maybe_single(
+            client.table("payment_links")
+            .select("customer_name, customer_email")
+            .eq("id", payment_link_id)
+            .maybe_single()
+        )
+        if link:
+            name = name or link.get("customer_name")
+            email = email or link.get("customer_email")
+
+    invoice_id = collection.get("invoice_id")
+    if invoice_id:
+        invoice = execute_maybe_single(
+            client.table("invoices").select("customer_name, customer_email").eq("id", invoice_id).maybe_single()
+        )
+        if invoice:
+            name = name or invoice.get("customer_name")
+            email = email or invoice.get("customer_email")
+
+    metadata = collection.get("metadata") or {}
+    name = name or metadata.get("customer_name")
+    email = email or metadata.get("customer_email")
+
+    return {"name": name, "email": email, "phone": phone}
+
+
+def _notification_already_sent(client: Client, *, collection_id: str, recipient_email: str) -> bool:
+    """Idempotency guard (feature brief Part 5): true if this exact
+    recipient already has a 'sent' merchant_collection_notification row
+    for this collection. resolve_collection()/finalize_pending_review_collection()
+    are themselves already guarded against re-processing an already-
+    resolved collection (both check collection.status before doing
+    anything), so in practice this function's caller only ever runs once
+    per collection — this is a second, independent layer of protection
+    against the specific case the brief calls out: a webhook redelivery, a
+    manual "Refresh status" click, or a reconciliation sweep somehow
+    re-entering the success path for the same collection."""
+    existing = (
+        client.table("email_deliveries")
+        .select("id")
+        .eq("email_type", "merchant_collection_notification")
+        .eq("related_resource_type", "collection")
+        .eq("related_resource_id", collection_id)
+        .eq("recipient_email", recipient_email)
+        .eq("status", "sent")
+        .limit(1)
+        .execute()
+    ).data
+    return bool(existing)
+
+
+def send_merchant_collection_notification_email(
+    client: Client, *, merchant: dict, transaction: dict, collection: dict
+) -> list[dict]:
+    """Best-effort — never raises. Called right after send_payment_receipt_email
+    from _apply_collection_success (app/services/collections.py), itself
+    already wrapped in try/except there for defense in depth — a merchant
+    notification failing to send must never fail the payment/wallet credit
+    it's reporting on.
+
+    Distinct from send_payment_receipt_email: that goes to the paying
+    CUSTOMER (their own email, wherever it came from). This goes to the
+    MERCHANT's own configured notification email(s)
+    (merchant_notification_settings — see app/services/merchant_notifications.py),
+    up to 2, and only when collection_notifications_enabled is true.
+    Idempotent per (collection, recipient) — see _notification_already_sent.
+
+    Returns the email_deliveries rows written (sent/failed/skipped, one
+    per configured recipient) — mainly for tests; callers otherwise ignore
+    the return value the same as every other best-effort send_* here."""
+    merchant_id = merchant.get("id")
+    if not merchant_id:
+        return []
+
+    notification_settings = get_notification_settings(client, uuid.UUID(merchant_id))
+    if not notification_settings or not notification_settings.get("collection_notifications_enabled"):
+        return []
+
+    recipients = [
+        email
+        for email in (
+            notification_settings.get("primary_notification_email"),
+            notification_settings.get("secondary_notification_email"),
+        )
+        if email
+    ]
+    if not recipients:
+        # Notifications are enabled but no email has ever been configured —
+        # nothing to send, and (same convention as send_merchant_welcome_email
+        # above) no email_deliveries row: recipient_email is NOT NULL and
+        # nothing was actually attempted. The logger line is the record.
+        logger.warning(
+            "Merchant collection notification not sent: no notification email configured. merchant_id=%s", merchant_id
+        )
+        return []
+
+    settings = get_settings()
+    business_name = merchant.get("business_name") or "Merchant"
+    currency = transaction.get("currency") or collection.get("currency") or "TZS"
+    gross_amount = transaction.get("gross_amount") or collection.get("amount")
+    fee_amount = transaction.get("fee_amount") or "0"
+    net_amount = transaction.get("net_amount") or gross_amount
+    method = (collection.get("method") or "").replace("_", " ").title() or "—"
+    customer = _resolve_collection_customer_details(client, collection)
+    collection_id = collection.get("id")
+    sender = settings.email_from
+    # "Collection payment received - TZS {amount}" from the feature brief,
+    # with the collection's real currency substituted for the literal
+    # "TZS" (this platform is TZS-only today, so in practice these read
+    # identically) — _money() already renders "{currency} {amount}".
+    subject = f"Collection payment received - {_money(gross_amount, currency)}"
+    portal_url = f"{settings.app_url}/portal/collections"
+
+    rows: list[tuple[str, str]] = [
+        ("Merchant", business_name),
+        ("Fee / Charge", _money(fee_amount, currency)),
+        ("Net Amount Credited", _money(net_amount, currency)),
+        ("Payment Method", method),
+        ("Customer Name", customer["name"] or ""),
+        ("Customer Phone", _mask_identifier(customer["phone"]) if customer["phone"] else ""),
+        ("Customer Email", customer["email"] or ""),
+        (
+            "Provider Reference",
+            collection.get("provider_reference") or collection.get("provider_transid") or "",
+        ),
+        ("Reference", collection.get("merchant_reference") or transaction.get("reference") or ""),
+        ("Date", collection.get("completed_at") or ""),
+        ("Status", "Successful"),
+    ]
+    rows_html = "".join(
+        f"""
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#6b7280;">{label}</td>
+          <td style="padding:6px 0;font-size:14px;color:#1f2937;text-align:right;">{value}</td>
+        </tr>"""
+        for label, value in rows
+        if value
+    )
+
+    body = f"""
+    <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">Collection Notification</p>
+    <h1 style="margin:0 0 20px;font-size:20px;color:#1f2937;">You received a payment</h1>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fafb;border-radius:8px;padding:16px;margin:0 0 16px;">
+      <tr>
+        <td style="padding:6px 16px;font-size:14px;color:#6b7280;">Gross amount</td>
+        <td style="padding:6px 16px;font-size:20px;font-weight:700;color:#04332a;text-align:right;">{_money(gross_amount, currency)}</td>
+      </tr>
+    </table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      {rows_html}
+    </table>
+    {_cta_button(portal_url, "View in Merchant Portal")}
+    """
+    html = _email_shell(body_html=body)
+
+    delivery_rows: list[dict] = []
+    for recipient in recipients:
+        if _notification_already_sent(client, collection_id=collection_id, recipient_email=recipient):
+            delivery_rows.append(
+                _log_delivery(
+                    client,
+                    merchant_id=merchant_id,
+                    email_type="merchant_collection_notification",
+                    related_resource_type="collection",
+                    related_resource_id=collection_id,
+                    recipient_email=recipient,
+                    sender_email=sender,
+                    subject=subject,
+                    status="skipped",
+                    error_message="Already sent for this collection — retry suppressed.",
+                )
+            )
+            continue
+
+        try:
+            message_id = send_email(to=recipient, subject=subject, html=html, sender=sender, reply_to=settings.email_reply_to)
+        except EmailDeliveryError as exc:
+            delivery_rows.append(
+                _log_delivery(
+                    client,
+                    merchant_id=merchant_id,
+                    email_type="merchant_collection_notification",
+                    related_resource_type="collection",
+                    related_resource_id=collection_id,
+                    recipient_email=recipient,
+                    sender_email=sender,
+                    subject=subject,
+                    status="failed",
+                    error_message=str(exc),
+                )
+            )
+            continue
+
+        delivery_rows.append(
+            _log_delivery(
+                client,
+                merchant_id=merchant_id,
+                email_type="merchant_collection_notification",
+                related_resource_type="collection",
+                related_resource_id=collection_id,
+                recipient_email=recipient,
+                sender_email=sender,
+                subject=subject,
+                status="sent",
+                provider_message_id=message_id or None,
+            )
+        )
+
+    return delivery_rows

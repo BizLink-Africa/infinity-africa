@@ -14,6 +14,7 @@ import type {
   AdminInvoiceRow,
   AdminIpAllowlistRow,
   AdminNotificationRow,
+  AdminNotificationSettingsRow,
   AdminOverview,
   AdminPayByLinkListRow,
   AdminPayByLinkRow,
@@ -130,6 +131,33 @@ export async function listAdminMerchantApiKeys(merchantId: string): Promise<Admi
  * page yet — see docs/PAY_BY_LINK.md. */
 export async function getAdminMerchantPayByLink(merchantId: string): Promise<AdminPayByLinkRow | null> {
   return apiGet<AdminPayByLinkRow>(`/v1/admin/merchants/${merchantId}/pay-by-link`);
+}
+
+/** Super Admin's Notification Details for one merchant — settings plus
+ * delivery summary. Null only on a network/auth failure (the backend
+ * itself lazily creates a default settings row on first read, so a
+ * merchant who's never configured anything still returns a real row). */
+export async function getAdminMerchantNotificationSettings(
+  merchantId: string,
+): Promise<AdminNotificationSettingsRow | null> {
+  return apiGet<AdminNotificationSettingsRow>(`/v1/admin/merchants/${merchantId}/notification-settings`);
+}
+
+export interface NotificationSettingsInput {
+  primary_notification_email: string | null;
+  secondary_notification_email: string | null;
+  collection_notifications_enabled: boolean;
+}
+
+export async function updateAdminMerchantNotificationSettings(
+  merchantId: string,
+  input: NotificationSettingsInput,
+): Promise<AdminNotificationSettingsRow> {
+  return apiWrite<AdminNotificationSettingsRow>(
+    `/v1/admin/merchants/${merchantId}/notification-settings`,
+    "PATCH",
+    input,
+  );
 }
 
 export async function suspendMerchantApiAccess(merchantId: string): Promise<void> {
