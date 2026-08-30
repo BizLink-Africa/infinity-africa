@@ -103,6 +103,12 @@ class AdminPaymentLinkResponse(BaseModel):
     status: str
     expires_at: datetime | None = None
     created_at: datetime
+    # 'payment_link' | 'request_collection' | 'api' | 'pay_by_link' — which
+    # Merchant Portal surface (or external API) created this row. See
+    # supabase/migrations/20260824020000_collection_source_tracking.sql's
+    # column comment and app/services/collection_source.py, which derives
+    # an eventual collection's own `source` from this same field.
+    created_via: str
 
 
 class AdminInvoiceResponse(BaseModel):

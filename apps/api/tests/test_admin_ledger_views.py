@@ -61,6 +61,11 @@ def test_list_admin_payment_links(fake_client):
     assert row["merchant_code"] == merchant["merchant_code"]
     assert row["customer_name"] == "Baraka"
     assert row["status"] == "ACTIVE"
+    # Defaults to "payment_link" when absent from the row, mirroring the
+    # real payment_links.created_via column's own default — the fake
+    # seed above doesn't set it explicitly (see app/routers/pay_by_link.py
+    # for the "pay_by_link" value this same field can carry).
+    assert row["created_via"] == "payment_link"
 
 
 def test_list_admin_invoices(fake_client):

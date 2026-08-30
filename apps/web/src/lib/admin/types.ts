@@ -106,6 +106,13 @@ export interface AdminPaymentLinkRow {
   status: "ACTIVE" | "PAID" | "EXPIRED" | "CANCELLED";
   expires_at: string | null;
   created_at: string;
+  /** Which Merchant Portal surface (or external API) created this link —
+   * "pay_by_link" for a customer submission through a merchant's
+   * permanent Pay by Link page, "payment_link" for the ordinary
+   * merchant-generated one, "request_collection" for the Request
+   * Collection form (same underlying row/endpoint), "api" for
+   * POST /v1/collections (external developer API). */
+  created_via: "payment_link" | "request_collection" | "api" | "pay_by_link";
 }
 
 export interface AdminInvoiceRow {

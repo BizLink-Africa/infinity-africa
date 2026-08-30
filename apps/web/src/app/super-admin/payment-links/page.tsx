@@ -11,6 +11,13 @@ export const metadata = {
   title: "Payment Links | Infinity Africa Super Admin",
 };
 
+const SOURCE_LABELS: Record<string, string> = {
+  payment_link: "Payment Link",
+  request_collection: "Request Collection",
+  api: "API",
+  pay_by_link: "Pay by Link",
+};
+
 export default async function SuperAdminPaymentLinksPage() {
   const links = await listAdminPaymentLinks();
   const active = links.filter((l) => l.status === "ACTIVE").length;
@@ -50,11 +57,12 @@ export default async function SuperAdminPaymentLinksPage() {
           <p className="p-6 text-sm text-on-surface-variant">No payment links have been created yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[880px]">
+            <table className="w-full text-left min-w-[980px]">
               <thead>
                 <tr className="text-on-surface-variant text-xs font-semibold border-t border-surface-container-highest">
                   <th className={thClass}>Link ID</th>
                   <th className={thClass}>Merchant</th>
+                  <th className={thClass}>Source</th>
                   <th className={thClass}>Customer</th>
                   <th className={thClass}>Amount</th>
                   <th className={thClass}>Status</th>
@@ -72,6 +80,9 @@ export default async function SuperAdminPaymentLinksPage() {
                       {link.merchant_code && (
                         <div className="font-mono text-xs text-on-surface-variant">{link.merchant_code}</div>
                       )}
+                    </td>
+                    <td className={`${tdClass} text-xs text-on-surface-variant`}>
+                      {SOURCE_LABELS[link.created_via] ?? link.created_via}
                     </td>
                     <td className={tdClass}>{link.customer_name ?? link.customer_phone ?? "—"}</td>
                     <td className={`${tdClass} font-semibold text-on-background`}>{formatCurrency(link.amount, link.currency)}</td>

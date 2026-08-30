@@ -489,6 +489,7 @@ def list_admin_payment_links(
             status=row["status"],
             expires_at=row.get("expires_at"),
             created_at=row["created_at"],
+            created_via=row.get("created_via", "payment_link"),
         )
         for row in rows
     ]
