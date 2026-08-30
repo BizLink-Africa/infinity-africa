@@ -80,13 +80,12 @@ export function PayByLinkForm({ slug, link }: { slug: string; link: PublicPayByL
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4 bg-primary px-6 py-5 sm:px-8">
-        <h1 className="text-lg font-bold text-on-primary sm:text-xl">{link.display_name}</h1>
-        <img
-          src="/brand/infinity-mark.png"
-          alt="Infinity Africa"
-          className="h-10 w-10 shrink-0 rounded-lg sm:h-11 sm:w-11"
-        />
+      <div className="flex items-center justify-between gap-4 bg-primary px-6 py-7 sm:px-10 sm:py-9">
+        <h1 className="text-lg font-bold text-on-primary sm:text-2xl">{link.display_name}</h1>
+        <div className="flex shrink-0 items-center gap-2">
+          <img src="/brand/infinity-mark.png" alt="" className="h-9 w-9 rounded-lg sm:h-12 sm:w-12" />
+          <span className="text-xs font-semibold tracking-wide text-on-primary sm:text-sm">Infinity Africa</span>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4 px-6 py-6 sm:px-8 sm:py-8">
@@ -99,7 +98,7 @@ export function PayByLinkForm({ slug, link }: { slug: string; link: PublicPayByL
               required
               value={firstName}
               onChange={(event) => setFirstName(event.target.value)}
-              placeholder="Grace"
+              placeholder="Balekele"
             />
           </div>
           <div>
@@ -110,7 +109,7 @@ export function PayByLinkForm({ slug, link }: { slug: string; link: PublicPayByL
               required
               value={lastName}
               onChange={(event) => setLastName(event.target.value)}
-              placeholder="Mwakalinga"
+              placeholder="Masasi"
             />
           </div>
         </div>
@@ -123,7 +122,7 @@ export function PayByLinkForm({ slug, link }: { slug: string; link: PublicPayByL
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="grace@example.com"
+            placeholder="balekele@infinityafrica.net"
           />
         </div>
 
