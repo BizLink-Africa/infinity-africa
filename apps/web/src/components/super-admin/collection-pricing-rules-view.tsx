@@ -49,18 +49,6 @@ function RuleFields({ rule }: { rule?: CollectionPricingRuleRow }) {
         />
       </div>
       <div>
-        <label className={labelClass}>Flat Fee (TZS, optional)</label>
-        <input name="flat_fee" type="number" step="0.01" min="0" defaultValue={rule?.flat_fee ?? "0"} className={inputClass} />
-      </div>
-      <div>
-        <label className={labelClass}>Minimum Fee (TZS, optional)</label>
-        <input name="minimum_fee" type="number" step="0.01" min="0" defaultValue={rule?.minimum_fee ?? ""} className={inputClass} />
-      </div>
-      <div>
-        <label className={labelClass}>Maximum Fee (TZS, optional)</label>
-        <input name="maximum_fee" type="number" step="0.01" min="0" defaultValue={rule?.maximum_fee ?? ""} className={inputClass} />
-      </div>
-      <div>
         <label className={labelClass}>Effective From (optional, defaults to now)</label>
         <input
           name="effective_from"
@@ -325,7 +313,7 @@ export function CollectionPricingRulesView({
 
       <RuleSection
         title="Platform Fallback Collection Rules"
-        description="Applied to any merchant with no matching merchant-specific rule. Suggested MVP default: 0.8% — adjust as needed."
+        description="Applied to any merchant with no matching merchant-specific rule."
         rules={platformRules}
         createAction={createPlatformFallbackCollectionPricingRuleAction}
       />

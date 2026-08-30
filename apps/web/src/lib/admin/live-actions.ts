@@ -251,9 +251,17 @@ function collectionPricingRuleInputFromFormData(formData: FormData): CollectionP
   return {
     channel: get("channel") ?? null,
     percentage_fee: get("percentage_fee") ?? "0",
-    flat_fee: get("flat_fee") ?? "0",
-    minimum_fee: get("minimum_fee") ?? null,
-    maximum_fee: get("maximum_fee") ?? null,
+    // flat_fee/minimum_fee/maximum_fee have no input in RuleFields
+    // anymore (collection-pricing-rules-view.tsx) — left as `undefined`
+    // (not defaulted to "0"/null) so JSON.stringify drops them from the
+    // request body entirely. On create, the backend's own Pydantic
+    // defaults apply (flat_fee=0, min/max=null); on update, PATCH's
+    // exclude_unset=True then leaves whatever a rule already has
+    // untouched, rather than silently resetting it to 0/null on every
+    // edit through this simplified form.
+    flat_fee: get("flat_fee"),
+    minimum_fee: get("minimum_fee"),
+    maximum_fee: get("maximum_fee"),
     effective_from: get("effective_from") ?? null,
     effective_to: get("effective_to") ?? null,
     label: get("label") ?? null,

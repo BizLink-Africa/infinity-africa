@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CollectionPricingRuleRow, Merchant } from "@/lib/admin/types";
 
@@ -51,6 +51,15 @@ const platformRule: CollectionPricingRuleRow = {
 };
 
 describe("CollectionPricingRulesView", () => {
+  beforeEach(() => {
+    // The action mocks are shared module-level vi.fn()s — clear call
+    // history between tests so one test's "toHaveBeenCalledTimes"
+    // assertion isn't polluted by a previous test's call. Does not wipe
+    // a mockResolvedValue set within a given test, since each test sets
+    // its own after this runs.
+    vi.clearAllMocks();
+  });
+
   it("shows the required helper text, a merchant selector, and the Add Collection Pricing Rule action", async () => {
     const { CollectionPricingRulesView } = await import("./collection-pricing-rules-view");
     render(
@@ -94,6 +103,55 @@ describe("CollectionPricingRulesView", () => {
       expect(screen.getByText("maximum_fee must be greater than or equal to minimum_fee")).toBeInTheDocument(),
     );
     expect(updateCollectionPricingRuleAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show the flat/minimum/maximum fee fields or the suggested-default copy", async () => {
+    const { CollectionPricingRulesView } = await import("./collection-pricing-rules-view");
+    render(
+      <CollectionPricingRulesView
+        merchants={[merchant]}
+        platformRules={[platformRule]}
+        selectedMerchantId={null}
+        merchantRules={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle("Edit"));
+
+    expect(screen.queryByText("Flat Fee (TZS, optional)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Minimum Fee (TZS, optional)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Maximum Fee (TZS, optional)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Suggested MVP default: 0.8% — adjust as needed.", { exact: false })).not.toBeInTheDocument();
+  });
+
+  it("edits an existing rule without resending flat/minimum/maximum fee (leaves them untouched server-side)", async () => {
+    const { updateCollectionPricingRuleAction } = await import("@/lib/admin/live-actions");
+    vi.mocked(updateCollectionPricingRuleAction).mockResolvedValue({ error: null });
+
+    const ruleWithFees: CollectionPricingRuleRow = {
+      ...platformRule,
+      flat_fee: "500.00",
+      minimum_fee: "100.00",
+      maximum_fee: "9999.00",
+    };
+    const { CollectionPricingRulesView } = await import("./collection-pricing-rules-view");
+    render(
+      <CollectionPricingRulesView
+        merchants={[merchant]}
+        platformRules={[ruleWithFees]}
+        selectedMerchantId={null}
+        merchantRules={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle("Edit"));
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => expect(updateCollectionPricingRuleAction).toHaveBeenCalledTimes(1));
+    const submittedFormData = vi.mocked(updateCollectionPricingRuleAction).mock.calls[0][2] as FormData;
+    expect(submittedFormData.get("flat_fee")).toBeNull();
+    expect(submittedFormData.get("minimum_fee")).toBeNull();
+    expect(submittedFormData.get("maximum_fee")).toBeNull();
   });
 
   it("shows an Activate action for a deactivated rule, not a second Deactivate", async () => {
