@@ -1,5 +1,13 @@
-"""app/services/withdrawals/fee_calculator.py — fee math and pricing-rule
-precedence, against the in-memory FakeSupabaseClient.
+"""app/services/withdrawals/fee_calculator.py:
+
+- calculate_withdrawal_fee — MVP policy (2026-08-31): always zero fees,
+  regardless of any merchant_pricing_rules row that exists. See its own
+  docstring for why a configured rule is never consulted for the amount
+  math anymore.
+- find_pricing_rule — the precedence lookup itself is unchanged and
+  still exercised (app/services/api_access.py::has_resolvable_pricing_rule
+  uses it as a production-API-eligibility gate, unrelated to fees) — its
+  own precedence tests below are untouched by the fee-policy change.
 """
 
 import uuid
@@ -16,6 +24,9 @@ def _merchant_id(fake_client) -> uuid.UUID:
     return uuid.UUID(create_merchant(fake_client)["id"])
 
 
+# --- calculate_withdrawal_fee: always zero, regardless of configuration -------
+
+
 def test_no_rule_at_all_means_zero_fee(fake_client):
     merchant_id = _merchant_id(fake_client)
 
@@ -27,10 +38,14 @@ def test_no_rule_at_all_means_zero_fee(fake_client):
     assert breakdown.processor_charge == Decimal(0)
     assert breakdown.total_charges == Decimal(0)
     assert breakdown.total_reserved_amount == Decimal(100000)
+    assert breakdown.recipient_net_amount == Decimal(100000)
     assert breakdown.pricing_rule_id is None
 
 
-def test_percentage_fee(fake_client):
+def test_configured_percentage_fee_is_not_applied(fake_client):
+    """A merchant_pricing_rules row with a real percentage fee still
+    exists (e.g. left over from before this policy, or configured by
+    mistake) — calculate_withdrawal_fee must not apply it."""
     merchant_id = _merchant_id(fake_client)
     create_pricing_rule(fake_client, merchant_id=merchant_id, percentage_fee="1")
 
@@ -38,12 +53,12 @@ def test_percentage_fee(fake_client):
         fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
     )
 
-    assert breakdown.percentage_fee == Decimal("1000.00")
-    assert breakdown.infinity_fee == Decimal("1000.00")
-    assert breakdown.total_reserved_amount == Decimal("101000.00")
+    assert breakdown.percentage_fee == Decimal(0)
+    assert breakdown.infinity_fee == Decimal(0)
+    assert breakdown.total_reserved_amount == Decimal(100000)
 
 
-def test_flat_fee(fake_client):
+def test_configured_flat_fee_is_not_applied(fake_client):
     merchant_id = _merchant_id(fake_client)
     create_pricing_rule(fake_client, merchant_id=merchant_id, flat_fee="1500")
 
@@ -51,11 +66,11 @@ def test_flat_fee(fake_client):
         fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="BANK_ACCOUNT", destination_code="CRDB"
     )
 
-    assert breakdown.flat_fee == Decimal(1500)
-    assert breakdown.infinity_fee == Decimal(1500)
+    assert breakdown.flat_fee == Decimal(0)
+    assert breakdown.infinity_fee == Decimal(0)
 
 
-def test_minimum_fee_applies(fake_client):
+def test_configured_minimum_fee_is_not_applied(fake_client):
     merchant_id = _merchant_id(fake_client)
     create_pricing_rule(fake_client, merchant_id=merchant_id, percentage_fee="1", minimum_fee="2000")
 
@@ -63,11 +78,10 @@ def test_minimum_fee_applies(fake_client):
         fake_client, merchant_id=merchant_id, amount=Decimal(10000), channel="MOBILE_MONEY", destination_code="MPESA"
     )
 
-    # 1% of 10000 = 100, below the 2000 floor.
-    assert breakdown.infinity_fee == Decimal(2000)
+    assert breakdown.infinity_fee == Decimal(0)
 
 
-def test_maximum_fee_applies(fake_client):
+def test_configured_maximum_fee_is_not_applied(fake_client):
     merchant_id = _merchant_id(fake_client)
     create_pricing_rule(fake_client, merchant_id=merchant_id, percentage_fee="5", maximum_fee="3000")
 
@@ -75,23 +89,10 @@ def test_maximum_fee_applies(fake_client):
         fake_client, merchant_id=merchant_id, amount=Decimal(1000000), channel="MOBILE_MONEY", destination_code="MPESA"
     )
 
-    # 5% of 1,000,000 = 50,000, capped at 3,000.
-    assert breakdown.infinity_fee == Decimal(3000)
+    assert breakdown.infinity_fee == Decimal(0)
 
 
-def test_processor_charge_only_included_when_pass_through_enabled(fake_client):
-    merchant_id = _merchant_id(fake_client)
-    create_pricing_rule(fake_client, merchant_id=merchant_id, processor_fee_flat="300", processor_fee_pass_through=False)
-
-    breakdown = calculate_withdrawal_fee(
-        fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
-    )
-
-    assert breakdown.processor_charge == Decimal(0)
-    assert breakdown.processor_fee_pass_through is False
-
-
-def test_processor_charge_included_when_pass_through_enabled(fake_client):
+def test_configured_processor_charge_pass_through_is_not_applied(fake_client):
     merchant_id = _merchant_id(fake_client)
     create_pricing_rule(fake_client, merchant_id=merchant_id, processor_fee_flat="300", processor_fee_pass_through=True)
 
@@ -99,14 +100,16 @@ def test_processor_charge_included_when_pass_through_enabled(fake_client):
         fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
     )
 
-    assert breakdown.processor_charge == Decimal(300)
-    assert breakdown.total_charges == breakdown.infinity_fee + Decimal(300)
+    assert breakdown.processor_charge == Decimal(0)
+    assert breakdown.total_charges == Decimal(0)
 
 
-def test_worked_example_from_spec(fake_client):
-    """TZS 100,000 withdrawal; 1% Infinity fee + TZS 500 flat + TZS 300
-    processor charge = TZS 1,800 total charges; TZS 101,800 reserved;
-    recipient receives TZS 100,000."""
+def test_fully_configured_rule_still_yields_zero_charges_and_full_recipient_amount(fake_client):
+    """Same scenario test_worked_example_from_spec used to exercise
+    non-zero math for (1% + TZS 500 flat + TZS 300 processor pass-
+    through) — now every one of those must be ignored: zero total
+    charges, and the merchant's wallet reserves/debits exactly the
+    requested amount, not amount + fees."""
     merchant_id = _merchant_id(fake_client)
     create_pricing_rule(
         fake_client,
@@ -121,12 +124,33 @@ def test_worked_example_from_spec(fake_client):
         fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
     )
 
-    assert breakdown.total_charges == Decimal("1800.00")
-    assert breakdown.total_reserved_amount == Decimal("101800.00")
+    assert breakdown.total_charges == Decimal(0)
+    assert breakdown.total_reserved_amount == Decimal(100000)
     assert breakdown.recipient_net_amount == Decimal(100000)
+    # Also confirms the breakdown no longer references the rule that
+    # would otherwise have applied — the amount math is entirely
+    # independent of merchant_pricing_rules now.
+    assert breakdown.pricing_rule_id is None
+    assert breakdown.is_platform_fallback is False
 
 
-# --- precedence -----------------------------------------------------------------
+def test_platform_fallback_rule_is_also_not_applied(fake_client):
+    merchant_id = _merchant_id(fake_client)
+    create_pricing_rule(fake_client, merchant_id=None, flat_fee="9999", percentage_fee="10", label="platform")
+
+    breakdown = calculate_withdrawal_fee(
+        fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
+    )
+
+    assert breakdown.total_charges == Decimal(0)
+    assert breakdown.total_reserved_amount == Decimal(100000)
+    assert breakdown.is_platform_fallback is False
+    assert breakdown.pricing_rule_id is None
+    assert breakdown.pricing_rule_label is None
+
+
+# --- find_pricing_rule precedence (unrelated to fees — the eligibility gate
+# in app/services/api_access.py still relies on this exact logic) -------------
 
 
 def test_destination_specific_rule_overrides_channel_rule(fake_client):
@@ -242,42 +266,3 @@ def test_platform_channel_rule_overrides_platform_generic_rule(fake_client):
 
     rule = find_pricing_rule(fake_client, merchant_id=merchant_id, channel="BANK_ACCOUNT", destination_code="CRDB")
     assert rule["label"] == "platform-channel"
-
-
-# --- is_platform_fallback flag on the fee breakdown ---------------------------
-
-
-def test_breakdown_flags_platform_fallback_when_no_merchant_rule_exists(fake_client):
-    merchant_id = _merchant_id(fake_client)
-    create_pricing_rule(fake_client, merchant_id=None, flat_fee="100", label="platform")
-
-    breakdown = calculate_withdrawal_fee(
-        fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
-    )
-
-    assert breakdown.is_platform_fallback is True
-    assert breakdown.pricing_rule_label == "platform"
-
-
-def test_breakdown_does_not_flag_merchant_specific_rule_as_fallback(fake_client):
-    merchant_id = _merchant_id(fake_client)
-    create_pricing_rule(fake_client, merchant_id=None, flat_fee="9999", label="platform")
-    create_pricing_rule(fake_client, merchant_id=merchant_id, flat_fee="500", label="merchant-default")
-
-    breakdown = calculate_withdrawal_fee(
-        fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
-    )
-
-    assert breakdown.is_platform_fallback is False
-    assert breakdown.pricing_rule_label == "merchant-default"
-
-
-def test_breakdown_does_not_flag_fallback_when_no_rule_matches_at_all(fake_client):
-    merchant_id = _merchant_id(fake_client)
-
-    breakdown = calculate_withdrawal_fee(
-        fake_client, merchant_id=merchant_id, amount=Decimal(100000), channel="MOBILE_MONEY", destination_code="MPESA"
-    )
-
-    assert breakdown.is_platform_fallback is False
-    assert breakdown.pricing_rule_id is None

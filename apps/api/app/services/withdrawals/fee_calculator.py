@@ -1,24 +1,22 @@
-"""Dynamic, per-merchant withdrawal fee calculation.
+"""Withdrawal fee calculation (calculate_withdrawal_fee) and
+merchant_pricing_rules precedence lookup (find_pricing_rule).
 
-Looks up the most specific active merchant_pricing_rules row for a given
-merchant + channel + destination, then computes the fee breakdown a
-merchant sees on POST /v1/merchant/withdrawals/quote and that gets frozen
-onto a withdrawal at submission time (execute_disbursement in
-app/services/disbursements.py) — see FeeBreakdown/pricing_snapshot_json.
+MVP pricing policy (2026-08-31): Infinity Africa earns fees from
+collections only — calculate_withdrawal_fee always returns zero fees now
+(see its own docstring), regardless of what's configured in
+merchant_pricing_rules. That table and find_pricing_rule below are NOT
+dead code, though: app/services/api_access.py::has_resolvable_pricing_rule
+still calls find_pricing_rule as a production-API-eligibility gate ("has
+this merchant been assigned pricing at all") — unrelated to fee amounts.
 
-Precedence (most to least specific):
+find_pricing_rule's precedence (most to least specific):
   1. merchant + destination_code
   2. merchant + channel (destination_code null)
   3. merchant default (channel and destination_code both null)
   4. platform fallback (merchant_id null), itself searched in the same
      destination -> channel -> generic order — a robustness addition
      beyond the literal 4-tier spec, so a platform-wide per-channel
-     default (e.g. "bank transfers cost more everywhere") can still beat
-     a fully generic platform rule.
-
-If no rule matches at all (not even a platform fallback configured), the
-fee is zero everywhere — matches today's pre-pricing-engine behavior
-rather than blocking a withdrawal for missing configuration.
+     default can still beat a fully generic platform rule.
 """
 
 import uuid
@@ -95,14 +93,6 @@ def find_pricing_rule(
     return None
 
 
-def _clamp(value: Decimal, *, minimum: Decimal | None, maximum: Decimal | None) -> Decimal:
-    if minimum is not None and value < minimum:
-        value = minimum
-    if maximum is not None and value > maximum:
-        value = maximum
-    return value
-
-
 def calculate_withdrawal_fee(
     client: Client,
     *,
@@ -111,52 +101,42 @@ def calculate_withdrawal_fee(
     channel: DisbursementMethod | str,
     destination_code: DestinationCode | str,
 ) -> FeeBreakdown:
+    """MVP pricing policy (2026-08-31): Infinity Africa earns fees from
+    collections only — withdrawals never charge the merchant anything,
+    regardless of any merchant_pricing_rules row that exists. No
+    percentage fee, no flat fee, no processor charge passed through;
+    `total_reserved_amount` and `recipient_net_amount` both always equal
+    the requested `amount` exactly, so a withdrawal reserves/debits the
+    merchant's wallet for precisely what they asked to withdraw.
+
+    Deliberately does not call find_pricing_rule at all — a configured
+    rule (if any exists, e.g. left over from before this policy) is
+    never consulted for the amount math. find_pricing_rule itself is
+    unrelated to fees now, still called elsewhere purely as an
+    eligibility gate (app/services/api_access.py::has_resolvable_pricing_rule
+    — "has this merchant been assigned pricing at all", independent of
+    what that pricing actually charges) — not this function's concern.
+
+    If Infinity Africa ever needs to track a real provider disbursement
+    cost, that must be recorded as an internal platform cost (a separate
+    field/table), never deducted from what the merchant receives —
+    intentionally not built here; nothing today reads merchant_pricing_rules
+    for a disbursement's amount math."""
     channel_value = channel.value if isinstance(channel, DisbursementMethod) else channel
     destination_value = destination_code.value if isinstance(destination_code, DestinationCode) else destination_code
 
-    rule = find_pricing_rule(client, merchant_id=merchant_id, channel=channel_value, destination_code=destination_value)
-
-    if rule is None:
-        return FeeBreakdown(
-            withdrawal_amount=amount,
-            processor_charge=Decimal(0),
-            infinity_fee=Decimal(0),
-            percentage_fee=Decimal(0),
-            flat_fee=Decimal(0),
-            total_charges=Decimal(0),
-            total_reserved_amount=amount,
-            recipient_net_amount=amount,
-            channel=channel_value,
-            destination_code=destination_value,
-            pricing_rule_id=None,
-            pricing_rule_label=None,
-            processor_fee_pass_through=False,
-        )
-
-    percentage_fee = (amount * Decimal(str(rule["percentage_fee"])) / Decimal(100)).quantize(Decimal("0.01"))
-    flat_fee = Decimal(str(rule["flat_fee"]))
-    minimum_fee = Decimal(str(rule["minimum_fee"])) if rule.get("minimum_fee") is not None else None
-    maximum_fee = Decimal(str(rule["maximum_fee"])) if rule.get("maximum_fee") is not None else None
-    infinity_fee = _clamp(percentage_fee + flat_fee, minimum=minimum_fee, maximum=maximum_fee)
-
-    processor_pass_through = bool(rule["processor_fee_pass_through"])
-    processor_charge = Decimal(str(rule["processor_fee_flat"])) if processor_pass_through else Decimal(0)
-
-    total_charges = infinity_fee + processor_charge
-
     return FeeBreakdown(
         withdrawal_amount=amount,
-        processor_charge=processor_charge,
-        infinity_fee=infinity_fee,
-        percentage_fee=percentage_fee,
-        flat_fee=flat_fee,
-        total_charges=total_charges,
-        total_reserved_amount=amount + total_charges,
+        processor_charge=Decimal(0),
+        infinity_fee=Decimal(0),
+        percentage_fee=Decimal(0),
+        flat_fee=Decimal(0),
+        total_charges=Decimal(0),
+        total_reserved_amount=amount,
         recipient_net_amount=amount,
         channel=channel_value,
         destination_code=destination_value,
-        pricing_rule_id=uuid.UUID(rule["id"]),
-        pricing_rule_label=rule.get("label"),
-        processor_fee_pass_through=processor_pass_through,
-        is_platform_fallback=rule.get("merchant_id") is None,
+        pricing_rule_id=None,
+        pricing_rule_label=None,
+        processor_fee_pass_through=False,
     )

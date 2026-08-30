@@ -1,9 +1,26 @@
 # Withdrawal Pricing & Super Admin Approval
 
-How dynamic, per-merchant withdrawal fees are calculated, how the fee
-snapshot is frozen onto a withdrawal, and why every withdrawal — regardless
-of amount — sits for Super Admin approval before it ever reaches Selcom.
-For the general endpoint/auth/pagination conventions, see
+> **MVP pricing policy (2026-08-31): withdrawals no longer charge a
+> merchant fee.** Infinity Africa earns fees from merchant collections
+> only — see [`docs/collection-and-withdrawal-pricing.md`](./collection-and-withdrawal-pricing.md)
+> for the current policy. `calculate_withdrawal_fee`
+> (`app/services/withdrawals/fee_calculator.py`) always returns zero
+> now, regardless of anything configured in `merchant_pricing_rules`.
+> The "Pricing model" / "Fee formula" / "Worked example" sections below
+> describe the **pre-2026-08-31 behavior** — kept for historical
+> reference and because `merchant_pricing_rules` and its precedence
+> lookup (`find_pricing_rule`) still exist in the codebase (still used
+> as a production-API-eligibility gate, unrelated to fee amounts — see
+> `app/services/api_access.py`) — do not use them to answer "what does a
+> withdrawal cost a merchant today": nothing, always. Everything below
+> **"Fee snapshot (immutability)"** (the approval flow, status glossary,
+> Selcom-call sequencing) is still accurate and unaffected by this
+> change — a withdrawal's stored fee fields are just always zero now.
+
+How dynamic, per-merchant withdrawal fees **used to be** calculated, how
+the fee snapshot is frozen onto a withdrawal, and why every withdrawal —
+regardless of amount — sits for Super Admin approval before it ever
+reaches Selcom. For the general endpoint/auth/pagination conventions, see
 [`docs/api.md`](./api.md). For the underlying reservation/ledger mechanics,
 see `apps/api/app/services/ledger.py`.
 

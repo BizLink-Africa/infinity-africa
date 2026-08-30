@@ -3,28 +3,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FeeBreakdown } from "@/lib/portal/types";
 
+// MVP policy (2026-08-31): withdrawals never charge a merchant fee — the
+// backend always returns a zero breakdown now (see
+// apps/api/app/services/withdrawals/fee_calculator.py). This mock mirrors
+// that real shape rather than a hypothetical fee-bearing one.
 const breakdown: FeeBreakdown = {
   withdrawal_amount: "100000.00",
-  processor_charge: "300.00",
-  infinity_fee: "1500.00",
-  percentage_fee: "1000.00",
-  flat_fee: "500.00",
-  total_charges: "1800.00",
-  total_reserved_amount: "101800.00",
+  processor_charge: "0",
+  infinity_fee: "0",
+  percentage_fee: "0",
+  flat_fee: "0",
+  total_charges: "0",
+  total_reserved_amount: "100000.00",
   recipient_net_amount: "100000.00",
   channel: "SELCOM_PESA",
   destination_code: "SELCOM",
-  pricing_rule_id: "rule-1",
-  pricing_rule_label: "Negotiated rate",
-  processor_fee_pass_through: true,
+  pricing_rule_id: null,
+  pricing_rule_label: null,
+  processor_fee_pass_through: false,
   is_platform_fallback: false,
-};
-
-const platformFallbackBreakdown: FeeBreakdown = {
-  ...breakdown,
-  pricing_rule_id: "rule-platform",
-  pricing_rule_label: "Platform default",
-  is_platform_fallback: true,
 };
 
 const calculateWithdrawalCharges = vi.fn().mockResolvedValue(breakdown);
@@ -42,14 +39,14 @@ describe("WithdrawalsView", () => {
     vi.clearAllMocks();
   });
 
-  it("shows a Calculate Charges button", async () => {
+  it("shows a Check Balance button", async () => {
     const { WithdrawalsView } = await import("./withdrawals-view");
     render(<WithdrawalsView />);
 
-    await waitFor(() => expect(screen.getByText("Calculate Charges")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Check Balance")).toBeInTheDocument());
   });
 
-  it("renders the fee breakdown after calculating charges", async () => {
+  it("shows the withdrawal amount and a no-fee notice, never a fee/charge breakdown", async () => {
     const { WithdrawalsView } = await import("./withdrawals-view");
     render(<WithdrawalsView />);
 
@@ -57,39 +54,22 @@ describe("WithdrawalsView", () => {
       target: { value: "+255700000000" },
     });
     fireEvent.change(screen.getByPlaceholderText("500,000"), { target: { value: "100000" } });
-    fireEvent.click(screen.getByText("Calculate Charges"));
+    fireEvent.click(screen.getByText("Check Balance"));
 
     await waitFor(() => expect(calculateWithdrawalCharges).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByText("Recipient Receives")).toBeInTheDocument());
-    expect(screen.getByText("Negotiated rate", { exact: false })).toBeInTheDocument();
-  });
+    await waitFor(() =>
+      expect(screen.getByText("No merchant withdrawal fee — you receive the full amount.")).toBeInTheDocument(),
+    );
 
-  it("shows 'Platform fallback rule applied' when the quote used the platform fallback rule", async () => {
-    calculateWithdrawalCharges.mockResolvedValueOnce(platformFallbackBreakdown);
-    const { WithdrawalsView } = await import("./withdrawals-view");
-    render(<WithdrawalsView />);
-
-    fireEvent.change(screen.getByPlaceholderText("+255 7XX XXX XXX or account no."), {
-      target: { value: "+255700000000" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("500,000"), { target: { value: "100000" } });
-    fireEvent.click(screen.getByText("Calculate Charges"));
-
-    await waitFor(() => expect(screen.getByText("Platform fallback rule applied")).toBeInTheDocument());
-  });
-
-  it("does not show the platform fallback notice for a merchant-specific rule", async () => {
-    const { WithdrawalsView } = await import("./withdrawals-view");
-    render(<WithdrawalsView />);
-
-    fireEvent.change(screen.getByPlaceholderText("+255 7XX XXX XXX or account no."), {
-      target: { value: "+255700000000" },
-    });
-    fireEvent.change(screen.getByPlaceholderText("500,000"), { target: { value: "100000" } });
-    fireEvent.click(screen.getByText("Calculate Charges"));
-
-    await waitFor(() => expect(screen.getByText("Recipient Receives")).toBeInTheDocument());
-    expect(screen.queryByText("Platform fallback rule applied")).not.toBeInTheDocument();
+    // The old fee-breakdown rows must be gone entirely — this is the
+    // point of the MVP pricing change, not just an added message.
+    expect(screen.queryByText("Infinity Africa Fee")).not.toBeInTheDocument();
+    expect(screen.queryByText("Processor Charge")).not.toBeInTheDocument();
+    expect(screen.queryByText("Total Charges")).not.toBeInTheDocument();
+    expect(screen.queryByText("Total to Be Deducted")).not.toBeInTheDocument();
+    expect(screen.queryByText("Recipient Receives")).not.toBeInTheDocument();
+    expect(screen.queryByText(/pricing rule applied/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/platform fallback/i)).not.toBeInTheDocument();
   });
 
   it("never shows the literal word 'Disbursement' in merchant-facing text", async () => {

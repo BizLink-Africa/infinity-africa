@@ -22,8 +22,8 @@ export default async function SuperAdminPricingRulesPage({
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Pricing Rules"
-        description="Configure platform-wide fallback fees and negotiated per-merchant withdrawal pricing."
+        title="Withdrawal Pricing Rules (Inactive)"
+        description="These rules no longer charge merchants — withdrawal fees were removed platform-wide. Infinity Africa now earns fees from collections only."
       />
       <PricingRulesView
         merchants={merchants}

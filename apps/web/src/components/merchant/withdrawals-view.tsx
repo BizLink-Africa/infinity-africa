@@ -99,7 +99,7 @@ export function WithdrawalsView() {
       setQuote(breakdown);
       setQuotedFor({ method, destinationCode, amount });
     } catch {
-      setQuoteError("Couldn't calculate charges. Try again.");
+      setQuoteError("Couldn't check your balance. Try again.");
     } finally {
       setQuoting(false);
     }
@@ -115,11 +115,11 @@ export function WithdrawalsView() {
       return;
     }
     if (!quote || quoteIsStale) {
-      setError("Calculate charges before confirming this withdrawal.");
+      setError("Check your balance before confirming this withdrawal.");
       return;
     }
     if (exceedsBalance) {
-      setError("Total to be deducted exceeds your available balance.");
+      setError("This amount exceeds your available balance.");
       return;
     }
 
@@ -320,14 +320,14 @@ export function WithdrawalsView() {
 
           <div className="bg-surface-container-low rounded-lg px-4 py-3 text-sm space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide">Fee Breakdown</p>
+              <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide">Review Withdrawal</p>
               <button
                 type="button"
                 onClick={handleCalculateCharges}
                 disabled={quoting}
                 className="text-xs font-semibold text-primary hover:underline disabled:opacity-60"
               >
-                {quoting ? "Calculating…" : "Calculate Charges"}
+                {quoting ? "Checking…" : "Check Balance"}
               </button>
             </div>
             <div className="flex items-center justify-between">
@@ -341,47 +341,20 @@ export function WithdrawalsView() {
                   <span className="text-on-surface-variant">Withdrawal Amount</span>
                   <span className="font-semibold text-on-background">{formatCurrency(quote.withdrawal_amount, "TZS")}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-on-surface-variant">Infinity Africa Fee</span>
-                  <span className="font-semibold text-on-background">{formatCurrency(quote.infinity_fee, "TZS")}</span>
-                </div>
-                {Number(quote.processor_charge) > 0 && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-on-surface-variant">Processor Charge</span>
-                    <span className="font-semibold text-on-background">{formatCurrency(quote.processor_charge, "TZS")}</span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between">
-                  <span className="text-on-surface-variant">Total Charges</span>
-                  <span className="font-semibold text-on-background">{formatCurrency(quote.total_charges, "TZS")}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-on-surface-variant">Total to Be Deducted</span>
-                  <span className="font-semibold text-on-background">{formatCurrency(quote.total_reserved_amount, "TZS")}</span>
-                </div>
-                <div className="flex items-center justify-between border-t border-surface-container-highest pt-2">
-                  <span className="text-on-surface-variant">Recipient Receives</span>
-                  <span className="font-semibold text-primary">{formatCurrency(quote.recipient_net_amount, "TZS")}</span>
-                </div>
-                {quote.pricing_rule_label && (
-                  <p className="text-xs text-on-surface-variant">Pricing rule applied: {quote.pricing_rule_label}</p>
-                )}
-                {quote.is_platform_fallback && (
-                  <p className="text-xs text-on-surface-variant flex items-center gap-1">
-                    <Icon name="info" className="text-[14px]" />
-                    Platform fallback rule applied
-                  </p>
-                )}
+                <p className="text-xs text-on-surface-variant flex items-center gap-1">
+                  <Icon name="check_circle" className="text-[14px] text-primary" />
+                  No merchant withdrawal fee — you receive the full amount.
+                </p>
                 {exceedsBalance && (
                   <p className="text-xs text-error flex items-center gap-1 border-t border-surface-container-highest pt-2">
                     <Icon name="error" className="text-[14px]" />
-                    Total to be deducted exceeds your available balance.
+                    This amount exceeds your available balance.
                   </p>
                 )}
               </>
             ) : (
               <p className="text-xs text-on-surface-variant">
-                Enter an amount and destination, then calculate charges to see the full fee breakdown before submitting.
+                Enter an amount and destination, then check your balance before submitting.
               </p>
             )}
           </div>

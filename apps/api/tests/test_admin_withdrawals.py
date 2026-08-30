@@ -203,14 +203,22 @@ def test_approve_rechecks_risk_alerts_and_blocks_if_opened_since_request(fake_cl
     assert fake_client.table("disbursements")._table.rows[0]["status"] == "PENDING_ADMIN_APPROVAL"
 
 
-def test_approve_uses_stored_snapshot_not_a_recalculation(fake_client):
+def test_approve_never_applies_a_merchant_pricing_rule_even_if_one_is_configured(fake_client):
+    """MVP policy (2026-08-31): withdrawals never charge a merchant fee —
+    approval reserves exactly the requested amount, never a
+    (re)calculated percentage on top of it, however the rule is set or
+    changed. Was test_approve_uses_stored_snapshot_not_a_recalculation,
+    which asserted a real fee got frozen at submission and survived an
+    after-the-fact rule change unrecalculated; that fee no longer
+    exists, but the underlying "never recompute from a mutated rule"
+    invariant is still worth guarding."""
     from tests.factories import create_pricing_rule
 
     merchant_id, admin_id = _merchant_and_admin(fake_client)
     rule = create_pricing_rule(fake_client, merchant_id=merchant_id, percentage_fee="1")
     _fund_wallet(fake_client, merchant_id, "1000000.00")
     body = _request_withdrawal(merchant_id, admin_id, "100000.00")
-    assert Decimal(body["infinity_fee"]) == Decimal("1000.00")
+    assert Decimal(body["infinity_fee"]) == Decimal(0)
 
     # Mutate the rule after submission but before approval.
     for row in fake_client.table("merchant_pricing_rules")._table.rows:
@@ -221,9 +229,9 @@ def test_approve_uses_stored_snapshot_not_a_recalculation(fake_client):
     make_super_admin(fake_client, super_admin_id)
     _approve(body["id"], super_admin_id).json()["data"]
 
-    # Reserved exactly what was frozen at submission (100000 + 1000 fee),
-    # not a recalculated 50% fee.
-    assert _wallet_balance(fake_client, merchant_id) == Decimal("1000000.00") - Decimal("101000.00")
+    # Reserved exactly the requested amount — no fee, frozen or
+    # recalculated.
+    assert _wallet_balance(fake_client, merchant_id) == Decimal("1000000.00") - Decimal("100000.00")
 
 
 def test_duplicate_approval_does_not_double_send_to_selcom(fake_client):

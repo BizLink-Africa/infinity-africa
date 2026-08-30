@@ -158,6 +158,10 @@ below, not a sixth set of guarantees to separately verify:
   read by every downstream view; `post_collection_entries` (Postgres RPC)
   enforces a balanced debit/credit posting and non-negative balances at
   the database level, not just in application code.
+- **Merchant charges apply to collections only** (2026-08-31 pricing
+  policy) — this is the one and only place a merchant fee is ever
+  charged; see [`docs/collection-and-withdrawal-pricing.md`](./collection-and-withdrawal-pricing.md)
+  and §5's own pricing note below for the withdrawal side of this split.
 
 ## 5. Withdrawals and wallet debit safety
 
@@ -188,6 +192,17 @@ debited exactly once, at that point.
 - **New this pass**: a successful payout now writes
   `audit_logs.action="disbursement.completed"` (previously only failure/
   reversal were audited — see §"What changed").
+- **Pricing policy (2026-08-31): merchant charges apply to collections
+  only. Withdrawals do not charge merchant fees during MVP. Any provider
+  disbursement cost is treated as an internal platform cost unless a
+  future policy changes this.** `calculate_withdrawal_fee`
+  (`app/services/withdrawals/fee_calculator.py`) always returns zero now
+  — no percentage fee, no flat fee, no processor charge passed through —
+  regardless of any `merchant_pricing_rules` row configured; a
+  withdrawal reserves and debits exactly the requested amount. See
+  [`docs/collection-and-withdrawal-pricing.md`](./collection-and-withdrawal-pricing.md).
+  Historical withdrawals from before this date keep whatever fee they
+  already stored — nothing was rewritten.
 
 ## 6. Merchant signup and email flow readiness
 

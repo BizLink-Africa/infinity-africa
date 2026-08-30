@@ -74,7 +74,7 @@ function RuleFields({ rule }: { rule?: PricingRuleRow }) {
             defaultChecked={rule?.processor_fee_pass_through ?? false}
             className="rounded"
           />
-          Pass processor charge to merchant
+          Pass processor charge to merchant (currently has no effect — withdrawal fees are off)
         </label>
       </div>
       <div>
@@ -288,6 +288,17 @@ export function PricingRulesView({
 
   return (
     <div className="space-y-8">
+      <div className="rounded-lg bg-[#FEFCE8] text-[#854D0E] px-4 py-3 text-sm flex items-start gap-2.5">
+        <Icon name="info" className="text-[18px] shrink-0 mt-0.5" />
+        <p>
+          <span className="font-semibold">Withdrawal fees are off for every merchant (MVP policy).</span> Rules
+          configured below are no longer applied to any withdrawal — merchants always receive the full amount they
+          request, with no percentage fee, flat fee, or processor charge deducted. Infinity Africa earns fees from
+          merchant collections only. This page is kept for future use (e.g. tracking an internal provider cost), not
+          for editing what a merchant is charged.
+        </p>
+      </div>
+
       <Card>
         <label className={labelClass}>Select a merchant to view or set their negotiated pricing</label>
         <select

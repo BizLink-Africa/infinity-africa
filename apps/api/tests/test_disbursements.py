@@ -323,18 +323,51 @@ def test_disbursement_rejected_when_wallet_has_no_balance_at_all(fake_client):
     assert response.json()["error"]["code"] == "insufficient_balance"
 
 
-def test_balance_check_includes_fee_not_just_principal(fake_client):
-    """A merchant with just enough for the principal but not the fee on
-    top of it must still be rejected — total_reserved_amount, not amount,
-    is what's checked against available balance."""
+def test_balance_check_is_exactly_the_withdrawal_amount_no_fee_added(fake_client):
+    """MVP policy (2026-08-31): withdrawals never charge a merchant fee —
+    a configured merchant_pricing_rules row (even a real flat fee) is
+    never applied, so a merchant with exactly enough for the principal
+    is NOT rejected for insufficient balance, and total_reserved_amount
+    equals amount exactly, not amount + fee. Was
+    test_balance_check_includes_fee_not_just_principal, which asserted
+    the opposite (a fee-inclusive reservation) — the fee it relied on no
+    longer exists."""
     merchant_id, admin_id = _merchant_and_admin(fake_client)
     create_pricing_rule(fake_client, merchant_id=merchant_id, flat_fee="200")
-    _fund_wallet(fake_client, merchant_id, "1100.00")
+    _fund_wallet(fake_client, merchant_id, "1000.00")
 
     response = _request_mobile_money(merchant_id, admin_id, "1000.00")
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "insufficient_balance"
+    assert response.status_code == 202, response.text
+    body = response.json()["data"]
+    assert Decimal(body["total_reserved_amount"]) == Decimal("1000.00")
+    assert Decimal(body["infinity_fee"]) == Decimal(0)
+
+
+def test_withdrawal_request_ignores_a_client_supplied_fee_or_net_amount(fake_client):
+    """WithdrawalCreate has no fee/net field at all — there's nothing for
+    a malicious or naive frontend to inject in the first place — but
+    confirm any extra fields in the request body are simply irrelevant
+    to what actually gets reserved/debited, backend-computed only."""
+    merchant_id, admin_id = _merchant_and_admin(fake_client)
+    _fund_wallet(fake_client, merchant_id, "1000000.00")
+
+    response = _request_mobile_money(
+        merchant_id,
+        admin_id,
+        "100000.00",
+        infinity_fee="0",
+        fee_amount="0",
+        net_amount="999999999",
+        recipient_net_amount="999999999",
+        total_reserved_amount="1",
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()["data"]
+    assert Decimal(body["total_reserved_amount"]) == Decimal("100000.00")
+    assert Decimal(body["recipient_net_amount"]) == Decimal("100000.00")
+    assert Decimal(body["infinity_fee"]) == Decimal(0)
 
 
 # --- every withdrawal lands PENDING_ADMIN_APPROVAL ---------------------------
@@ -364,7 +397,12 @@ def test_withdrawal_request_creates_pending_admin_approval_and_never_calls_selco
     assert fake_client.table("transactions")._table.rows == []
 
 
-def test_withdrawal_stores_fee_snapshot(fake_client):
+def test_withdrawal_stores_zero_fee_snapshot_even_with_a_configured_pricing_rule(fake_client):
+    """MVP policy (2026-08-31): every fee/charge component on a
+    withdrawal is zero and recipient_net_amount == the requested amount,
+    regardless of what's configured in merchant_pricing_rules — was
+    test_withdrawal_stores_fee_snapshot, which asserted the opposite (a
+    real fee actually applied and frozen); that fee no longer exists."""
     merchant_id, admin_id = _merchant_and_admin(fake_client)
     create_pricing_rule(
         fake_client,
@@ -379,31 +417,38 @@ def test_withdrawal_stores_fee_snapshot(fake_client):
 
     body = _request_mobile_money(merchant_id, admin_id, "100000.00").json()["data"]
 
-    assert Decimal(body["percentage_fee_component"]) == Decimal("1000.00")
-    assert Decimal(body["flat_fee_component"]) == Decimal("500.00")
-    assert Decimal(body["infinity_fee"]) == Decimal("1500.00")
-    assert Decimal(body["processor_charge"]) == Decimal("300.00")
-    assert Decimal(body["total_charges"]) == Decimal("1800.00")
-    assert Decimal(body["total_reserved_amount"]) == Decimal("101800.00")
+    assert Decimal(body["percentage_fee_component"]) == Decimal(0)
+    assert Decimal(body["flat_fee_component"]) == Decimal(0)
+    assert Decimal(body["infinity_fee"]) == Decimal(0)
+    assert Decimal(body["processor_charge"]) == Decimal(0)
+    assert Decimal(body["total_charges"]) == Decimal(0)
+    assert Decimal(body["total_reserved_amount"]) == Decimal("100000.00")
     assert Decimal(body["recipient_net_amount"]) == Decimal("100000.00")
-    assert body["pricing_snapshot_json"]["pricing_rule_label"] == "Negotiated rate"
 
 
-def test_later_pricing_change_does_not_affect_already_submitted_withdrawal(fake_client):
+def test_later_pricing_change_still_does_not_affect_an_already_submitted_withdrawal(fake_client):
+    """The stored snapshot's immutability (an admin editing
+    merchant_pricing_rules after submission must never change what an
+    already-submitted withdrawal shows) is still a real invariant worth
+    guarding even though the value itself is now always zero — was
+    test_later_pricing_change_does_not_affect_already_submitted_withdrawal,
+    which exercised the same invariant against a real, non-zero fee."""
     merchant_id, admin_id = _merchant_and_admin(fake_client)
     rule = create_pricing_rule(fake_client, merchant_id=merchant_id, percentage_fee="1")
     _fund_wallet(fake_client, merchant_id, "1000000.00")
 
     body = _request_mobile_money(merchant_id, admin_id, "100000.00").json()["data"]
-    assert Decimal(body["infinity_fee"]) == Decimal("1000.00")
+    assert Decimal(body["infinity_fee"]) == Decimal(0)
 
-    # Admin edits the rule after the withdrawal was already submitted.
+    # Admin edits the rule after the withdrawal was already submitted —
+    # must have no effect either way, since withdrawals never consult
+    # merchant_pricing_rules for fee amounts at all anymore.
     for row in fake_client.table("merchant_pricing_rules")._table.rows:
         if row["id"] == rule["id"]:
             row["percentage_fee"] = "10"
 
     refetched = client.get(f"/v1/disbursements/{body['id']}", headers=auth_headers(admin_id)).json()["data"]
-    assert Decimal(refetched["infinity_fee"]) == Decimal("1000.00")
+    assert Decimal(refetched["infinity_fee"]) == Decimal(0)
 
 
 def test_selcom_pesa_disbursement_endpoint(fake_client):

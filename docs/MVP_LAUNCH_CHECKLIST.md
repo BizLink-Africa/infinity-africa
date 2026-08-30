@@ -112,6 +112,16 @@ and can never overdraw. Two pending requests that together exceed
 available balance simply mean whichever is approved second fails cleanly
 (marked `FAILED`, nothing to reverse).
 
+## 4a. Pricing policy (2026-08-31)
+
+**Merchant charges apply to collections only. Withdrawals do not charge
+merchant fees during MVP. Any provider disbursement cost is treated as
+an internal platform cost unless a future policy changes this.** See
+[`docs/collection-and-withdrawal-pricing.md`](./collection-and-withdrawal-pricing.md)
+for the full detail — `calculate_withdrawal_fee` always returns zero now,
+regardless of any `merchant_pricing_rules` row; a withdrawal reserves
+and debits exactly the requested amount. Collection fees are unchanged.
+
 ## 5. Merchant onboarding checklist
 
 A merchant must be `status=active` and `kyc_status=verified`

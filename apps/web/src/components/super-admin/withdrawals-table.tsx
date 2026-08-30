@@ -93,9 +93,6 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                   <th className={thClass}>Method</th>
                   <th className={thClass}>Amount</th>
                   <th className={thClass}>Available Balance</th>
-                  <th className={thClass}>Fees</th>
-                  <th className={thClass}>Total Reserved</th>
-                  <th className={thClass}>Recipient Receives</th>
                   <th className={thClass}>Requested</th>
                   <th className={`${thClass} text-right`}>Approval</th>
                 </tr>
@@ -123,9 +120,6 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                       <td className={`${tdClass} ${insufficientBalance ? "text-red-600 font-semibold" : "text-on-surface-variant"}`}>
                         {formatCurrency(request.available_balance, request.currency)}
                       </td>
-                      <td className={`${tdClass} text-on-surface-variant`}>{formatCurrency(request.total_charges, request.currency)}</td>
-                      <td className={tdClass}>{formatCurrency(request.total_reserved_amount ?? request.amount, request.currency)}</td>
-                      <td className={tdClass}>{formatCurrency(request.recipient_net_amount ?? request.amount, request.currency)}</td>
                       <td className={`${tdClass} text-on-surface-variant text-xs`}>{formatDateTime(request.created_at)}</td>
                       <td className={`${tdClass} text-right whitespace-nowrap`}>
                         <form action={approveWithdrawalAction.bind(null, request.withdrawal_id)} className="inline">
@@ -151,7 +145,7 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                     </tr>
                     {expandedRejectId === request.withdrawal_id && (
                       <tr className="border-t border-surface-container-highest bg-surface-container-low">
-                        <td className={tdClass} colSpan={10}>
+                        <td className={tdClass} colSpan={7}>
                           <form
                             action={rejectWithdrawalAction.bind(null, request.withdrawal_id)}
                             className="flex items-center gap-2"
@@ -171,7 +165,7 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                     )}
                     {expandedInfoId === request.withdrawal_id && (
                       <tr className="border-t border-surface-container-highest bg-surface-container-low">
-                        <td className={tdClass} colSpan={10}>
+                        <td className={tdClass} colSpan={7}>
                           <form
                             action={requestInfoWithdrawalAction.bind(null, request.withdrawal_id)}
                             className="flex items-center gap-2"
