@@ -185,19 +185,49 @@ function pricingRuleInputFromFormData(formData: FormData): PricingRuleInput {
   };
 }
 
-export async function createMerchantPricingRuleAction(merchantId: string, formData: FormData) {
-  await createMerchantPricingRule(merchantId, pricingRuleInputFromFormData(formData));
-  revalidatePath("/super-admin/pricing-rules");
+export interface PricingRuleActionState {
+  error: string | null;
 }
 
-export async function createPlatformFallbackPricingRuleAction(formData: FormData) {
-  await createPlatformFallbackPricingRule(pricingRuleInputFromFormData(formData));
+/** A failed create/save previously threw straight out of the form
+ * action with nothing to show for it — apiWrite's error still reaches
+ * the browser console, but the form itself just sits there looking like
+ * the button did nothing (reported: "Save Changes is not clickable").
+ * Catching here and returning the message via useActionState (see
+ * pricing-rules-view.tsx's RuleEditForm/RuleCreateForm) makes a real
+ * failure (a validation rule like maximum_fee < minimum_fee, a network
+ * error, ...) visible instead of silent. */
+async function runPricingRuleAction(run: () => Promise<unknown>): Promise<PricingRuleActionState> {
+  try {
+    await run();
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Couldn't save this pricing rule. Try again." };
+  }
   revalidatePath("/super-admin/pricing-rules");
+  return { error: null };
 }
 
-export async function updatePricingRuleAction(ruleId: string, formData: FormData) {
-  await updatePricingRule(ruleId, pricingRuleInputFromFormData(formData));
-  revalidatePath("/super-admin/pricing-rules");
+export async function createMerchantPricingRuleAction(
+  merchantId: string,
+  _prevState: PricingRuleActionState | null,
+  formData: FormData,
+): Promise<PricingRuleActionState> {
+  return runPricingRuleAction(() => createMerchantPricingRule(merchantId, pricingRuleInputFromFormData(formData)));
+}
+
+export async function createPlatformFallbackPricingRuleAction(
+  _prevState: PricingRuleActionState | null,
+  formData: FormData,
+): Promise<PricingRuleActionState> {
+  return runPricingRuleAction(() => createPlatformFallbackPricingRule(pricingRuleInputFromFormData(formData)));
+}
+
+export async function updatePricingRuleAction(
+  ruleId: string,
+  _prevState: PricingRuleActionState | null,
+  formData: FormData,
+): Promise<PricingRuleActionState> {
+  return runPricingRuleAction(() => updatePricingRule(ruleId, pricingRuleInputFromFormData(formData)));
 }
 
 export async function deactivatePricingRuleAction(ruleId: string) {

@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Fragment, useState } from "react";
+import { Fragment, useActionState, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { DESTINATION_CODE_LABELS, DISBURSEMENT_METHOD_LABELS, DisbursementMethod } from "@infinity/shared";
 
 import { Card, tdClass, thClass } from "@/components/portal/card";
@@ -12,6 +13,7 @@ import {
   createPlatformFallbackPricingRuleAction,
   deactivatePricingRuleAction,
   updatePricingRuleAction,
+  type PricingRuleActionState,
 } from "@/lib/admin/live-actions";
 import type { Merchant, PricingRuleRow } from "@/lib/admin/types";
 
@@ -109,6 +111,56 @@ function toDatetimeLocalValue(iso: string | null | undefined): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+/** Shows "Saving…" and disables itself while its parent <form>'s action
+ * is in flight — the previous plain button gave zero visual feedback on
+ * click, which is exactly what makes a working button look broken (a
+ * slow network, or a validation error the form action used to throw and
+ * swallow silently, both looked identical to "not clickable"). Must be
+ * a child of the <form>, per useFormStatus's own rule. */
+function SubmitButton({ children }: { children: React.ReactNode }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="bg-primary-container text-on-primary text-sm font-medium px-6 py-2.5 rounded-lg hover:opacity-90 disabled:opacity-60"
+    >
+      {pending ? "Saving…" : children}
+    </button>
+  );
+}
+
+function ActionError({ state }: { state: PricingRuleActionState }) {
+  if (!state.error) return null;
+  return <div className="rounded-lg bg-error/10 px-4 py-3 text-sm text-error">{state.error}</div>;
+}
+
+function RuleCreateForm({
+  action,
+}: {
+  action: (prevState: PricingRuleActionState | null, formData: FormData) => Promise<PricingRuleActionState>;
+}) {
+  const [state, formAction] = useActionState(action, { error: null });
+  return (
+    <form action={formAction} className="p-5 border-t border-surface-container-highest space-y-4">
+      <RuleFields />
+      <ActionError state={state} />
+      <SubmitButton>Create Rule</SubmitButton>
+    </form>
+  );
+}
+
+function RuleEditForm({ rule }: { rule: PricingRuleRow }) {
+  const [state, formAction] = useActionState(updatePricingRuleAction.bind(null, rule.id), { error: null });
+  return (
+    <form action={formAction} className="space-y-4">
+      <RuleFields rule={rule} />
+      <ActionError state={state} />
+      <SubmitButton>Save Changes</SubmitButton>
+    </form>
+  );
+}
+
 function RuleRow({ rule, onEdit }: { rule: PricingRuleRow; onEdit: () => void }) {
   return (
     <tr className="border-t border-surface-container-highest">
@@ -159,7 +211,7 @@ function PricingRuleSection({
   title: string;
   description: string;
   rules: PricingRuleRow[];
-  createAction: (formData: FormData) => Promise<void>;
+  createAction: (prevState: PricingRuleActionState | null, formData: FormData) => Promise<PricingRuleActionState>;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -181,14 +233,7 @@ function PricingRuleSection({
         </button>
       </div>
 
-      {showCreate && (
-        <form action={createAction} className="p-5 border-t border-surface-container-highest space-y-4">
-          <RuleFields />
-          <button className="bg-primary-container text-on-primary text-sm font-medium px-6 py-2.5 rounded-lg hover:opacity-90">
-            Create Rule
-          </button>
-        </form>
-      )}
+      {showCreate && <RuleCreateForm action={createAction} />}
 
       {rules.length === 0 ? (
         <p className="p-6 text-sm text-on-surface-variant">No pricing rules yet.</p>
@@ -214,12 +259,7 @@ function PricingRuleSection({
                   {editingId === rule.id && (
                     <tr className="border-t border-surface-container-highest bg-surface-container-low">
                       <td className={tdClass} colSpan={8}>
-                        <form action={updatePricingRuleAction.bind(null, rule.id)} className="space-y-4">
-                          <RuleFields rule={rule} />
-                          <button className="bg-primary-container text-on-primary text-sm font-medium px-6 py-2.5 rounded-lg hover:opacity-90">
-                            Save Changes
-                          </button>
-                        </form>
+                        <RuleEditForm rule={rule} />
                       </td>
                     </tr>
                   )}

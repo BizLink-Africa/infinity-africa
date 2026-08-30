@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Merchant, PricingRuleRow } from "@/lib/admin/types";
@@ -67,4 +67,35 @@ describe("PricingRulesView", () => {
     expect(screen.getAllByText("Add Pricing Rule").length).toBeGreaterThan(0);
     expect(screen.getByText("Platform default", { exact: false })).toBeInTheDocument();
   });
+
+  it(
+    "surfaces a failed save's error message instead of doing nothing " +
+      "(regression: reported as \"Save Changes is not clickable\" — the " +
+      "plain <form action> previously gave no feedback on click at all, " +
+      "success or failure)",
+    async () => {
+      const { updatePricingRuleAction } = await import("@/lib/admin/live-actions");
+      vi.mocked(updatePricingRuleAction).mockResolvedValue({
+        error: "maximum_fee must be greater than or equal to minimum_fee",
+      });
+
+      const { PricingRulesView } = await import("./pricing-rules-view");
+      render(
+        <PricingRulesView
+          merchants={[merchant]}
+          platformRules={[platformRule]}
+          selectedMerchantId={null}
+          merchantRules={[]}
+        />,
+      );
+
+      fireEvent.click(screen.getByTitle("Edit"));
+      fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+      await waitFor(() =>
+        expect(screen.getByText("maximum_fee must be greater than or equal to minimum_fee")).toBeInTheDocument(),
+      );
+      expect(updatePricingRuleAction).toHaveBeenCalledTimes(1);
+    },
+  );
 });
