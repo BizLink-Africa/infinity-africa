@@ -331,6 +331,19 @@ class Settings(BaseSettings):
     # separately zeroing each interval var.
     enable_auto_reconciliation: bool = True
 
+    @property
+    def docs_enabled(self) -> bool:
+        """Whether Swagger UI (/docs), ReDoc (/redoc), and the raw OpenAPI
+        schema (/openapi.json) should be wired up at all — see app.main.
+        They're unauthenticated by construction (FastAPI serves them to
+        anyone who asks), which is fine for local/staging use while
+        building against this API but not fine left open on the real
+        production fintech backend (a full machine-readable map of every
+        route, including admin/withdrawal/wallet endpoints, for an
+        unauthenticated caller). Disabling them only removes the docs UI
+        itself — no actual endpoint depends on them being enabled."""
+        return self.environment != "production"
+
     @model_validator(mode="after")
     def _reject_wildcard_cors_outside_development(self) -> "Settings":
         """allow_credentials=True in app/main.py's CORSMiddleware makes a

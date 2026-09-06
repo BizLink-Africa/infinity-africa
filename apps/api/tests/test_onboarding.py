@@ -78,6 +78,22 @@ def test_create_merchant_account_success(fake_client):
     assert submission["services_needed"] == ["PAYMENT_LINKS", "INVOICES"]
 
 
+def test_create_merchant_account_is_rate_limited(fake_client):
+    """Wiring test for app/core/rate_limit.py's merchant_onboarding_submit
+    scope (MVP security-hardening pass — this endpoint previously had no
+    rate limit despite being a public-ish, unauthenticated-in-spirit
+    business-submission form gated only by a fresh Supabase Auth signup)."""
+    from app.core.rate_limit import _limiter
+
+    for _ in range(5):
+        _limiter.check("merchant_onboarding_submit:testclient", limit=5, window_seconds=60)
+
+    response = client.post(
+        "/v1/onboarding/merchant-account", headers=auth_headers(uuid.uuid4()), json=_valid_payload()
+    )
+    assert response.status_code == 429
+
+
 def test_create_merchant_account_requires_terms(fake_client):
     response = client.post(
         "/v1/onboarding/merchant-account",

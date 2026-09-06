@@ -503,3 +503,38 @@ column; `post_ledger_entries`'s balanced-per-transaction and no-negative-
 balance checks make a drift here a database-level constraint violation,
 not a silent possibility — if one is ever found, it indicates a bug to
 investigate, not a value to hand-correct.
+
+## 19. Security & SEO hardening pass (2026-08-30)
+
+Full detail lives in `MVP_LAUNCH_CHECKLIST.md` §18–§19 (security headers,
+Google Search Console/robots/sitemap, SEO metadata, social preview image,
+Discord cache behavior, production CORS, private-route noindex, security
+tools not public — checklist + verification for every item). Summary of
+what changed:
+
+- **Confirmed already correct, not changed**: production CORS wildcard
+  rejection (§4 above), Selcom webhook signature verification (fails
+  closed in production, never bypassed outside `ENVIRONMENT=development`
+  — `app/routers/webhooks.py`), collection/withdrawal double-credit/debit
+  safety (§§4–5 above, unchanged by this pass), favicon/app icons (already
+  the current official brand mark).
+- **Newly fixed**: Swagger/ReDoc/OpenAPI docs were reachable,
+  unauthenticated, in every environment including production — now
+  disabled outright when `ENVIRONMENT=production`
+  (`Settings.docs_enabled`). Seven previously-unlimited money-moving/
+  submission endpoints gained rate limits (six merchant-portal "Request
+  Collection" endpoints + `create-order-minimal`, merchant onboarding
+  submission, the public contact-form endpoint). Both apps now send the
+  standard defensive HTTP header set (HSTS, CSP, X-Frame-Options,
+  Referrer-Policy, Permissions-Policy, ...). Every private/authenticated
+  route now carries `robots: { index: false }` plus a matching
+  `robots.txt` disallow entry. The Open Graph/Twitter social preview image
+  was still the old, never-actually-used-in-the-app logo — replaced with
+  a versioned (`-v2`) image generated from the real current brand mark.
+- **Tests**: `apps/web/src/security-secret-scan.test.ts` (no backend
+  secret env-var name anywhere in `apps/web/src`),
+  `apps/web/src/app/seo-and-security.test.ts` (robots/sitemap/headers/
+  metadata/noindex), `apps/api/tests/test_security_headers.py`,
+  `docs_enabled` cases in `test_settings.py`, and one rate-limit wiring
+  test each in `test_merchant_portal.py`/`test_onboarding.py`/
+  `test_public_inquiries.py`.

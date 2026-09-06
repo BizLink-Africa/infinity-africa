@@ -3,8 +3,11 @@
 can submit one.
 """
 
-from fastapi import APIRouter
+from typing import Annotated
 
+from fastapi import APIRouter, Depends
+
+from app.core.rate_limit import rate_limit
 from app.database.session import get_supabase_admin
 from app.schemas.common import APIResponse
 from app.schemas.inquiries import InquiryCreate
@@ -15,7 +18,10 @@ router = APIRouter(prefix="/public/inquiries", tags=["inquiries (public)"])
 
 
 @router.post("", response_model=APIResponse[dict])
-def create_inquiry(payload: InquiryCreate):
+def create_inquiry(
+    payload: InquiryCreate,
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="public_inquiry_create", limit=10, window_seconds=60))],
+):
     """Saves the inquiry first, then best-effort notifies the CEO — a
     failed notification email must never lose the inquiry itself
     (send_inquiry_notification_email never raises, but this still wraps

@@ -727,6 +727,7 @@ async def create_my_ussd_push_collection(
     payload: MerchantPushCollectionRequest,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="merchant_collection_create", limit=20, window_seconds=60))],
 ):
     return await _create_my_push_collection(CollectionMethod.USSD_PUSH, payload, membership, idempotency_key)
 
@@ -738,6 +739,7 @@ async def create_my_stk_push_collection(
     payload: MerchantPushCollectionRequest,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="merchant_collection_create", limit=20, window_seconds=60))],
 ):
     return await _create_my_push_collection(CollectionMethod.STK_PUSH, payload, membership, idempotency_key)
 
@@ -751,6 +753,7 @@ async def create_my_selcom_pesa_push_collection(
     payload: MerchantPushCollectionRequest,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="merchant_collection_create", limit=20, window_seconds=60))],
 ):
     return await _create_my_push_collection(CollectionMethod.SELCOM_PESA_PUSH, payload, membership, idempotency_key)
 
@@ -764,6 +767,7 @@ async def create_my_dynamic_qr_collection(
     payload: MerchantDynamicQrCollectionRequest,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="merchant_collection_create", limit=20, window_seconds=60))],
 ):
     client = get_supabase_admin()
 
@@ -828,6 +832,7 @@ async def create_my_hosted_checkout_collection(
     payload: MerchantHostedCheckoutCollectionRequest,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="merchant_collection_create", limit=20, window_seconds=60))],
 ):
     """"Request Collection" — no channel to pick. Creates a Selcom order
     via create-order-minimal and returns its decoded payment_gateway_url
@@ -882,6 +887,7 @@ async def create_my_wallet_push_collection(
     payload: MerchantPushCollectionRequest,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="merchant_collection_create", limit=20, window_seconds=60))],
 ):
     """TEMPORARY (2026-08-23): "Request Collection" via wallet-push —
     added back specifically because Selcom's hosted checkout is
@@ -938,6 +944,7 @@ async def create_my_checkout_order_minimal(
     payload: CreateOrderMinimalRequest,
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="merchant_collection_create", limit=20, window_seconds=60))],
 ):
     """Selcom Checkout's Create Order - Minimal
     (https://developers.selcommobile.com/#create-order-minimal) — Step 1

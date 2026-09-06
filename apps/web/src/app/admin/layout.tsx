@@ -4,6 +4,7 @@ import { listAdminNotifications } from "@/lib/admin/live-api";
 
 export const metadata = {
   title: "Super Admin | Infinity Africa",
+  robots: { index: false, follow: false },
 };
 
 export default async function AdminLayout({

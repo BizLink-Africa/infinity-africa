@@ -254,13 +254,23 @@ horizontally, or the effective limit silently multiplies by replica
 count.
 
 Currently rate-limited: `POST /auth/forgot-password` (5/min/IP), the
-public payment-link pay endpoints (20/min/IP), both Selcom webhook
-callback endpoints (120/min/IP — generous, just flood protection, real
-Selcom traffic should never come close), withdrawal request creation
-(10/min/IP), withdrawal approve/reject (60/min/IP — a trusted Super Admin
-action, limited generously), merchant API key create/rotate (10/min/IP),
-and every collection-creation endpoint across both `/v1/collections/*`
-routers (20/min/IP).
+public payment-link pay endpoints (20/min/IP), Pay by Link's public
+checkout endpoint (20/min/IP), both Selcom webhook callback endpoints
+(120/min/IP — generous, just flood protection, real Selcom traffic should
+never come close), withdrawal request creation (10/min/IP), withdrawal
+approve/reject (60/min/IP — a trusted Super Admin action, limited
+generously), merchant API key create/rotate (10/min/IP), invoice
+create/send (30/min/IP), staff invite (10/min/IP), every collection-
+creation endpoint across both `/v1/collections/*` routers (20/min/IP),
+**and, added in the 2026-08-30 security-hardening pass**: every merchant-
+portal "Request Collection" endpoint (`/v1/merchant/collections/*` —
+ussd-push, stk-push, selcom-pesa-push, dynamic-qr, hosted-checkout,
+wallet-push, create-order-minimal; 20/min/IP, same limit as their
+API-key equivalents — previously unlimited despite moving real money),
+merchant onboarding submission (`POST /v1/onboarding/merchant-account`,
+5/min/IP), and the public contact-form endpoint (`POST
+/v1/public/inquiries`, 10/min/IP — unauthenticated, triggers a CEO
+notification email per submission).
 
 **Not covered, and why**: real user login happens via Supabase Auth
 directly from the browser — this backend never sees a login request, so
@@ -334,3 +344,158 @@ Full detail: [`docs/merchant-collection-notifications.md`](./merchant-collection
   action (`notification_settings.updated_by_admin`).
 - Sender/reply-to reuse the existing `EMAIL_FROM`/`EMAIL_REPLY_TO` — no
   new Railway env var needed for this feature.
+
+## 18. Security & SEO hardening pass (2026-08-30)
+
+**Security headers checklist** — both sides now set the full defensive
+set on every response:
+
+| Header | Frontend (`apps/web/next.config.ts`) | Backend (`app/middleware/security_headers.py`) |
+|---|---|---|
+| `Strict-Transport-Security` | ✅ | ✅ |
+| `X-Content-Type-Options: nosniff` | ✅ | ✅ |
+| `X-Frame-Options: DENY` + `frame-ancestors 'none'` | ✅ | ✅ |
+| `Referrer-Policy` | ✅ | ✅ |
+| `Permissions-Policy` | ✅ | ✅ |
+| `Content-Security-Policy` | ✅ (see below) | ✅ (`default-src 'none'`, skipped on `/docs`/`/redoc`/`/openapi.json`) |
+| `Cross-Origin-Opener-Policy: same-origin` | ✅ | ❌ deliberately |
+| `Cross-Origin-Resource-Policy: same-origin` | ✅ | ❌ deliberately |
+
+The API deliberately omits COOP/CORP: this app's own frontend calls it
+cross-origin over CORS by design (a different origin than
+`infinityafrica.net`) — `Cross-Origin-Resource-Policy: same-origin` on
+the API would silently block those legitimate fetch() calls even though
+CORS explicitly permits them. See that middleware's own docstring.
+
+Frontend CSP keeps `'unsafe-inline'` on `script-src`/`style-src` —
+Next.js's own ["Without Nonces"](https://nextjs.org/docs/app/guides/content-security-policy)
+guidance keeps it too; the alternative (nonce-based CSP) forces every
+page to dynamic rendering, undoing the static-optimization/performance
+work in this same pass for a codebase with no analytics or third-party
+inline scripts to actually defend against. Documented in
+`next.config.ts` itself, not just here.
+
+**Google Search Console checklist**:
+- [ ] Verify `https://infinityafrica.net` as a property (DNS TXT record
+      or the HTML file Search Console gives you — nothing in this repo
+      needs to change for that step itself).
+- [ ] Submit `https://infinityafrica.net/sitemap.xml` (see `app/sitemap.ts`).
+- [ ] Confirm `https://infinityafrica.net/robots.txt` (see `app/robots.ts`)
+      shows the expected allow/disallow rules once deployed.
+- [ ] Request indexing for `/` after the first deploy of this pass — the
+      title/description/canonical all changed.
+
+**SEO metadata checklist** (`app/layout.tsx`):
+- [x] Title: "Infinity Africa | Payment Infrastructure for African Merchants"
+- [x] Description matches the brief's suggested copy
+- [x] `alternates.canonical` = `https://infinityafrica.net/`
+- [x] Open Graph title/description/url/image/type/siteName all set
+- [x] Twitter card: `summary_large_image`, title, description, image
+
+**Social preview image checklist**:
+- [x] Official brand mark used (`apps/web/public/brand/infinity-mark.png`
+      — the same mark already used on the live Pay by Link page and in
+      every transactional email's header), not the old glossy stock-art
+      logo (`infinity-logo-v2.png`, never actually rendered anywhere in
+      the live app — only ever referenced in this one metadata field,
+      now removed).
+- [x] Generated via `apps/web/scripts/generate-og-image.mjs` (Next's own
+      `next/og` `ImageResponse` renderer, run standalone under plain
+      Node — re-run this script, don't hand-edit the PNG, whenever the
+      brand mark or copy changes) → `apps/web/public/og/infinity-africa-og-v2.png`,
+      1200×630.
+- [x] Referenced by absolute URL (`https://infinityafrica.net/og/infinity-africa-og-v2.png`)
+      in both `openGraph.images` and `twitter.images`.
+- [x] Versioned filename (`-v2`, not a re-save of the same old filename)
+      specifically so social platforms' own link-preview caches — keyed
+      by URL — pick up the new image on next crawl instead of continuing
+      to serve a cached copy of the same URL indefinitely.
+- [x] Favicon (`app/favicon.ico`) and app icons (`app/icon.png`,
+      `app/apple-icon.png`) already used the current official mark —
+      confirmed, not changed.
+
+**Discord/social cache note**: Discord (and WhatsApp, Slack, etc.) cache
+a link's preview per-URL for some time after the first share, independent
+of how fast the underlying page/metadata changes. If a preview still
+shows old/blank content after this deploy:
+- Share a version of the link with a harmless query string appended
+  (e.g. `https://infinityafrica.net/?v=2`) to force a fresh crawl — the
+  page renders identically regardless of the query string.
+- Or wait; Discord's cache does expire on its own (observed: hours, not
+  days, but not instant).
+- Verify the image itself is being served correctly independent of any
+  crawler cache by opening `https://infinityafrica.net/og/infinity-africa-og-v2.png`
+  directly in a browser.
+
+**Production CORS checklist** — already correct before this pass, just
+confirmed: `app/config/settings.py`'s `_reject_wildcard_cors_outside_development`
+validator refuses `CORS_ORIGINS` containing `"*"` whenever
+`ENVIRONMENT != "development"` (see `tests/test_settings.py`), and Railway's
+live `CORS_ORIGINS` is `https://infinityafrica.net,https://www.infinityafrica.net`
+(§ "CORS blocker resolved", verified live 2026-08-19). No wildcard,
+nothing else, in production.
+
+**Private route noindex checklist** — every private/authenticated/
+transaction-specific route now carries `robots: { index: false, follow:
+false }` metadata (checked by `apps/web/src/app/seo-and-security.test.ts`)
+*and* is disallowed in `robots.txt` (defense in depth — a crawler that
+ignores meta tags, or reads robots.txt first, still never gets pointed
+there):
+
+| Route group | noindex metadata | robots.txt disallow |
+|---|---|---|
+| `/merchant/*` (Merchant Portal — new `layout.tsx`) | ✅ | ✅ |
+| `/portal/*` (redirect shims onto `/merchant/*`) | ✅ | ✅ |
+| `/super-admin/*` | ✅ | ✅ |
+| `/admin/*` (legacy duplicate of `/super-admin/*` — same auth guard) | ✅ | ✅ |
+| `/admin-login`, `/login` | ✅ | ✅ |
+| `/onboarding` | ✅ | ✅ |
+| `/pay/*` (public Pay by Link checkout) | ✅ (MVP default — see below) | ✅ |
+| `/payment-links/*`, `/invoices/*` (public one-off checkout pages) | ✅ | ✅ |
+
+`/pay/*` (Pay by Link) is the one genuine judgment call the brief flagged:
+public by design (anyone with the link should reach it), but noindexed
+for MVP since a search engine caching a live checkout page (merchant
+name, amount, QR code) adds exposure with no real SEO upside. Revisit by
+removing `app/pay/layout.tsx` (or overriding it) if the business later
+wants these pages discoverable — a deliberate one-line change, not a
+default anyone stumbled into. `/create-account` (public self-signup) and
+every `/developers/*` page are deliberately left indexable — real
+marketing/SEO surface, not private.
+
+**Security tools not public checklist**:
+- [x] Swagger UI (`/docs`), ReDoc (`/redoc`), raw OpenAPI schema
+      (`/openapi.json`) — now disabled outright when `ENVIRONMENT=production`
+      (`Settings.docs_enabled`, `app/main.py`). Previously open to anyone,
+      unauthenticated, in every environment including production — a full
+      machine-readable map of every route (admin/withdrawal/wallet
+      included). No actual endpoint depends on these being enabled.
+- [x] `GET /health` — returns only `{"status": "ok", "environment": "..."}`.
+      `environment` (not one of the brief's explicitly forbidden fields —
+      no env vars, DB URL, provider config, API keys, or stack traces) is
+      left in deliberately: removing it would be a needless breaking
+      change to a field with genuinely no exposure value to an attacker.
+- [x] `GET /v1/system/selcom-config-status` — already `require_super_admin`-
+      gated before this pass; returns only booleans (`*_configured`), never
+      a raw credential value. Confirmed, not changed.
+- [x] No log viewer, database console, or secret-scan-output endpoint
+      exists anywhere in this API.
+
+## 19. Frontend security/SEO regression tests (added 2026-08-30)
+
+- `apps/web/src/app/seo-and-security.test.ts` — `robots.ts`/`sitemap.ts`
+  content, `next.config.ts`'s generated security headers, root
+  `layout.tsx`'s Open Graph/Twitter image (v2, never the old logo), and
+  every private route group's noindex metadata.
+- `apps/web/src/security-secret-scan.test.ts` — every real backend secret
+  env-var name (`RESEND_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, every
+  `SELCOM_*` credential, ...) asserted absent from `apps/web/src`, plus no
+  `NEXT_PUBLIC_` variant of any of them — a standing regression guard for
+  §11/§14's manual scans, not just a one-time check.
+- Backend: `apps/api/tests/test_security_headers.py` (headers present,
+  CSP skipped on docs paths, CORP deliberately absent), `test_settings.py`'s
+  `docs_enabled` tests (production disables docs, everything else keeps
+  them), and one rate-limit wiring test each in `test_merchant_portal.py`
+  (`merchant_collection_create`), `test_onboarding.py`
+  (`merchant_onboarding_submit`), and `test_public_inquiries.py`
+  (`public_inquiry_create`).

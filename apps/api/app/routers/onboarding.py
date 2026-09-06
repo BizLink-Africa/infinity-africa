@@ -11,6 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 
 from app.auth import get_current_user, get_own_merchant
+from app.core.rate_limit import rate_limit
 from app.database.session import get_supabase_admin
 from app.schemas.auth import AuthenticatedUser, MerchantMembership
 from app.schemas.common import APIResponse
@@ -39,6 +40,7 @@ router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 def create_merchant_account(
     payload: OnboardingMerchantAccountCreate,
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    _rate_limit: Annotated[None, Depends(rate_limit(scope="merchant_onboarding_submit", limit=5, window_seconds=60))],
 ):
     client = get_supabase_admin()
     merchant = create_merchant_onboarding(client, user=user, payload=payload)

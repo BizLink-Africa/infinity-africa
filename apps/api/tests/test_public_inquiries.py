@@ -88,6 +88,20 @@ def test_inquiry_is_kept_even_when_the_notification_email_fails(fake_client, fak
     assert len(fake_client.table("inquiries")._table.rows) == 1
 
 
+def test_inquiry_is_rate_limited(fake_client):
+    """Wiring test for app/core/rate_limit.py's public_inquiry_create scope
+    (MVP security-hardening pass — this endpoint is fully unauthenticated
+    and previously had no rate limit, a spam/abuse vector against both the
+    inquiries table and the CEO-notification email it triggers)."""
+    from app.core.rate_limit import _limiter
+
+    for _ in range(10):
+        _limiter.check("public_inquiry_create:testclient", limit=10, window_seconds=60)
+
+    response = client.post("/v1/public/inquiries", json=_VALID_PAYLOAD)
+    assert response.status_code == 429
+
+
 def test_inquiry_requires_a_message_and_email(fake_client):
     response = client.post("/v1/public/inquiries", json={"full_name": "No Message", "email": "x@example.com", "message": ""})
     assert response.status_code == 422

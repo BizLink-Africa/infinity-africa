@@ -338,6 +338,29 @@ def test_staff_can_initiate_stk_push_collection(fake_client):
     assert data["message"]
 
 
+def test_stk_push_collection_is_rate_limited(fake_client):
+    """Wiring test for app/core/rate_limit.py's merchant_collection_create
+    scope (MVP security-hardening pass — the six merchant-portal
+    Request Collection push/QR/hosted-checkout/wallet-push endpoints, plus
+    create-order-minimal, previously had no rate limit at all, unlike their
+    /v1/collections/{method} API-key equivalents in collections_api.py).
+    Same pre-fill-the-bucket pattern as
+    test_create_payment_link_is_rate_limited above — one endpoint stands
+    in for all seven, which share the same scope."""
+    from app.core.rate_limit import _limiter
+
+    _merchant_id, user_id = _merchant_and_member(fake_client, role="MERCHANT_STAFF")
+    for _ in range(20):
+        _limiter.check("merchant_collection_create:testclient", limit=20, window_seconds=60)
+
+    response = client.post(
+        "/v1/merchant/collections/stk-push",
+        headers={**auth_headers(user_id), "Idempotency-Key": _idem()},
+        json={"amount": "1000.00", "customer_phone": "+255700000000"},
+    )
+    assert response.status_code == 429
+
+
 def test_self_service_dynamic_qr_returns_qr_payload(fake_client):
     _merchant_id, user_id = _merchant_and_member(fake_client, role="MERCHANT_ADMIN")
     response = client.post(

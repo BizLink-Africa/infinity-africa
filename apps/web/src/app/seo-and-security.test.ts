@@ -1,0 +1,164 @@
+/**
+ * MVP security/SEO hardening pass — covers:
+ *  - robots.ts / sitemap.ts (imported and called directly; no Next runtime needed)
+ *  - next.config.ts's security headers (imported directly; `headers()` is a
+ *    plain async function, no Next runtime needed either)
+ *  - every private-route-group layout's `robots: { index: false }` metadata,
+ *    plus root layout.tsx's Open Graph/Twitter image — read as raw source
+ *    via node:fs rather than imported, since layout.tsx pulls in
+ *    next/font/google (a build-time-only SWC transform apps/web's own
+ *    next.config.ts/vitest setup doesn't provide outside a real Next build)
+ *    and the three route-group layouts (portal/admin/super-admin) pull in
+ *    real Supabase/session code not worth mocking just to read a metadata
+ *    object two lines away.
+ */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+import robots from "./robots";
+import sitemap from "./sitemap";
+
+const appDir = dirname(fileURLToPath(import.meta.url));
+
+function source(relativePath: string): string {
+  return readFileSync(join(appDir, relativePath), "utf8");
+}
+
+describe("robots.ts", () => {
+  it("allows public marketing pages and blocks every private/auth/transaction route", () => {
+    const result = robots();
+    const rules = Array.isArray(result.rules) ? result.rules[0] : result.rules;
+    expect(rules.allow).toBe("/");
+    const disallow = rules.disallow as string[];
+    for (const path of [
+      "/merchant",
+      "/portal",
+      "/super-admin",
+      "/admin",
+      "/admin-login",
+      "/login",
+      "/onboarding",
+      "/pay",
+      "/payment-links",
+      "/invoices",
+      "/api",
+      "/v1",
+    ]) {
+      expect(disallow).toContain(path);
+    }
+  });
+
+  it("points at the production sitemap", () => {
+    expect(robots().sitemap).toBe("https://infinityafrica.net/sitemap.xml");
+  });
+});
+
+describe("sitemap.ts", () => {
+  const entries = sitemap();
+  const urls = entries.map((entry) => entry.url);
+
+  it("includes the homepage and public marketing/developer-docs pages", () => {
+    expect(urls).toContain("https://infinityafrica.net/");
+    expect(urls).toContain("https://infinityafrica.net/solutions");
+    expect(urls).toContain("https://infinityafrica.net/developers");
+    expect(urls).toContain("https://infinityafrica.net/developers/webhooks");
+  });
+
+  it("never includes a private, authenticated, or transaction-specific path", () => {
+    // Checked against the URL's first path segment only — "/developers/
+    // payment-links" (a legitimate public docs page *about* payment links)
+    // must not be flagged just because "payment-links" appears somewhere
+    // in the path; only the actual private route "/payment-links/..." itself
+    // (first segment) is disallowed.
+    const privateFirstSegments = new Set([
+      "merchant",
+      "portal",
+      "super-admin",
+      "admin",
+      "admin-login",
+      "onboarding",
+      "pay",
+      "payment-links",
+      "invoices",
+      "login",
+    ]);
+    for (const url of urls) {
+      const firstSegment = new URL(url).pathname.split("/").filter(Boolean)[0];
+      expect(privateFirstSegments.has(firstSegment)).toBe(false);
+    }
+  });
+
+  it("gives every URL an absolute https://infinityafrica.net origin", () => {
+    for (const url of urls) {
+      expect(url.startsWith("https://infinityafrica.net")).toBe(true);
+    }
+  });
+});
+
+describe("next.config.ts security headers", () => {
+  it("sends the standard defensive header set on every route", async () => {
+    const { default: nextConfig } = await import("../../next.config");
+    const rules = await nextConfig.headers!();
+    expect(rules).toHaveLength(1);
+    expect(rules[0].source).toBe("/(.*)");
+    const byKey = Object.fromEntries(rules[0].headers.map((h) => [h.key, h.value]));
+    expect(byKey["X-Content-Type-Options"]).toBe("nosniff");
+    expect(byKey["X-Frame-Options"]).toBe("DENY");
+    expect(byKey["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
+    expect(byKey["Strict-Transport-Security"]).toContain("max-age=63072000");
+    expect(byKey["Cross-Origin-Opener-Policy"]).toBe("same-origin");
+    expect(byKey["Cross-Origin-Resource-Policy"]).toBe("same-origin");
+    expect(byKey["Content-Security-Policy"]).toContain("frame-ancestors 'none'");
+  });
+});
+
+describe("root layout.tsx metadata", () => {
+  const layoutSource = source("layout.tsx");
+
+  it("uses the versioned v2 Open Graph/Twitter image at the recommended absolute URL", () => {
+    expect(layoutSource).toContain("https://infinityafrica.net/og/infinity-africa-og-v2.png");
+  });
+
+  it("never references the old logo file in social metadata", () => {
+    expect(layoutSource).not.toMatch(/openGraph[\s\S]*infinity-logo-v2\.png/);
+    expect(layoutSource).not.toMatch(/twitter[\s\S]*infinity-logo-v2\.png/);
+    // The only mention anywhere in the file, if any, must be a code comment
+    // explaining the old-vs-new distinction — never an actual image path.
+    for (const line of layoutSource.split("\n")) {
+      if (line.includes("infinity-logo-v2.png")) {
+        expect(line.trim().startsWith("//") || line.trim().startsWith("*")).toBe(true);
+      }
+    }
+  });
+
+  it("sets a summary_large_image Twitter card", () => {
+    expect(layoutSource).toMatch(/card:\s*"summary_large_image"/);
+  });
+
+  it("declares a canonical URL", () => {
+    expect(layoutSource).toContain("https://infinityafrica.net/");
+    expect(layoutSource).toMatch(/canonical:/);
+  });
+});
+
+describe("private route groups are noindex", () => {
+  const privateLayoutFiles = [
+    "portal/layout.tsx",
+    "admin/layout.tsx",
+    "super-admin/layout.tsx",
+    "merchant/layout.tsx",
+    "onboarding/layout.tsx",
+    "pay/layout.tsx",
+    "payment-links/layout.tsx",
+    "invoices/layout.tsx",
+    "login/layout.tsx",
+    "admin-login/layout.tsx",
+  ];
+
+  it.each(privateLayoutFiles)("%s sets robots: { index: false, follow: false }", (relativePath) => {
+    const layoutSource = source(relativePath);
+    expect(layoutSource).toMatch(/robots:\s*{\s*index:\s*false,\s*follow:\s*false\s*}/);
+  });
+});

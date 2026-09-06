@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.database.session import get_supabase_admin
 from app.middleware.api_request_log import ApiRequestLogMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.routers import (
     admin,
     admin_collection_pricing,
@@ -184,11 +185,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 await task
 
 
+# See Settings.docs_enabled's own docstring for why these are conditional.
 app = FastAPI(
     title="Infinity Africa API",
     description="Payment infrastructure for African merchants — collections, payment links, invoices, and merchant tools.",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
+    openapi_url="/openapi.json" if settings.docs_enabled else None,
 )
 
 app.add_middleware(
@@ -199,6 +204,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(ApiRequestLogMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 register_exception_handlers(app)
 

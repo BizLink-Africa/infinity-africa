@@ -62,6 +62,26 @@ def test_wildcard_cors_origin_allowed_in_development(monkeypatch):
     assert settings.cors_origins == ["*"]
 
 
+# --- Swagger/OpenAPI docs (app.main) -----------------------------------------
+
+
+def test_docs_disabled_in_production(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    assert Settings().docs_enabled is False
+
+
+def test_docs_enabled_in_development(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    assert Settings().docs_enabled is True
+
+
+def test_docs_enabled_outside_production_generally():
+    """Anything that isn't literally "production" (staging, a preview
+    deploy, ...) still gets docs — only the real production environment is
+    locked down."""
+    assert Settings(environment="staging").docs_enabled is True
+
+
 # --- Email sender addresses (app/services/email.py) -------------------------
 
 

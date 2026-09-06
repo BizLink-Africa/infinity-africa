@@ -8,6 +8,7 @@ import { AccountStatus } from "@infinity/shared";
 
 export const metadata = {
   title: "Merchant Portal | Infinity Africa",
+  robots: { index: false, follow: false },
 };
 
 export default async function PortalLayout({
