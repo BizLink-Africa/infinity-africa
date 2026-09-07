@@ -37,7 +37,10 @@ from fastapi import (
 from app.auth import get_current_user, hash_api_key, require_own_merchant_role
 from app.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
-from app.core.feature_flags import require_merchant_api_keys_enabled
+from app.core.feature_flags import (
+    require_merchant_api_keys_enabled,
+    require_withdrawals_enabled,
+)
 from app.core.pagination import PaginationParams, build_page_meta, pagination_params
 from app.core.rate_limit import rate_limit
 from app.core.references import generate_reference
@@ -1060,6 +1063,12 @@ async def create_my_withdrawal(
     server-side (never trusts a client-supplied fee) — Selcom is never
     called from this path; only a Super Admin's approval
     (app/routers/admin_withdrawals.py) ever reaches the provider."""
+    # ENABLE_WITHDRAWALS kill switch — checked first, before auth-independent
+    # idempotency bookkeeping, exactly like the /v1/disbursements/{method}
+    # routes and require_merchant_api_keys_enabled() above. Was missing here,
+    # so the Merchant Portal's own withdrawal route ignored the platform-wide
+    # pause switch entirely.
+    require_withdrawals_enabled()
     client = get_supabase_admin()
 
     async def _handler() -> tuple[int, dict]:

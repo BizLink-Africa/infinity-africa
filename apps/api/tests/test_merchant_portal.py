@@ -1390,6 +1390,55 @@ def test_withdrawal_dispatches_to_correct_method(fake_client, method, destinatio
     assert body["status"] == "PENDING_ADMIN_APPROVAL"
 
 
+def test_withdrawal_blocked_when_withdrawals_disabled(fake_client, monkeypatch):
+    """ENABLE_WITHDRAWALS=false must pause the Merchant Portal withdrawal
+    route too — the check runs first, before any withdrawal row is written
+    or Selcom is ever considered (Selcom is never called from this path
+    regardless)."""
+    merchant_id, user_id = _merchant_and_member(fake_client)
+    _fund_wallet(fake_client, merchant_id, "100000")
+    monkeypatch.setenv("ENABLE_WITHDRAWALS", "false")
+    get_settings.cache_clear()
+
+    response = client.post(
+        "/v1/merchant/withdrawals",
+        headers={**auth_headers(user_id), "Idempotency-Key": _idem()},
+        json={
+            "method": "SELCOM_PESA",
+            "destination_code": "SELCOM",
+            "amount": "10000",
+            "destination_name": "Masanja",
+            "destination_phone": "+255657878545",
+        },
+    )
+
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == "feature_disabled"
+    assert fake_client.table("disbursements")._table.rows == []
+
+
+def test_withdrawal_amount_parsed_as_decimal_not_currency_string(fake_client):
+    """The API contract is a plain decimal string — a formatted value like
+    "TZS 10,000" is rejected as a validation error, never coerced."""
+    merchant_id, user_id = _merchant_and_member(fake_client)
+    _fund_wallet(fake_client, merchant_id, "100000")
+
+    response = client.post(
+        "/v1/merchant/withdrawals",
+        headers={**auth_headers(user_id), "Idempotency-Key": _idem()},
+        json={
+            "method": "SELCOM_PESA",
+            "destination_code": "SELCOM",
+            "amount": "TZS 10,000",
+            "destination_name": "Masanja",
+            "destination_phone": "+255657878545",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert fake_client.table("disbursements")._table.rows == []
+
+
 def test_withdrawal_insufficient_balance_returns_409(fake_client):
     merchant_id, user_id = _merchant_and_member(fake_client)
     _fund_wallet(fake_client, merchant_id, "1000")

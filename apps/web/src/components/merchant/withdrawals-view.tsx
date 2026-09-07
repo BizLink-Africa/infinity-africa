@@ -30,6 +30,31 @@ const METHOD_CARDS: Array<{ method: DisbursementMethod; icon: string; descriptio
   { method: DisbursementMethod.BANK_ACCOUNT, icon: "account_balance", description: "Direct transfer to any local commercial bank account, including CRDB & NMB.", settlement: "Same business day" },
 ];
 
+/** The backend returns a structured, display-safe error for every expected
+ * withdrawal rejection — `{ error: { code, message } }`, surfaced by
+ * apiWrite as an Error carrying `.code` and the safe `.message` (see
+ * lib/portal/api.ts). For these codes the message is written to be shown to
+ * a merchant verbatim (balance too low, amount limits, a fraud-review hold,
+ * withdrawals paused platform-wide). Anything else — a network drop, a 500,
+ * an unrecognised code — falls back to a generic line so an internal detail
+ * can never leak into the UI. */
+const SAFE_WITHDRAWAL_ERROR_CODES = new Set([
+  "withdrawal_restricted",
+  "insufficient_balance",
+  "feature_disabled",
+]);
+
+function withdrawalErrorMessage(
+  err: unknown,
+  fallback = "Something went wrong requesting this withdrawal. Please try again or contact support.",
+): string {
+  const { code, message } = (err ?? {}) as { code?: string; message?: string };
+  if (code && SAFE_WITHDRAWAL_ERROR_CODES.has(code) && message) return message;
+  if (code === "validation_error") return "Check the amount and destination details, then try again.";
+  if (code === "forbidden") return "Your account role can't request withdrawals. Ask an account admin.";
+  return fallback;
+}
+
 /** Client-facing card/radio titles — merchants see "Withdraw to X"; the
  * technical DisbursementMethod enum and API stay unchanged underneath. */
 const WITHDRAW_TITLES: Record<DisbursementMethod, string> = {
@@ -98,8 +123,8 @@ export function WithdrawalsView() {
       });
       setQuote(breakdown);
       setQuotedFor({ method, destinationCode, amount });
-    } catch {
-      setQuoteError("Couldn't check your balance. Try again.");
+    } catch (err) {
+      setQuoteError(withdrawalErrorMessage(err, "Couldn't check your balance. Try again."));
     } finally {
       setQuoting(false);
     }
@@ -110,6 +135,15 @@ export function WithdrawalsView() {
     setError(null);
     setSuccess(null);
     if (!recipientName || !recipientIdentifier || !amount) return;
+    // Send a plain decimal to the API, never a formatted "TZS 1,000" string.
+    // The <input type="number"> already keeps this numeric; this is a
+    // defensive guard so a bad value fails with a clear message rather than
+    // a backend 422 hidden behind the generic error.
+    const amountValue = Number(amount);
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+      setError("Enter a valid withdrawal amount.");
+      return;
+    }
     if (method === DisbursementMethod.BANK_ACCOUNT && !bankName) {
       setError("Bank name is required for bank account payouts.");
       return;
@@ -144,13 +178,13 @@ export function WithdrawalsView() {
       setNotes("");
       setQuote(null);
       setQuotedFor(null);
-      setSuccess("Withdrawal request submitted. Infinity Africa has been notified.");
+      setSuccess("Withdrawal request submitted for approval.");
     } catch (err) {
-      if (err instanceof InsufficientBalanceError) {
-        setError(err.message);
-      } else {
-        setError("Something went wrong requesting this withdrawal.");
-      }
+      // InsufficientBalanceError already carries the backend's safe message;
+      // withdrawalErrorMessage() handles every other structured backend
+      // error (fraud-review hold, amount limits, withdrawals paused, …) and
+      // falls back to a generic line only for truly unexpected failures.
+      setError(err instanceof InsufficientBalanceError ? err.message : withdrawalErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
