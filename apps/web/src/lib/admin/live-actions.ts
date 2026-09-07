@@ -73,37 +73,85 @@ export async function rejectIpAllowlistEntryAction(entryId: string, merchantId: 
   revalidatePath(`/super-admin/merchants/${merchantId}`);
 }
 
-export async function approveWithdrawalAction(withdrawalId: string) {
-  await approveWithdrawal(withdrawalId);
-  revalidatePath("/super-admin/withdrawals");
+export interface WithdrawalActionState {
+  error: string | null;
+  /** true once a submit completed successfully — drives the inline
+   * confirmation in withdrawals-table.tsx. */
+  ok: boolean;
+  /** Optional success detail, e.g. the reconcile summary. */
+  message: string | null;
 }
 
-export async function rejectWithdrawalAction(withdrawalId: string, formData: FormData) {
+/** Same silent-failure fix as runPricingRuleAction / runRiskAlertAction
+ * (reported: "Reconcile Pending button is not working"). Every action in
+ * the Withdrawal Approval Queue was a bare `<form action>` — a successful
+ * Approve/Reject just revalidated with no confirmation, and a failed
+ * request (an API 5xx, a stale-status 409, …) threw straight out with
+ * nothing shown, so on an approval screen you couldn't tell whether the
+ * money moved. Threading state through useActionState fixes both. */
+async function runWithdrawalAction(run: () => Promise<string | void>): Promise<WithdrawalActionState> {
+  let message: string | void;
+  try {
+    message = await run();
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Something went wrong. Try again.", ok: false, message: null };
+  }
+  revalidatePath("/super-admin/withdrawals");
+  return { error: null, ok: true, message: message ?? null };
+}
+
+// The approve/refresh/reconcile actions don't read the form body, so they
+// omit the (prevState, formData) params useActionState would pass — a
+// shorter function is still assignable to the longer callback type.
+export async function approveWithdrawalAction(withdrawalId: string): Promise<WithdrawalActionState> {
+  return runWithdrawalAction(async () => {
+    await approveWithdrawal(withdrawalId);
+    return "Approved — sent to the provider.";
+  });
+}
+
+export async function rejectWithdrawalAction(
+  withdrawalId: string,
+  _prevState: WithdrawalActionState | null,
+  formData: FormData,
+): Promise<WithdrawalActionState> {
   const rejectionReason = String(formData.get("rejection_reason") ?? "").trim();
-  if (!rejectionReason) return;
-  await rejectWithdrawal(withdrawalId, rejectionReason);
-  revalidatePath("/super-admin/withdrawals");
+  if (!rejectionReason) return { error: "Enter a reason for rejecting this withdrawal.", ok: false, message: null };
+  return runWithdrawalAction(async () => {
+    await rejectWithdrawal(withdrawalId, rejectionReason);
+    return "Withdrawal rejected.";
+  });
 }
 
-export async function requestInfoWithdrawalAction(withdrawalId: string, formData: FormData) {
+export async function requestInfoWithdrawalAction(
+  withdrawalId: string,
+  _prevState: WithdrawalActionState | null,
+  formData: FormData,
+): Promise<WithdrawalActionState> {
   const message = String(formData.get("message") ?? "").trim();
-  if (!message) return;
+  if (!message) return { error: "Enter what you need from the merchant.", ok: false, message: null };
   const requestedDocuments = String(formData.get("requested_documents") ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  await requestInfoWithdrawal(withdrawalId, { message, requestedDocuments });
-  revalidatePath("/super-admin/withdrawals");
+  return runWithdrawalAction(async () => {
+    await requestInfoWithdrawal(withdrawalId, { message, requestedDocuments });
+    return "Information requested from the merchant.";
+  });
 }
 
-export async function refreshWithdrawalStatusAction(withdrawalId: string) {
-  await refreshWithdrawalStatus(withdrawalId);
-  revalidatePath("/super-admin/withdrawals");
+export async function refreshWithdrawalStatusAction(withdrawalId: string): Promise<WithdrawalActionState> {
+  return runWithdrawalAction(async () => {
+    await refreshWithdrawalStatus(withdrawalId);
+    return "Status refreshed.";
+  });
 }
 
-export async function reconcilePendingWithdrawalsAction() {
-  await reconcilePendingWithdrawals();
-  revalidatePath("/super-admin/withdrawals");
+export async function reconcilePendingWithdrawalsAction(): Promise<WithdrawalActionState> {
+  return runWithdrawalAction(async () => {
+    const summary = await reconcilePendingWithdrawals();
+    return `Checked ${summary.checked} · resolved ${summary.resolved} · still pending ${summary.still_pending}.`;
+  });
 }
 
 // --- Risk monitoring ---------------------------------------------------------

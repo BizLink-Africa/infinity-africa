@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useActionState, useMemo, useState } from "react";
 import { DISBURSEMENT_METHOD_LABELS } from "@infinity/shared";
+import { useFormStatus } from "react-dom";
 
 import { Card, tdClass, thClass } from "@/components/portal/card";
 import { Icon } from "@/components/portal/icon";
@@ -13,9 +14,14 @@ import {
   refreshWithdrawalStatusAction,
   rejectWithdrawalAction,
   requestInfoWithdrawalAction,
+  type WithdrawalActionState,
 } from "@/lib/admin/live-actions";
 import { adminWithdrawalBadge } from "@/lib/admin/status-tones";
 import type { AdminWithdrawalRow } from "@/lib/admin/types";
+
+/** Declared here, not in live-actions.ts: a "use server" module can only
+ * export async functions, never a plain constant. */
+const WITHDRAWAL_ACTION_IDLE: WithdrawalActionState = { error: null, ok: false, message: null };
 
 const STATUS_FILTERS = [
   "All",
@@ -48,6 +54,141 @@ const STATUS_FILTER_MAP: Record<(typeof STATUS_FILTERS)[number], AdminWithdrawal
 const inputClass =
   "w-full px-2.5 py-1.5 bg-surface-container-low border border-surface-container-highest rounded-md text-xs focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary";
 
+/** Must be a child of the <form>, per useFormStatus's own rule. */
+function SubmitButton({ className, idleLabel, pendingLabel }: { className: string; idleLabel: string; pendingLabel: string }) {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" disabled={pending} className={`${className} disabled:opacity-60`}>
+      {pending ? pendingLabel : idleLabel}
+    </button>
+  );
+}
+
+/** Inline confirmation / error for a completed submit — the piece these
+ * forms were missing, so a working action (or a failed one) looked like it
+ * did nothing. */
+function ActionFeedback({ state }: { state: WithdrawalActionState }) {
+  if (state.error) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-error">
+        <Icon name="error" className="text-[14px]" />
+        {state.error}
+      </span>
+    );
+  }
+  if (state.ok) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-primary">
+        <Icon name="check_circle" className="text-[14px]" />
+        {state.message ?? "Done."}
+      </span>
+    );
+  }
+  return null;
+}
+
+function ReconcileForm() {
+  const [state, formAction] = useActionState<WithdrawalActionState, FormData>(
+    reconcilePendingWithdrawalsAction,
+    WITHDRAWAL_ACTION_IDLE,
+  );
+  return (
+    <form action={formAction} className="flex flex-wrap items-center gap-2">
+      <SubmitButton
+        className="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container-low"
+        idleLabel="Reconcile Pending"
+        pendingLabel="Reconciling…"
+      />
+      <ActionFeedback state={state} />
+    </form>
+  );
+}
+
+function ApproveForm({ id }: { id: string }) {
+  const [state, formAction] = useActionState<WithdrawalActionState, FormData>(
+    approveWithdrawalAction.bind(null, id),
+    WITHDRAWAL_ACTION_IDLE,
+  );
+  return (
+    <form action={formAction} className="inline-flex items-center gap-2">
+      <SubmitButton
+        className="px-3 py-1.5 rounded-lg bg-primary-container text-on-primary text-xs font-semibold hover:opacity-90"
+        idleLabel="Approve"
+        pendingLabel="Approving…"
+      />
+      <ActionFeedback state={state} />
+    </form>
+  );
+}
+
+function RejectForm({ id }: { id: string }) {
+  const [state, formAction] = useActionState<WithdrawalActionState, FormData>(
+    rejectWithdrawalAction.bind(null, id),
+    WITHDRAWAL_ACTION_IDLE,
+  );
+  return (
+    <form action={formAction} className="flex flex-wrap items-center gap-2">
+      <input
+        name="rejection_reason"
+        required
+        placeholder="Reason for rejecting this withdrawal (required)"
+        className={`${inputClass} max-w-md`}
+      />
+      <SubmitButton
+        className="px-3 py-1.5 rounded-lg bg-error text-white text-xs font-semibold shrink-0"
+        idleLabel="Confirm Reject"
+        pendingLabel="Rejecting…"
+      />
+      <ActionFeedback state={state} />
+    </form>
+  );
+}
+
+function RequestInfoForm({ id }: { id: string }) {
+  const [state, formAction] = useActionState<WithdrawalActionState, FormData>(
+    requestInfoWithdrawalAction.bind(null, id),
+    WITHDRAWAL_ACTION_IDLE,
+  );
+  return (
+    <form action={formAction} className="flex flex-wrap items-center gap-2">
+      <input
+        name="message"
+        required
+        placeholder="What do you need from the merchant?"
+        className={`${inputClass} max-w-md`}
+      />
+      <input
+        name="requested_documents"
+        placeholder="Requested documents (comma-separated, optional)"
+        className={`${inputClass} max-w-xs`}
+      />
+      <SubmitButton
+        className="px-3 py-1.5 rounded-lg bg-primary-container text-on-primary text-xs font-semibold shrink-0"
+        idleLabel="Send Request"
+        pendingLabel="Sending…"
+      />
+      <ActionFeedback state={state} />
+    </form>
+  );
+}
+
+function RefreshStatusForm({ id }: { id: string }) {
+  const [state, formAction] = useActionState<WithdrawalActionState, FormData>(
+    refreshWithdrawalStatusAction.bind(null, id),
+    WITHDRAWAL_ACTION_IDLE,
+  );
+  return (
+    <form action={formAction} className="inline-flex flex-wrap items-center justify-end gap-2">
+      <SubmitButton
+        className="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container-low"
+        idleLabel="Refresh Status"
+        pendingLabel="Refreshing…"
+      />
+      <ActionFeedback state={state} />
+    </form>
+  );
+}
+
 export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; queue: AdminWithdrawalRow[] }) {
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("All");
   const [expandedRejectId, setExpandedRejectId] = useState<string | null>(null);
@@ -77,11 +218,7 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
               <span className="bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full text-xs font-semibold">
                 {queue.length} pending
               </span>
-              <form action={reconcilePendingWithdrawalsAction}>
-                <button className="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container-low">
-                  Reconcile Pending
-                </button>
-              </form>
+              <ReconcileForm />
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -121,70 +258,37 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                         {formatCurrency(request.available_balance, request.currency)}
                       </td>
                       <td className={`${tdClass} text-on-surface-variant text-xs`}>{formatDateTime(request.created_at)}</td>
-                      <td className={`${tdClass} text-right whitespace-nowrap`}>
-                        <form action={approveWithdrawalAction.bind(null, request.withdrawal_id)} className="inline">
-                          <button className="px-3 py-1.5 rounded-lg bg-primary-container text-on-primary text-xs font-semibold hover:opacity-90 mr-2">
-                            Approve
+                      <td className={`${tdClass} align-top`}>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <ApproveForm id={request.withdrawal_id} />
+                          <button
+                            type="button"
+                            onClick={() => setExpandedRejectId((id) => (id === request.withdrawal_id ? null : request.withdrawal_id))}
+                            className="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container-low"
+                          >
+                            Reject
                           </button>
-                        </form>
-                        <button
-                          type="button"
-                          onClick={() => setExpandedRejectId((id) => (id === request.withdrawal_id ? null : request.withdrawal_id))}
-                          className="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container-low mr-2"
-                        >
-                          Reject
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setExpandedInfoId((id) => (id === request.withdrawal_id ? null : request.withdrawal_id))}
-                          className="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container-low"
-                        >
-                          Request Info
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedInfoId((id) => (id === request.withdrawal_id ? null : request.withdrawal_id))}
+                            className="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container-low"
+                          >
+                            Request Info
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     {expandedRejectId === request.withdrawal_id && (
                       <tr className="border-t border-surface-container-highest bg-surface-container-low">
                         <td className={tdClass} colSpan={7}>
-                          <form
-                            action={rejectWithdrawalAction.bind(null, request.withdrawal_id)}
-                            className="flex items-center gap-2"
-                          >
-                            <input
-                              name="rejection_reason"
-                              required
-                              placeholder="Reason for rejecting this withdrawal (required)"
-                              className={`${inputClass} max-w-md`}
-                            />
-                            <button className="px-3 py-1.5 rounded-lg bg-error text-white text-xs font-semibold shrink-0">
-                              Confirm Reject
-                            </button>
-                          </form>
+                          <RejectForm id={request.withdrawal_id} />
                         </td>
                       </tr>
                     )}
                     {expandedInfoId === request.withdrawal_id && (
                       <tr className="border-t border-surface-container-highest bg-surface-container-low">
                         <td className={tdClass} colSpan={7}>
-                          <form
-                            action={requestInfoWithdrawalAction.bind(null, request.withdrawal_id)}
-                            className="flex items-center gap-2"
-                          >
-                            <input
-                              name="message"
-                              required
-                              placeholder="What do you need from the merchant?"
-                              className={`${inputClass} max-w-md`}
-                            />
-                            <input
-                              name="requested_documents"
-                              placeholder="Requested documents (comma-separated, optional)"
-                              className={`${inputClass} max-w-xs`}
-                            />
-                            <button className="px-3 py-1.5 rounded-lg bg-primary-container text-on-primary text-xs font-semibold shrink-0">
-                              Send Request
-                            </button>
-                          </form>
+                          <RequestInfoForm id={request.withdrawal_id} />
                         </td>
                       </tr>
                     )}
@@ -277,13 +381,7 @@ export function WithdrawalsTable({ rows, queue }: { rows: AdminWithdrawalRow[]; 
                         )}
                       </td>
                       <td className={`${tdClass} text-right`}>
-                        {needsRefresh && (
-                          <form action={refreshWithdrawalStatusAction.bind(null, row.withdrawal_id)} className="inline">
-                            <button className="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container-low">
-                              Refresh Status
-                            </button>
-                          </form>
-                        )}
+                        {needsRefresh && <RefreshStatusForm id={row.withdrawal_id} />}
                       </td>
                     </tr>
                   );

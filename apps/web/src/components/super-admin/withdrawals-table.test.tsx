@@ -1,14 +1,20 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminWithdrawalRow } from "@/lib/admin/types";
 
+const approveWithdrawalAction = vi.fn();
+const rejectWithdrawalAction = vi.fn();
+const requestInfoWithdrawalAction = vi.fn();
+const refreshWithdrawalStatusAction = vi.fn();
+const reconcilePendingWithdrawalsAction = vi.fn();
+
 vi.mock("@/lib/admin/live-actions", () => ({
-  approveWithdrawalAction: vi.fn(),
-  rejectWithdrawalAction: vi.fn(),
-  requestInfoWithdrawalAction: vi.fn(),
-  refreshWithdrawalStatusAction: vi.fn(),
-  reconcilePendingWithdrawalsAction: vi.fn(),
+  approveWithdrawalAction: (...args: unknown[]) => approveWithdrawalAction(...args),
+  rejectWithdrawalAction: (...args: unknown[]) => rejectWithdrawalAction(...args),
+  requestInfoWithdrawalAction: (...args: unknown[]) => requestInfoWithdrawalAction(...args),
+  refreshWithdrawalStatusAction: (...args: unknown[]) => refreshWithdrawalStatusAction(...args),
+  reconcilePendingWithdrawalsAction: (...args: unknown[]) => reconcilePendingWithdrawalsAction(...args),
 }));
 
 const pendingRow: AdminWithdrawalRow = {
@@ -38,12 +44,63 @@ const pendingRow: AdminWithdrawalRow = {
 };
 
 describe("WithdrawalsTable", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("shows Approve, Reject, and Request Info in the approval queue", async () => {
     const { WithdrawalsTable } = await import("./withdrawals-table");
     render(<WithdrawalsTable rows={[pendingRow]} queue={[pendingRow]} />);
 
-    expect(screen.getByText("Approve")).toBeInTheDocument();
-    expect(screen.getByText("Reject")).toBeInTheDocument();
-    expect(screen.getByText("Request Info")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request Info" })).toBeInTheDocument();
+  });
+
+  it("confirms after a successful approval", async () => {
+    approveWithdrawalAction.mockResolvedValue({ error: null, ok: true, message: "Approved — sent to the provider." });
+    const { WithdrawalsTable } = await import("./withdrawals-table");
+    render(<WithdrawalsTable rows={[pendingRow]} queue={[pendingRow]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(approveWithdrawalAction).toHaveBeenCalledTimes(1));
+    expect(approveWithdrawalAction.mock.calls[0][0]).toBe("wd-1");
+    await waitFor(() =>
+      expect(screen.getByText("Approved — sent to the provider.")).toBeInTheDocument(),
+    );
+  });
+
+  it("surfaces a failed approval's error instead of failing silently", async () => {
+    approveWithdrawalAction.mockResolvedValue({
+      error: "This withdrawal isn't awaiting approval",
+      ok: false,
+      message: null,
+    });
+    const { WithdrawalsTable } = await import("./withdrawals-table");
+    render(<WithdrawalsTable rows={[pendingRow]} queue={[pendingRow]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("This withdrawal isn't awaiting approval")).toBeInTheDocument(),
+    );
+  });
+
+  it("shows the reconcile summary returned by the action", async () => {
+    reconcilePendingWithdrawalsAction.mockResolvedValue({
+      error: null,
+      ok: true,
+      message: "Checked 3 · resolved 1 · still pending 2.",
+    });
+    const { WithdrawalsTable } = await import("./withdrawals-table");
+    render(<WithdrawalsTable rows={[pendingRow]} queue={[pendingRow]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile Pending" }));
+
+    await waitFor(() => expect(reconcilePendingWithdrawalsAction).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByText("Checked 3 · resolved 1 · still pending 2.")).toBeInTheDocument(),
+    );
   });
 });
