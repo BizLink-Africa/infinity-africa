@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useActionState, useState } from "react";
+import { useFormStatus } from "react-dom";
 
 import { Card, tdClass, thClass } from "@/components/portal/card";
 import { Icon } from "@/components/portal/icon";
@@ -10,8 +11,13 @@ import {
   addRiskAlertNoteAction,
   requestDocumentsForAlertAction,
   updateRiskAlertStatusAction,
+  type RiskAlertActionState,
 } from "@/lib/admin/live-actions";
 import type { AdminFraudAlertRow, FraudRiskLevel } from "@/lib/admin/types";
+
+/** Declared here, not in live-actions.ts: a "use server" module can only
+ * export async functions, never a plain constant. */
+const RISK_ALERT_ACTION_IDLE: RiskAlertActionState = { error: null, ok: false };
 
 const RISK_TONE: Record<FraudRiskLevel, BadgeTone> = {
   LOW: "neutral",
@@ -21,6 +27,101 @@ const RISK_TONE: Record<FraudRiskLevel, BadgeTone> = {
 };
 
 const STATUS_OPTIONS = ["OPEN", "UNDER_REVIEW", "DOCUMENTS_REQUESTED", "CLEARED", "ESCALATED", "CLOSED"];
+
+const fieldClass = "px-3 py-2 bg-surface border border-surface-container-highest rounded-lg text-xs";
+
+/** Must be a child of the <form>, per useFormStatus's own rule. */
+function SubmitButton({ className, idleLabel, pendingLabel }: { className: string; idleLabel: string; pendingLabel: string }) {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" disabled={pending} className={`${className} disabled:opacity-60`}>
+      {pending ? pendingLabel : idleLabel}
+    </button>
+  );
+}
+
+/** Inline confirmation / error for a completed submit — the piece these
+ * forms were missing, so a working action looked like it did nothing. */
+function ActionFeedback({ error, ok, okLabel }: { error: string | null; ok: boolean; okLabel: string }) {
+  if (error) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-error">
+        <Icon name="error" className="text-[14px]" />
+        {error}
+      </span>
+    );
+  }
+  if (ok) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-primary">
+        <Icon name="check_circle" className="text-[14px]" />
+        {okLabel}
+      </span>
+    );
+  }
+  return null;
+}
+
+function UpdateStatusForm({ alert }: { alert: AdminFraudAlertRow }) {
+  const [state, formAction] = useActionState<RiskAlertActionState, FormData>(
+    updateRiskAlertStatusAction.bind(null, alert.alert_id),
+    RISK_ALERT_ACTION_IDLE,
+  );
+  return (
+    <form action={formAction} className="flex flex-wrap items-center gap-2">
+      <select name="status" defaultValue={alert.status} className={fieldClass}>
+        {STATUS_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option.replace(/_/g, " ")}
+          </option>
+        ))}
+      </select>
+      <SubmitButton
+        className="bg-primary-container text-on-primary text-xs font-semibold py-2 px-4 rounded-lg hover:opacity-90"
+        idleLabel="Update Status"
+        pendingLabel="Updating…"
+      />
+      <ActionFeedback error={state.error} ok={state.ok} okLabel={`Status set to ${alert.status.replace(/_/g, " ")}`} />
+    </form>
+  );
+}
+
+function RequestDocumentsForm({ alert }: { alert: AdminFraudAlertRow }) {
+  const [state, formAction] = useActionState<RiskAlertActionState, FormData>(
+    requestDocumentsForAlertAction.bind(null, alert.alert_id),
+    RISK_ALERT_ACTION_IDLE,
+  );
+  return (
+    <form action={formAction} className="flex flex-wrap items-center gap-2">
+      <input name="requested_documents" placeholder="receipt, proof_of_delivery" className={`${fieldClass} w-56`} />
+      <input name="reason" placeholder="Reason for request" className={`${fieldClass} w-56`} />
+      <SubmitButton
+        className="bg-white border border-primary text-primary text-xs font-semibold py-2 px-4 rounded-lg hover:bg-primary-container/10"
+        idleLabel="Request Documents"
+        pendingLabel="Requesting…"
+      />
+      <ActionFeedback error={state.error} ok={state.ok} okLabel="Documents requested" />
+    </form>
+  );
+}
+
+function AddNoteForm({ alert }: { alert: AdminFraudAlertRow }) {
+  const [state, formAction] = useActionState<RiskAlertActionState, FormData>(
+    addRiskAlertNoteAction.bind(null, alert.alert_id),
+    RISK_ALERT_ACTION_IDLE,
+  );
+  return (
+    <form action={formAction} className="flex flex-wrap items-center gap-2">
+      <input name="note" placeholder="Add an internal note" className={`${fieldClass} w-72`} />
+      <SubmitButton
+        className="border border-outline-variant text-on-surface-variant text-xs font-semibold py-2 px-4 rounded-lg hover:bg-surface-container-highest"
+        idleLabel="Add Note"
+        pendingLabel="Adding…"
+      />
+      <ActionFeedback error={state.error} ok={state.ok} okLabel="Note added" />
+    </form>
+  );
+}
 
 export function RiskMonitoringTable({ rows }: { rows: AdminFraudAlertRow[] }) {
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -80,46 +181,9 @@ export function RiskMonitoringTable({ rows }: { rows: AdminFraudAlertRow[] }) {
                       <td colSpan={7} className="p-0">
                         <div className="p-5 bg-surface-container-low space-y-4">
                           <p className="text-sm text-on-surface">{alert.reason}</p>
-
-                          <form action={updateRiskAlertStatusAction.bind(null, alert.alert_id)} className="flex flex-wrap items-center gap-2">
-                            <select name="status" defaultValue={alert.status} className="px-3 py-2 bg-surface border border-surface-container-highest rounded-lg text-xs">
-                              {STATUS_OPTIONS.map((option) => (
-                                <option key={option} value={option}>
-                                  {option.replace(/_/g, " ")}
-                                </option>
-                              ))}
-                            </select>
-                            <button type="submit" className="bg-primary-container text-on-primary text-xs font-semibold py-2 px-4 rounded-lg hover:opacity-90">
-                              Update Status
-                            </button>
-                          </form>
-
-                          <form action={requestDocumentsForAlertAction.bind(null, alert.alert_id)} className="flex flex-wrap items-center gap-2">
-                            <input
-                              name="requested_documents"
-                              placeholder="receipt, proof_of_delivery"
-                              className="px-3 py-2 bg-surface border border-surface-container-highest rounded-lg text-xs w-56"
-                            />
-                            <input
-                              name="reason"
-                              placeholder="Reason for request"
-                              className="px-3 py-2 bg-surface border border-surface-container-highest rounded-lg text-xs w-56"
-                            />
-                            <button type="submit" className="bg-white border border-primary text-primary text-xs font-semibold py-2 px-4 rounded-lg hover:bg-primary-container/10">
-                              Request Documents
-                            </button>
-                          </form>
-
-                          <form action={addRiskAlertNoteAction.bind(null, alert.alert_id)} className="flex flex-wrap items-center gap-2">
-                            <input
-                              name="note"
-                              placeholder="Add an internal note"
-                              className="px-3 py-2 bg-surface border border-surface-container-highest rounded-lg text-xs w-72"
-                            />
-                            <button type="submit" className="border border-outline-variant text-on-surface-variant text-xs font-semibold py-2 px-4 rounded-lg hover:bg-surface-container-highest">
-                              Add Note
-                            </button>
-                          </form>
+                          <UpdateStatusForm alert={alert} />
+                          <RequestDocumentsForm alert={alert} />
+                          <AddNoteForm alert={alert} />
                         </div>
                       </td>
                     </tr>

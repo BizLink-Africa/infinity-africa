@@ -108,30 +108,73 @@ export async function reconcilePendingWithdrawalsAction() {
 
 // --- Risk monitoring ---------------------------------------------------------
 
-export async function updateRiskAlertStatusAction(alertId: string, formData: FormData) {
+export interface RiskAlertActionState {
+  error: string | null;
+  /** true once a submit has completed successfully — drives the inline
+   * "Updated" confirmation in risk-monitoring-table.tsx. A "use server"
+   * module can only export async functions, so the matching idle value
+   * ({ error: null, ok: false }) is declared in that component, not here. */
+  ok: boolean;
+}
+
+/** Same silent-failure fix as runPricingRuleAction above (reported:
+ * "Update Status button is not responsive"). These forms were bare
+ * `<form action={fn.bind(...)}>` — on success they showed nothing, and a
+ * failed request (non-2xx from the API) threw straight out of the action
+ * with no error boundary, so the form just sat there. Threading state
+ * through useActionState gives the admin a pending state, an "Updated"
+ * confirmation, and a visible error. */
+async function runRiskAlertAction(
+  run: () => Promise<unknown>,
+  ...extraPaths: string[]
+): Promise<RiskAlertActionState> {
+  try {
+    await run();
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Something went wrong. Try again.", ok: false };
+  }
+  revalidatePath("/super-admin/risk-monitoring");
+  for (const path of extraPaths) revalidatePath(path);
+  return { error: null, ok: true };
+}
+
+export async function updateRiskAlertStatusAction(
+  alertId: string,
+  _prevState: RiskAlertActionState | null,
+  formData: FormData,
+): Promise<RiskAlertActionState> {
   const status = String(formData.get("status") ?? "");
-  if (!status) return;
-  await updateRiskAlertStatus(alertId, status);
-  revalidatePath("/super-admin/risk-monitoring");
+  if (!status) return { error: "Pick a status first.", ok: false };
+  return runRiskAlertAction(() => updateRiskAlertStatus(alertId, status));
 }
 
-export async function addRiskAlertNoteAction(alertId: string, formData: FormData) {
+export async function addRiskAlertNoteAction(
+  alertId: string,
+  _prevState: RiskAlertActionState | null,
+  formData: FormData,
+): Promise<RiskAlertActionState> {
   const note = String(formData.get("note") ?? "").trim();
-  if (!note) return;
-  await addRiskAlertNote(alertId, note);
-  revalidatePath("/super-admin/risk-monitoring");
+  if (!note) return { error: "Enter a note first.", ok: false };
+  return runRiskAlertAction(() => addRiskAlertNote(alertId, note));
 }
 
-export async function requestDocumentsForAlertAction(alertId: string, formData: FormData) {
+export async function requestDocumentsForAlertAction(
+  alertId: string,
+  _prevState: RiskAlertActionState | null,
+  formData: FormData,
+): Promise<RiskAlertActionState> {
   const requestedDocuments = String(formData.get("requested_documents") ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
   const reason = String(formData.get("reason") ?? "").trim();
-  if (requestedDocuments.length === 0 || !reason) return;
-  await requestDocumentsForAlert(alertId, { requested_documents: requestedDocuments, reason });
-  revalidatePath("/super-admin/risk-monitoring");
-  revalidatePath("/super-admin/document-requests");
+  if (requestedDocuments.length === 0 || !reason) {
+    return { error: "Enter at least one document and a reason.", ok: false };
+  }
+  return runRiskAlertAction(
+    () => requestDocumentsForAlert(alertId, { requested_documents: requestedDocuments, reason }),
+    "/super-admin/document-requests",
+  );
 }
 
 // --- Document requests -------------------------------------------------------
