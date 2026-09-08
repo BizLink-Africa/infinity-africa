@@ -38,6 +38,7 @@ from app.schemas.payment_links import PaymentLinkResponse
 from app.services.audit import write_audit_log
 from app.services.crud import get_by_id, insert_row, list_for_merchant, update_row
 from app.services.email import send_invoice_email
+from app.services.merchant_gate import require_approved_merchant
 from app.services.payment_links import (
     build_public_url,
     generate_or_reuse_invoice_payment_link,
@@ -82,6 +83,8 @@ def create_invoice(
     authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
     require_api_key_scope(caller, "invoices:write")
     client = get_supabase_admin()
+    # An unapproved merchant can't raise an invoice for collection.
+    require_approved_merchant(client, payload.merchant_id)
 
     subtotal = sum((item.quantity * item.unit_price for item in payload.items), Decimal(0))
     total_amount = subtotal + payload.tax_amount - payload.discount_amount

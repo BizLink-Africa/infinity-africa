@@ -3,20 +3,67 @@
 import Link from "next/link";
 import { useActionState } from "react";
 
-import { createAccountAction } from "@/lib/auth/actions";
+import { createAccountAction, resendVerificationAction } from "@/lib/auth/actions";
 
 const inputClass =
   "w-full border-0 border-b border-outline-variant bg-transparent pb-2 text-sm text-on-surface placeholder-outline focus:outline-none focus:border-primary-container transition-colors";
 const labelClass = "block text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-2";
 const errorClass = "mt-1.5 text-xs font-medium text-error";
 
+function CheckYourEmail({ email, notice }: { email: string; notice?: string }) {
+  const [resendState, resendAction, resending] = useActionState(resendVerificationAction, null);
+
+  return (
+    <div className="mt-8 space-y-4">
+      <div className="rounded-lg bg-primary-container/10 px-4 py-3 text-sm text-on-surface">
+        {resendState?.notice ?? notice ?? "Check your email to verify your account before continuing."}
+      </div>
+
+      {resendState?.formError && (
+        <div className="rounded-lg bg-error/10 px-4 py-3 text-sm font-medium text-error">{resendState.formError}</div>
+      )}
+
+      <p className="text-sm text-on-surface-variant">
+        We sent a verification link to <span className="font-semibold text-on-surface">{email}</span>. Click it to
+        confirm your account, then you&apos;ll be taken straight to your merchant verification form. The link can take a
+        minute to arrive — check your spam folder too.
+      </p>
+
+      <form action={resendAction}>
+        <input type="hidden" name="email" value={email} />
+        <button
+          type="submit"
+          disabled={resending}
+          className="w-full inline-flex items-center justify-center gap-2 border border-outline-variant text-on-surface text-sm font-medium px-8 py-3 rounded-lg hover:bg-surface-container transition-colors disabled:opacity-60"
+        >
+          {resending ? "Sending…" : "Resend verification email"}
+        </button>
+      </form>
+
+      <p className="text-center text-sm text-on-surface-variant">
+        Already verified?{" "}
+        <Link href="/merchant/login" className="font-semibold text-primary-container hover:underline">
+          Sign in
+        </Link>
+      </p>
+    </div>
+  );
+}
+
 export function CreateAccountForm() {
   const [state, action, pending] = useActionState(createAccountAction, null);
+
+  if (state?.awaitingEmailVerification) {
+    return <CheckYourEmail email={state.values?.email ?? ""} notice={state.notice} />;
+  }
 
   return (
     <form action={action} className="mt-8 space-y-6">
       {state?.formError && (
         <div className="rounded-lg bg-error/10 px-4 py-3 text-sm font-medium text-error">{state.formError}</div>
+      )}
+      {state?.notice && (
+        <div className="rounded-lg bg-primary-container/10 px-4 py-3 text-sm text-on-surface">{state.notice}</div>
       )}
 
       <div>

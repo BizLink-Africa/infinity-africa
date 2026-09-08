@@ -40,6 +40,7 @@ from app.services.fraud_monitoring_service import (
     evaluate_collection,
 )
 from app.services.ledger import post_collection_entries, reverse_collection_entries
+from app.services.merchant_gate import require_approved_merchant
 from app.services.notifications_service import notify_admin, notify_merchant
 from app.services.selcom.client import get_selcom_client
 from app.services.selcom.schemas import CollectionResult
@@ -97,6 +98,15 @@ async def create_processing_collection(
     better (e.g. an API-key-authenticated request) should always pass
     the correct app/schemas/enums.py::CollectionSource value instead of
     relying on this fallback."""
+    # An unapproved merchant may not collect money. This is the single
+    # chokepoint for every collection that gets created — direct dashboard
+    # push, /v1/collections/{method} (API key), and dynamic QR all land
+    # here. Pay-by-link / invoice checkout paths are covered transitively:
+    # a pending merchant can't create a payment link or invoice in the
+    # first place (app/services/merchant_gate.py is enforced there too), so
+    # there's never an active one for a customer to pay.
+    require_approved_merchant(client, merchant_id)
+
     if source is None:
         if invoice_id:
             source = "INVOICE"

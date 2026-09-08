@@ -80,6 +80,19 @@ class ProductionAccessRestrictedError(APIError):
     code = "production_access_restricted"
 
 
+class MerchantNotApprovedError(APIError):
+    """A merchant whose onboarding a Super Admin has not yet approved
+    (merchants.status != 'active') tried to do something that moves or
+    enables money — start a collection, issue a payment link or invoice,
+    or mint an API key. 403, not 409: it's a permission they don't have
+    yet, not a conflict with existing data. Withdrawals have their own
+    WithdrawalRestrictedError for the same underlying rule (see
+    app/services/disbursements.py::_check_merchant_is_verified)."""
+
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "merchant_not_approved"
+
+
 class EmailDeliveryError(APIError):
     """Resend rejected the send, or the request to it failed outright
     (timeout/connection error), or RESEND_API_KEY isn't configured — see

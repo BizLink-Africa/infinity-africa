@@ -126,6 +126,7 @@ from app.services.email import (
 from app.services.hosted_checkout import execute_hosted_checkout_collection
 from app.services.idempotency import run_idempotent
 from app.services.ledger import export_wallet_ledger_rows, list_wallet_ledger
+from app.services.merchant_gate import require_approved_merchant
 from app.services.merchant_notifications import (
     get_or_create_notification_settings,
     upsert_notification_settings,
@@ -276,6 +277,8 @@ async def create_my_payment_link(
     _rate_limit: Annotated[None, Depends(rate_limit(scope="payment_link_create", limit=30, window_seconds=60))],
 ):
     client = get_supabase_admin()
+    # An unapproved merchant can't put a payable link into the world.
+    require_approved_merchant(client, membership.merchant_id)
 
     async def _handler() -> tuple[int, dict]:
         data = payload.model_dump(mode="json", exclude={"allowed_payment_methods", "origin"})
@@ -433,6 +436,8 @@ def create_my_invoice(
     membership: Annotated[MerchantMembership, Depends(require_own_merchant_role(*_ADMIN_AND_STAFF))],
 ):
     client = get_supabase_admin()
+    # An unapproved merchant can't raise an invoice for collection.
+    require_approved_merchant(client, membership.merchant_id)
 
     subtotal = sum((item.quantity * item.unit_price for item in payload.items), Decimal(0))
     total_amount = subtotal + payload.tax_amount - payload.discount_amount

@@ -51,6 +51,7 @@ from app.services.crud import execute_maybe_single, get_by_id, insert_row, updat
 from app.services.dynamic_qr import execute_dynamic_qr_for_payment_link
 from app.services.hosted_checkout import execute_hosted_checkout_for_payment_link
 from app.services.idempotency import run_idempotent
+from app.services.merchant_gate import require_approved_merchant
 from app.services.payment_links import (
     batch_collection_counts,
     build_public_url,
@@ -81,6 +82,8 @@ async def create_payment_link(
     authorize_merchant_action(caller, payload.merchant_id, *_DASHBOARD_ROLES)
     require_api_key_scope(caller, "payment_links:write")
     client = get_supabase_admin()
+    # An unapproved merchant can't put a payable link into the world.
+    require_approved_merchant(client, payload.merchant_id)
 
     async def _handler() -> tuple[int, dict]:
         data = payload.model_dump(mode="json", exclude={"allowed_payment_methods"})
