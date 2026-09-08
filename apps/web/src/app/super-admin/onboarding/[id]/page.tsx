@@ -85,7 +85,12 @@ export default async function OnboardingDetailPage(props: PageProps<"/super-admi
       <Card>
         <h3 className="text-lg font-semibold text-on-surface mb-4">Compliance Documents</h3>
         <ul className="space-y-3">
-          {submission.documents.length === 0 && <p className="text-sm text-on-surface-variant">No documents uploaded yet.</p>}
+          {submission.documents.length === 0 && (
+            <p className="text-sm text-on-surface-variant">
+              No documents on file. Document upload was removed from onboarding — request anything you need via Document
+              Requests and verify identity/compliance before approving.
+            </p>
+          )}
           {submission.documents.map((doc) => (
             <li
               key={doc.id}

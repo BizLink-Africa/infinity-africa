@@ -18,7 +18,7 @@ const SECTIONS: { title: string; body: string; items?: string[] }[] = [
   },
   {
     title: "3. Account Registration",
-    body: "To use Infinity Africa's services, merchants must create an account, submit onboarding details about their business, upload required compliance documents, and accept these Terms of Service and the Privacy Policy. Account access is granted only after registration is complete.",
+    body: "To use Infinity Africa's services, merchants must create an account, submit onboarding details about their business, provide any compliance information or documents Infinity Africa requests during review, and accept these Terms of Service and the Privacy Policy. Live access to collections, payment links, API keys, and withdrawals is granted only after Infinity Africa approves the merchant account.",
   },
   {
     title: "4. Merchant Verification",

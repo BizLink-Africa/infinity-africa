@@ -36,12 +36,15 @@ from app.services.email import (
 from app.services.ledger import get_wallet_balance
 from app.services.merchant_code import generate_merchant_code
 
-# Required for a merchant to go live — checked at approval time, not at
-# submission, since documents upload separately via
-# POST /v1/onboarding/documents. BUSINESS_LICENCE is deliberately excluded:
-# the business made it optional everywhere (see DocumentType/the onboarding
-# form) so a sole proprietor without one can still get approved.
-_REQUIRED_APPROVAL_DOCUMENTS = (DocumentType.NIDA, DocumentType.TIN_CERTIFICATE)
+# Documents required by the system for a merchant to go live, checked at
+# approval time. Deliberately empty: KYC document upload was removed from
+# merchant onboarding (business decision — identity/compliance vetting is
+# handled by the Super Admin's manual review + off-platform, not enforced
+# by an in-app upload). The /v1/onboarding/documents endpoint and the
+# document tables still exist so documents CAN be attached, but no
+# document is required to approve a submission. Repopulate this tuple to
+# re-enable a hard document gate.
+_REQUIRED_APPROVAL_DOCUMENTS: tuple[DocumentType, ...] = ()
 
 _ALLOWED_DOCUMENT_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png"}
 _BUCKET = "merchant-documents"
@@ -301,10 +304,15 @@ def get_document_signed_url(client: Client, document: dict, *, expires_in: int =
 
 
 def _rollup_document_status(documents: list[dict]) -> str:
+    # No documents are required for approval any more (KYC upload was
+    # removed from onboarding) — a submission with nothing attached has
+    # nothing outstanding to review, so don't surface it as "pending".
+    if not documents:
+        return "VERIFIED"
     statuses = [d["upload_status"] for d in documents]
     if any(s == "REJECTED" for s in statuses):
         return "REJECTED"
-    if len(documents) < len(DocumentType) or any(s == "UPLOADED" for s in statuses):
+    if any(s == "UPLOADED" for s in statuses):
         return "UPLOADED"
     return "VERIFIED"
 

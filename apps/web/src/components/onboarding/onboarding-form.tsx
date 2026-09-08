@@ -200,64 +200,6 @@ export function OnboardingForm({
         </p>
       </section>
 
-      <section className="space-y-4">
-        <h2 className={sectionHeadingClass}>Compliance Documents</h2>
-        <p className="text-sm text-on-surface-variant">Accepted file types: PDF, JPG, PNG.</p>
-        <div className="grid sm:grid-cols-3 gap-7">
-          <div>
-            <label htmlFor="nidaDocument" className={labelClass}>
-              Upload NIDA
-            </label>
-            <input
-              id="nidaDocument"
-              name="nidaDocument"
-              type="file"
-              accept="application/pdf,image/jpeg,image/png"
-              className="w-full text-xs text-on-surface-variant file:mr-3 file:rounded-lg file:border-0 file:bg-surface-container file:px-3 file:py-2 file:text-xs file:font-medium file:text-on-surface"
-            />
-            {state?.errors?.nidaDocument?.map((msg) => (
-              <p key={msg} className={errorClass}>
-                {msg}
-              </p>
-            ))}
-          </div>
-          <div>
-            <label htmlFor="tinDocument" className={labelClass}>
-              Upload TIN Certificate
-            </label>
-            <input
-              id="tinDocument"
-              name="tinDocument"
-              type="file"
-              accept="application/pdf,image/jpeg,image/png"
-              className="w-full text-xs text-on-surface-variant file:mr-3 file:rounded-lg file:border-0 file:bg-surface-container file:px-3 file:py-2 file:text-xs file:font-medium file:text-on-surface"
-            />
-            {state?.errors?.tinDocument?.map((msg) => (
-              <p key={msg} className={errorClass}>
-                {msg}
-              </p>
-            ))}
-          </div>
-          <div>
-            <label htmlFor="licenceDocument" className={labelClass}>
-              Upload Business Licence <span className="normal-case font-normal text-outline">(optional)</span>
-            </label>
-            <input
-              id="licenceDocument"
-              name="licenceDocument"
-              type="file"
-              accept="application/pdf,image/jpeg,image/png"
-              className="w-full text-xs text-on-surface-variant file:mr-3 file:rounded-lg file:border-0 file:bg-surface-container file:px-3 file:py-2 file:text-xs file:font-medium file:text-on-surface"
-            />
-            {state?.errors?.licenceDocument?.map((msg) => (
-              <p key={msg} className={errorClass}>
-                {msg}
-              </p>
-            ))}
-          </div>
-        </div>
-      </section>
-
       <section className="space-y-3">
         <h2 className={sectionHeadingClass}>Legal</h2>
         <label className="flex items-start gap-3 text-sm text-on-surface">

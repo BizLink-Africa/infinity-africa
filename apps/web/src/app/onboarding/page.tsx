@@ -30,7 +30,7 @@ export default async function OnboardingPage() {
             Tell us about your business
           </h1>
           <p className="text-sm text-on-surface-variant mb-10">
-            Complete your business details and upload compliance documents to submit your account for verification.
+            Complete your business details to submit your account for verification.
           </p>
           <OnboardingForm accountStatus={onboarding?.account_status ?? null} defaultPhone={user.phone} />
         </div>

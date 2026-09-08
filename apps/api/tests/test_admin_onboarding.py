@@ -114,7 +114,7 @@ def test_list_returns_submitted_merchant(fake_client):
     assert row["nature_of_business"] == "Agriculture"
     assert row["physical_address"] == "Njiro Road"
     assert row["services_needed"] == ["PAYMENT_COLLECTION"]
-    assert row["document_status"] == "UPLOADED"  # no documents uploaded yet -> treated as incomplete/pending
+    assert row["document_status"] == "VERIFIED"  # no docs required for approval -> nothing outstanding
     assert row["review_status"] == "PENDING_VERIFICATION"
 
 
@@ -416,9 +416,10 @@ def test_signup_submission_succeeds_even_when_ceo_notification_delivery_fails(fa
     assert delivery["error_message"]
 
 
-def test_cannot_approve_without_required_documents(fake_client):
-    """NIDA and TIN are hard requirements before a merchant can go live —
-    approving with neither (or just one) uploaded must be rejected."""
+def test_approve_succeeds_with_no_documents(fake_client):
+    """KYC document upload was removed from onboarding — a submission with
+    no documents attached at all is approvable; the Super Admin's manual
+    review is the gate, not an in-app upload."""
     submitted = _submit_onboarding(uuid.uuid4())
     merchant_id = submitted["merchant"]["id"]
     submission_id = next(
@@ -428,20 +429,13 @@ def test_cannot_approve_without_required_documents(fake_client):
     admin_id = uuid.uuid4()
     make_super_admin(fake_client, admin_id)
 
-    no_docs_response = client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
-    assert no_docs_response.status_code == 422
-    assert "NIDA" in no_docs_response.json()["error"]["message"]
-    assert "TIN_CERTIFICATE" in no_docs_response.json()["error"]["message"]
+    response = client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["review_status"] == "VERIFIED"
 
     merchant = next(r for r in fake_client.table("merchants")._table.rows if r["id"] == merchant_id)
-    assert merchant["status"] == "pending"  # never promoted
-
-    _seed_required_documents(fake_client, merchant_id, document_types=("NIDA",))
-    still_missing_response = client.post(
-        f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id)
-    )
-    assert still_missing_response.status_code == 422
-    assert "TIN_CERTIFICATE" in still_missing_response.json()["error"]["message"]
+    assert merchant["status"] == "active"
+    assert merchant["kyc_status"] == "verified"
 
 
 def test_business_licence_is_optional_for_approval(fake_client):

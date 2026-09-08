@@ -5,21 +5,21 @@ export const metadata = {
   title: "Merchant Onboarding Requirements",
 };
 
-const REQUIRED_DOCUMENTS: Array<{ label: string; description: string; status: "Uploadable today" | "Documentation only" }> = [
+const REQUIRED_DOCUMENTS: Array<{ label: string; description: string; status: "Requested during review" | "Documentation only" }> = [
   {
     label: "NIDA (National ID) or authorized representative ID",
     description: "Proof of identity for the business owner or the person authorized to act on the merchant's behalf.",
-    status: "Uploadable today",
+    status: "Requested during review",
   },
   {
     label: "TIN certificate",
     description: "Tanzania Revenue Authority Taxpayer Identification Number certificate.",
-    status: "Uploadable today",
+    status: "Requested during review",
   },
   {
     label: "Business licence",
     description: "Current, valid business operating licence for the business's registered activity.",
-    status: "Uploadable today",
+    status: "Requested during review",
   },
   {
     label: "Business registration / incorporation certificate",
@@ -64,9 +64,10 @@ export default function OnboardingRequirementsPage() {
       <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Getting Started</p>
       <h1 className="text-3xl md:text-4xl font-bold text-on-surface tracking-tight mb-4">Merchant Onboarding Requirements</h1>
       <p className="text-lg text-on-surface-variant leading-relaxed mb-6 max-w-2xl">
-        What Infinity Africa needs before your account is approved for live API access and withdrawals. Submit these
-        through the onboarding flow at <code className="font-mono text-sm bg-surface-container-low px-1.5 py-0.5 rounded">/onboarding</code> after
-        creating your merchant account.
+        What Infinity Africa needs before your account is approved for live API access and withdrawals. Provide your
+        business details through the onboarding flow at <code className="font-mono text-sm bg-surface-container-low px-1.5 py-0.5 rounded">/onboarding</code> after
+        creating your merchant account. Identity and compliance documents are not uploaded during onboarding — Infinity
+        Africa&apos;s compliance team requests whatever it needs directly during review.
       </p>
 
       <div className="mb-10 max-w-2xl">
@@ -98,7 +99,7 @@ export default function OnboardingRequirementsPage() {
                   <td className="px-4 py-2.5 align-top whitespace-nowrap">
                     <span
                       className={
-                        doc.status === "Uploadable today"
+                        doc.status === "Requested during review"
                           ? "inline-flex items-center gap-1 bg-accent text-primary px-2.5 py-1 rounded-full text-xs font-semibold border border-primary/20"
                           : "bg-surface-container-highest text-on-surface-variant px-2.5 py-1 rounded-full text-xs font-semibold"
                       }
@@ -112,11 +113,11 @@ export default function OnboardingRequirementsPage() {
           </table>
         </div>
         <p className="text-sm text-on-surface-variant leading-relaxed mt-4">
-          <strong>NIDA, TIN certificate, and business licence</strong> have a dedicated upload flow today (
-          <code className="font-mono text-xs bg-surface-container-low px-1.5 py-0.5 rounded">POST /v1/onboarding/documents</code>). Everything
-          else marked &quot;Documentation only&quot; is collected as part of your onboarding submission or requested
-          directly by Infinity Africa&apos;s compliance team during review — there is no separate upload endpoint for those
-          yet.
+          The onboarding submission itself only collects your business details and Terms/Privacy acceptance. Nothing in
+          the list above is uploaded through the onboarding form. Items marked <strong>&quot;Requested during
+          review&quot;</strong> are asked for directly by Infinity Africa&apos;s compliance team if needed (see Document
+          Requests in the dashboard); everything marked &quot;Documentation only&quot; is either captured in the
+          submission form or requested the same way.
         </p>
       </section>
 

@@ -63,8 +63,9 @@ These are already documented in `apps/web/.env.example` /
      a second time, the callback redirects to `/merchant/login` with
      *"Your email is verified. Sign in to continue…"* — the account is
      fine, they just sign in.
-4. Merchant completes `/onboarding` (business details + NIDA + TIN, licence
-   optional). Backend creates `merchants` + `merchant_users` +
+4. Merchant completes `/onboarding` (business details only — no KYC
+   document upload; compliance docs are requested by the Super Admin
+   during review if needed). Backend creates `merchants` + `merchant_users` +
    `onboarding_submissions` (`review_status = PENDING_VERIFICATION`) and
    emails **`CEO_EMAIL`** the signup notification.
 5. Super Admin reviews at `/super-admin/onboarding`. On **approve**:
