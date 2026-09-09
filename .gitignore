@@ -43,7 +43,9 @@ turbo/
 *.pem
 *.key
 *.p12
+*.pfx
 *.crt
+*.csr
 *.cer
 *.jks
 *.keystore
@@ -51,8 +53,14 @@ secrets/
 private/
 credentials/
 service-account*.json
+*-service-account.json
 *.service-role*.json
 uploads/
+
+# --- Test / tooling artifacts ---
+playwright-report/
+test-results/
+supabase/.temp/
 
 # Local-only seeded test-account credentials (real, if throwaway, passwords —
 # never push to GitHub; see docs/test-accounts.md's own "Before going live"

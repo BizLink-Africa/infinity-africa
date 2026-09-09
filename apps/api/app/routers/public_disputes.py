@@ -9,10 +9,11 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import ValidationError
 
 from app.core.errors import ValidationAPIError
+from app.core.rate_limit import rate_limit
 from app.database.session import get_supabase_admin
 from app.schemas.common import APIResponse
 from app.schemas.disputes import DisputeResponse, PublicDisputeReportCreate
@@ -23,6 +24,9 @@ router = APIRouter(prefix="/public/disputes", tags=["disputes (public)"])
 
 @router.post("/report", response_model=APIResponse[DisputeResponse])
 async def report_transaction(
+    _rate_limit: Annotated[
+        None, Depends(rate_limit(scope="public_dispute_report", limit=5, window_seconds=60))
+    ],
     customer_name: Annotated[str, Form()],
     customer_phone: Annotated[str, Form()],
     reason_category: Annotated[str, Form()],
