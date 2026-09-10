@@ -1,11 +1,13 @@
 """Combined merchant signup — POST /v1/onboarding/signup — account
-credentials + business details + mandatory NIDA in one unauthenticated
-call. The backend creates the Supabase Auth user itself (service_role);
-the merchant is created PENDING_VERIFICATION and is never auto-approved.
-CEO gets a signup notification; the merchant approval/welcome email is
-NOT sent here (only on Super Admin approval).
+credentials + business details + mandatory NIDA + an optional TIN
+certificate file, in one multipart/form-data call. The backend creates
+the Supabase Auth user itself (service_role); the merchant is created
+PENDING_VERIFICATION and is never auto-approved. CEO gets a signup
+notification; the merchant approval/welcome email is NOT sent here (only
+on Super Admin approval).
 """
 
+import io
 import logging
 import uuid
 
@@ -49,43 +51,49 @@ def fake_resend(monkeypatch):
     return fake
 
 
-def _payload(**overrides) -> dict:
-    return {
+def _form(**overrides) -> dict:
+    data = {
         "full_name": "Amani Mushi",
         "email": f"amani-{uuid.uuid4().hex[:8]}@example.com",
-        "phone": "+255700000000",
-        "contact_phone": "+255700000000",
         "password": "Str0ng!pass",
+        "contact_phone": "+255700000000",
         "nida_number": _NIDA,
         "business_name": "Amani Traders Ltd",
         "nature_of_business": "Online retail",
         "business_category": "Retail",
         "physical_address": "Mbezi",
         "region_city": "Dar es Salaam",
-        "website_url": None,
         "services_needed": ["PAYMENT_LINKS"],
-        "accepted_terms": True,
-        "accepted_privacy": True,
-        **overrides,
+        "accepted_terms": "true",
+        "accepted_privacy": "true",
     }
+    data.update(overrides)
+    return data
+
+
+def _post(form: dict, *, tin_certificate: tuple | None = None):
+    files = {"tin_certificate": tin_certificate} if tin_certificate else None
+    return client.post("/v1/onboarding/signup", data=form, files=files)
+
+
+def _pdf(name: str = "tin.pdf") -> tuple:
+    return (name, io.BytesIO(b"%PDF-1.4 fake tin certificate"), "application/pdf")
 
 
 def test_signup_creates_user_merchant_and_pending_submission(fake_client):
-    body = _payload()
-    response = client.post("/v1/onboarding/signup", json=body)
+    form = _form()
+    response = _post(form)
     assert response.status_code == 201, response.text
     data = response.json()["data"]
     assert data["account_status"] == "PENDING_VERIFICATION"
     assert data["email_confirmation_required"] is True
 
-    # Supabase auth user created (service_role, backend-side)
-    assert any(u.email == body["email"] for u in fake_client.auth.admin._users.values())
+    assert any(u.email == form["email"] for u in fake_client.auth.admin._users.values())
 
-    # merchant + membership + submission all created, merchant PENDING
     merchant = next(m for m in fake_client.table("merchants")._table.rows if m["id"] == str(data["merchant_id"]))
     assert merchant["status"] == "pending"
     assert merchant["kyc_status"] == "unverified"
-    assert merchant["contact_email"] == body["email"]
+    assert merchant["contact_email"] == form["email"]
     membership = next(
         mu for mu in fake_client.table("merchant_users")._table.rows if mu["merchant_id"] == str(data["merchant_id"])
     )
@@ -97,31 +105,59 @@ def test_signup_creates_user_merchant_and_pending_submission(fake_client):
     assert submission["nida_number"] == _NIDA_DIGITS  # stored digits-only
 
 
+def test_signup_stores_the_tin_certificate_document(fake_client):
+    response = _post(_form(), tin_certificate=_pdf())
+    assert response.status_code == 201, response.text
+    merchant_id = response.json()["data"]["merchant_id"]
+
+    docs = [d for d in fake_client.table("onboarding_documents")._table.rows if d["merchant_id"] == str(merchant_id)]
+    assert len(docs) == 1
+    assert docs[0]["document_type"] == "TIN_CERTIFICATE"
+    assert docs[0]["upload_status"] == "UPLOADED"
+    # landed in the private merchant-documents bucket, keyed by merchant id
+    assert f"merchant-documents/{merchant_id}/TIN_CERTIFICATE.pdf" in fake_client._storage_objects
+
+
+def test_signup_succeeds_without_a_tin_certificate(fake_client):
+    response = _post(_form())
+    assert response.status_code == 201
+    merchant_id = response.json()["data"]["merchant_id"]
+    docs = [d for d in fake_client.table("onboarding_documents")._table.rows if d["merchant_id"] == str(merchant_id)]
+    assert docs == []
+
+
+def test_signup_rejects_a_non_pdf_image_tin_certificate(fake_client):
+    response = _post(_form(), tin_certificate=("tin.txt", io.BytesIO(b"not a real doc"), "text/plain"))
+    assert response.status_code == 422
+    # nothing created — the file type is checked before the auth user is made
+    assert fake_client.table("merchants")._table.rows == []
+    assert fake_client.auth.admin._users == {}
+
+
 def test_signup_requires_nida(fake_client):
-    response = client.post("/v1/onboarding/signup", json=_payload(nida_number=""))
+    response = _post(_form(nida_number=""))
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "nida_required"
     assert fake_client.table("merchants")._table.rows == []
 
 
 def test_signup_rejects_malformed_nida(fake_client):
-    response = client.post("/v1/onboarding/signup", json=_payload(nida_number="12345"))
+    response = _post(_form(nida_number="12345"))
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "nida_invalid"
     assert fake_client.table("merchants")._table.rows == []
 
 
 def test_signup_duplicate_email_conflicts(fake_client):
-    body = _payload()
-    assert client.post("/v1/onboarding/signup", json=body).status_code == 201
-    second = client.post("/v1/onboarding/signup", json={**_payload(), "email": body["email"]})
+    form = _form()
+    assert _post(form).status_code == 201
+    second = _post(_form(email=form["email"]))
     assert second.status_code == 409
-    # only one merchant created
     assert len(fake_client.table("merchants")._table.rows) == 1
 
 
 def test_signup_notifies_ceo_with_masked_nida_not_full(fake_client, fake_resend):
-    client.post("/v1/onboarding/signup", json=_payload())
+    _post(_form())
 
     ceo_calls = [c for c in fake_resend.calls if c["to"] == ["ceo@infinityafrica.net"]]
     assert len(ceo_calls) == 1
@@ -129,7 +165,6 @@ def test_signup_notifies_ceo_with_masked_nida_not_full(fake_client, fake_resend)
     assert ceo["subject"] == "New merchant signup submitted"
     assert ceo["from"] == "Infinity Africa <notification@infinityafrica.net>"
     assert ceo["reply_to"] == "info@infinityafrica.net"
-    # masked NIDA present, full NIDA absent
     assert "4512" in ceo["html"]
     assert _NIDA_DIGITS not in ceo["html"]
     assert _NIDA not in ceo["html"]
@@ -137,10 +172,9 @@ def test_signup_notifies_ceo_with_masked_nida_not_full(fake_client, fake_resend)
 
 
 def test_signup_does_not_send_approval_email(fake_client, fake_resend):
-    client.post("/v1/onboarding/signup", json=_payload())
+    _post(_form())
     approval_calls = [c for c in fake_resend.calls if c["subject"] == "Your Infinity Africa account has been approved"]
     assert approval_calls == []
-    # the email-verification email IS sent, to the merchant, not the CEO
     verify_calls = [c for c in fake_resend.calls if c["subject"] == "Confirm your email address"]
     assert len(verify_calls) == 1
     assert verify_calls[0]["to"] != ["ceo@infinityafrica.net"]
@@ -148,7 +182,7 @@ def test_signup_does_not_send_approval_email(fake_client, fake_resend):
 
 def test_signup_does_not_log_full_nida(fake_client, caplog):
     with caplog.at_level(logging.DEBUG):
-        client.post("/v1/onboarding/signup", json=_payload())
+        _post(_form())
     assert _NIDA_DIGITS not in caplog.text
     assert _NIDA not in caplog.text
 
@@ -159,5 +193,5 @@ def test_signup_is_rate_limited(fake_client):
     for _ in range(5):
         _limiter.check("merchant_signup:testclient", limit=5, window_seconds=300)
 
-    response = client.post("/v1/onboarding/signup", json=_payload())
+    response = _post(_form())
     assert response.status_code == 429

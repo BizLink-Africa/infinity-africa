@@ -228,12 +228,14 @@ def create_merchant_onboarding(
     return merchant
 
 
-def signup_merchant(client: Client, *, payload: OnboardingSignupCreate) -> dict:
+async def signup_merchant(
+    client: Client, *, payload: OnboardingSignupCreate, tin_certificate: UploadFile | None = None
+) -> dict:
     """The single combined signup: create the Supabase Auth user
     (service_role — the frontend never touches Supabase Auth for this
     flow), then create the merchant + membership + onboarding submission
-    and fire the CEO notification, then send the merchant an email-
-    verification link.
+    and fire the CEO notification, register the optional TIN certificate
+    file, then send the merchant an email-verification link.
 
     Returns ``{"merchant": <row>, "email_confirmation_required": bool}``.
     Never returns a session or token — the merchant must verify their
@@ -243,10 +245,17 @@ def signup_merchant(client: Client, *, payload: OnboardingSignupCreate) -> dict:
     ``review_status='PENDING_VERIFICATION'`` exactly like the two-step
     flow. No welcome/approval email is sent here — that only happens on
     Super Admin approval (approve_onboarding_submission)."""
-    # Validate NIDA up front so a bad value fails *before* an auth user is
-    # created (create_merchant_onboarding re-validates too — cheap, and it
-    # keeps that function correct for its other callers).
+    # Validate NIDA + the TIN file's type up front so a bad value fails
+    # *before* an auth user or any row is created (create_merchant_onboarding
+    # re-validates NIDA too — cheap, and it keeps that function correct for
+    # its other callers).
     normalize_nida(payload.nida_number)
+    if (
+        tin_certificate is not None
+        and tin_certificate.filename
+        and tin_certificate.content_type not in _ALLOWED_DOCUMENT_MIME_TYPES
+    ):
+        raise ValidationAPIError("TIN certificate must be a PDF, JPG, or PNG file")
     phone = validate_and_normalize_phone(payload.contact_phone)
 
     try:
@@ -275,6 +284,23 @@ def signup_merchant(client: Client, *, payload: OnboardingSignupCreate) -> dict:
     merchant = create_merchant_onboarding(
         client, user=user, payload=payload, contact_name=payload.full_name
     )
+
+    # Optional TIN certificate — MIME already checked above. Best-effort:
+    # the merchant + submission already exist, so a storage hiccup here
+    # must not fail the signup (the Super Admin can request the document
+    # via Document Requests). It lands in the same onboarding_documents
+    # table the Super Admin review page already renders.
+    if tin_certificate is not None and tin_certificate.filename:
+        try:
+            await register_onboarding_document(
+                client,
+                merchant_id=uuid.UUID(merchant["id"]),
+                document_type=DocumentType.TIN_CERTIFICATE,
+                file=tin_certificate,
+                uploaded_by=user.id,
+            )
+        except Exception:  # noqa: BLE001, S110
+            pass
 
     email_confirmed_at = getattr(new_user, "email_confirmed_at", None)
     email_confirmation_required = not email_confirmed_at

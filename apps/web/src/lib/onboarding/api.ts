@@ -93,18 +93,37 @@ export async function getOnboardingStatus(accessToken?: string): Promise<Onboard
   }
 }
 
-/** Combined signup — unauthenticated (no Authorization header): the
- * backend creates the Supabase Auth user itself. Surfaces the backend
+/** Combined signup — unauthenticated (no Authorization header), sent as
+ * multipart/form-data so it can carry the optional TIN certificate file.
+ * The backend creates the Supabase Auth user itself. Surfaces the backend
  * error `code` (nida_required / nida_invalid / conflict / …) so the
  * caller can attach the message to the right field. */
-export async function submitMerchantSignup(input: MerchantSignupInput): Promise<MerchantSignupResult> {
+export async function submitMerchantSignup(
+  input: MerchantSignupInput,
+  tinCertificate?: File | null,
+): Promise<MerchantSignupResult> {
+  const fd = new FormData();
+  fd.set("full_name", input.full_name);
+  fd.set("email", input.email);
+  fd.set("password", input.password);
+  fd.set("business_name", input.business_name);
+  fd.set("nature_of_business", input.nature_of_business);
+  fd.set("business_category", input.business_category);
+  fd.set("physical_address", input.physical_address);
+  fd.set("region_city", input.region_city);
+  fd.set("contact_phone", input.contact_phone);
+  fd.set("nida_number", input.nida_number);
+  fd.set("accepted_terms", String(input.accepted_terms));
+  fd.set("accepted_privacy", String(input.accepted_privacy));
+  if (input.website_url) fd.set("website_url", input.website_url);
+  if (input.tin_number) fd.set("tin_number", input.tin_number);
+  for (const service of input.services_needed) fd.append("services_needed", service);
+  if (tinCertificate && tinCertificate.size > 0) fd.set("tin_certificate", tinCertificate);
+
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/v1/onboarding/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
+    // No Content-Type header — the runtime sets the multipart boundary.
+    res = await fetch(`${API_BASE}/v1/onboarding/signup`, { method: "POST", body: fd });
   } catch {
     throw new OnboardingApiError("Couldn't reach Infinity Africa. Check your connection and try again.");
   }

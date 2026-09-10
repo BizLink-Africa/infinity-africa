@@ -128,6 +128,7 @@ describe("signupWithBusinessAction", () => {
         business_name: "Amani Traders",
         accepted_terms: true,
       }),
+      null, // no TIN certificate in this form
     );
   });
 

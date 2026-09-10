@@ -154,9 +154,25 @@ export function CreateAccountForm() {
           <Field name="physicalAddress" label="Physical Address" defaultValue={v.physicalAddress} errors={err.physicalAddress} />
           <Field name="regionCity" label="Region / City" defaultValue={v.regionCity} errors={err.regionCity} />
         </div>
-        <div className="grid sm:grid-cols-2 gap-6">
-          <Field name="websiteOrAppLink" label="Website or App Link" optional placeholder="www.yourbusiness.co.tz" defaultValue={v.websiteOrAppLink} />
-          <Field name="tinNumber" label="TIN Number" optional placeholder="Tax Identification Number" defaultValue={v.tinNumber} />
+        <Field name="websiteOrAppLink" label="Website or App Link" optional placeholder="www.yourbusiness.co.tz" defaultValue={v.websiteOrAppLink} />
+
+        <div>
+          <label htmlFor="tinCertificate" className={labelClass}>
+            TIN Certificate <span className="normal-case font-normal text-outline">(optional)</span>
+          </label>
+          <input
+            id="tinCertificate"
+            name="tinCertificate"
+            type="file"
+            accept="application/pdf,image/jpeg,image/png"
+            className="w-full text-xs text-on-surface-variant file:mr-3 file:rounded-lg file:border-0 file:bg-surface-container file:px-3 file:py-2 file:text-xs file:font-medium file:text-on-surface"
+          />
+          <p className="mt-1.5 text-xs text-on-surface-variant">PDF, JPG, or PNG. You can also send this later if you don&apos;t have it now.</p>
+          {err.tinCertificate?.map((msg) => (
+            <p key={msg} className={errorClass}>
+              {msg}
+            </p>
+          ))}
         </div>
       </section>
 

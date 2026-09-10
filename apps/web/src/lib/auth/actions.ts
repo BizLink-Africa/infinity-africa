@@ -122,7 +122,10 @@ export async function signupWithBusinessAction(_prevState: FormState, formData: 
   const physicalAddress = get("physicalAddress");
   const regionCity = get("regionCity");
   const websiteOrAppLink = get("websiteOrAppLink");
-  const tinNumber = get("tinNumber");
+
+  const tinCertRaw = formData.get("tinCertificate");
+  const tinCertificate = tinCertRaw instanceof File && tinCertRaw.size > 0 && tinCertRaw.name ? tinCertRaw : null;
+  const ALLOWED_DOC_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
 
   const servicesNeeded = formData
     .getAll("servicesNeeded")
@@ -143,7 +146,6 @@ export async function signupWithBusinessAction(_prevState: FormState, formData: 
     physicalAddress,
     regionCity,
     websiteOrAppLink,
-    tinNumber,
   };
 
   const errors: Record<string, string[]> = {};
@@ -167,6 +169,10 @@ export async function signupWithBusinessAction(_prevState: FormState, formData: 
   if (!regionCity) errors.regionCity = ["Region/city is required."];
   if (servicesNeeded.length === 0) errors.servicesNeeded = ["Select at least one service you need."];
 
+  if (tinCertificate && !ALLOWED_DOC_TYPES.has(tinCertificate.type)) {
+    errors.tinCertificate = ["TIN certificate must be a PDF, JPG, or PNG file."];
+  }
+
   if (!agreedToTerms) errors.agreedToTerms = ["You must agree to the Terms of Service."];
   if (!agreedToPrivacy) errors.agreedToPrivacy = ["You must agree to the Privacy Policy."];
   if (!confirmedAccurate) errors.confirmedAccurate = ["Please confirm the information provided is accurate."];
@@ -177,23 +183,25 @@ export async function signupWithBusinessAction(_prevState: FormState, formData: 
 
   let result;
   try {
-    result = await submitMerchantSignup({
-      full_name: fullName,
-      email,
-      password,
-      contact_phone: phone,
-      nida_number: nidaNumber,
-      tin_number: tinNumber || null,
-      business_name: businessName,
-      business_category: businessCategory,
-      nature_of_business: natureOfBusiness,
-      physical_address: physicalAddress,
-      region_city: regionCity,
-      website_url: websiteOrAppLink || null,
-      services_needed: servicesNeeded,
-      accepted_terms: agreedToTerms,
-      accepted_privacy: agreedToPrivacy,
-    });
+    result = await submitMerchantSignup(
+      {
+        full_name: fullName,
+        email,
+        password,
+        contact_phone: phone,
+        nida_number: nidaNumber,
+        business_name: businessName,
+        business_category: businessCategory,
+        nature_of_business: natureOfBusiness,
+        physical_address: physicalAddress,
+        region_city: regionCity,
+        website_url: websiteOrAppLink || null,
+        services_needed: servicesNeeded,
+        accepted_terms: agreedToTerms,
+        accepted_privacy: agreedToPrivacy,
+      },
+      tinCertificate,
+    );
   } catch (err) {
     if (err instanceof OnboardingApiError) {
       if (err.code === "nida_required" || err.code === "nida_invalid") {
