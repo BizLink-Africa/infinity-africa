@@ -269,10 +269,18 @@ class _FakeAuthAdminUser:
     app/services/admin_directory.py actually reads: .email and
     .user_metadata (for "full_name")."""
 
-    def __init__(self, user_id: str, *, email: str | None, full_name: str | None):
+    def __init__(
+        self,
+        user_id: str,
+        *,
+        email: str | None,
+        full_name: str | None,
+        email_confirmed_at: str | None = None,
+    ):
         self.id = user_id
         self.email = email
         self.user_metadata = {"full_name": full_name} if full_name else {}
+        self.email_confirmed_at = email_confirmed_at
 
 
 class _FakeGetUserResult:
@@ -295,8 +303,31 @@ class _FakeAuthAdmin:
     def __init__(self):
         self._users: dict[str, _FakeAuthAdminUser] = {}
 
-    def seed_user(self, user_id: str, *, email: str | None = None, full_name: str | None = None) -> None:
-        self._users[str(user_id)] = _FakeAuthAdminUser(str(user_id), email=email, full_name=full_name)
+    def seed_user(
+        self,
+        user_id: str,
+        *,
+        email: str | None = None,
+        full_name: str | None = None,
+        email_confirmed_at: str | None = None,
+    ) -> None:
+        self._users[str(user_id)] = _FakeAuthAdminUser(
+            str(user_id), email=email, full_name=full_name, email_confirmed_at=email_confirmed_at
+        )
+
+    def create_user(self, attributes: dict) -> _FakeGetUserResult:
+        """Mirrors supabase_auth's admin create_user for
+        app/services/onboarding.py::signup_merchant: rejects a duplicate
+        email the way real Supabase Auth does, otherwise creates a user
+        with user_metadata.full_name and honours email_confirm."""
+        email = attributes.get("email")
+        if email and any(user.email == email for user in self._users.values()):
+            raise Exception(f"A user with email {email} already registered")  # noqa: TRY002
+        user_id = str(uuid.uuid4())
+        full_name = (attributes.get("user_metadata") or {}).get("full_name")
+        confirmed_at = "2026-01-01T00:00:00+00:00" if attributes.get("email_confirm") else None
+        self.seed_user(user_id, email=email, full_name=full_name, email_confirmed_at=confirmed_at)
+        return _FakeGetUserResult(self._users[user_id])
 
     def get_user_by_id(self, user_id: str) -> _FakeGetUserResult:
         user = self._users.get(str(user_id))
@@ -344,7 +375,10 @@ class _FakeAuthAdmin:
             full_name = (options.get("data") or {}).get("full_name")
             self.seed_user(user_id, email=email, full_name=full_name)
             user = self._users[user_id]
-        elif link_type == "recovery":
+        elif link_type in ("recovery", "signup"):
+            # "signup" (email-verification link for the combined signup
+            # flow) and "recovery" both require an *existing* user and
+            # raise if none matches — the real API's behaviour.
             user = next((u for u in self._users.values() if u.email == email), None)
             if user is None:
                 raise Exception(f"User {email} not found")  # noqa: TRY002

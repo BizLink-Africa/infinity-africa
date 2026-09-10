@@ -16,9 +16,28 @@ export interface OnboardingMerchantAccountInput {
   region_city: string;
   website_url: string | null;
   contact_phone: string;
+  nida_number: string;
+  tin_number?: string | null;
+  expected_monthly_volume?: string | null;
   services_needed: ServiceNeeded[];
   accepted_terms: boolean;
   accepted_privacy: boolean;
+}
+
+/** Combined signup: account credentials + business details in one call to
+ * POST /v1/onboarding/signup (unauthenticated — the backend creates the
+ * Supabase Auth user itself). */
+export interface MerchantSignupInput extends OnboardingMerchantAccountInput {
+  full_name: string;
+  email: string;
+  password: string;
+}
+
+export interface MerchantSignupResult {
+  merchant_id: string;
+  merchant_code: string | null;
+  account_status: AccountStatus;
+  email_confirmation_required: boolean;
 }
 
 export interface OnboardingMerchant {
@@ -77,6 +96,11 @@ export interface OnboardingSubmission {
   physical_address: string;
   region_city: string;
   website_url: string | null;
+  /** Masked — last 4 digits of the NIDA only. The full number is never
+   * returned by the API. Null for pre-NIDA submissions. */
+  nida_last4: string | null;
+  tin_number: string | null;
+  expected_monthly_volume: string | null;
   services_needed: ServiceNeeded[];
   review_status: AccountStatus;
   review_note: string | null;

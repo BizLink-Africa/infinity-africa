@@ -12,10 +12,19 @@ from app.schemas.enums import (
 )
 from app.schemas.merchants import MerchantResponse
 
+# Same convention as app/schemas/auth.py's _EMAIL_PATTERN — no pydantic
+# EmailStr, which needs the email-validator package this codebase avoids.
+_EMAIL_PATTERN = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+
 
 class OnboardingMerchantAccountCreate(BaseModel):
     """No merchant_id, no contact_email — the caller's identity comes from
-    their verified JWT (app.auth.get_current_user), never the request body."""
+    their verified JWT (app.auth.get_current_user), never the request body.
+
+    `nida_number` is a plain str here (not format-validated at the schema
+    layer) so the service can raise the dedicated `nida_required` /
+    `nida_invalid` error codes the frontend keys off — see
+    app/core/nida.py and app/services/onboarding.py."""
 
     business_name: str
     nature_of_business: str
@@ -24,6 +33,9 @@ class OnboardingMerchantAccountCreate(BaseModel):
     region_city: str
     website_url: str | None = None
     contact_phone: str
+    nida_number: str = ""
+    tin_number: str | None = None
+    expected_monthly_volume: str | None = None
     services_needed: list[ServiceNeeded] = Field(min_length=1)
     accepted_terms: bool
     accepted_privacy: bool
@@ -34,10 +46,35 @@ class OnboardingMerchantAccountCreate(BaseModel):
         return validate_and_normalize_phone(value)
 
 
+class OnboardingSignupCreate(OnboardingMerchantAccountCreate):
+    """The single combined signup page — account credentials AND business
+    details in one request (POST /v1/onboarding/signup, unauthenticated).
+
+    The backend creates the Supabase Auth user itself (service_role,
+    app/services/onboarding.py::signup_merchant) — the frontend never
+    calls Supabase directly for this flow and never supplies a
+    merchant_id or an account status."""
+
+    full_name: str = Field(min_length=1, max_length=200)
+    email: str = Field(pattern=_EMAIL_PATTERN, max_length=254)
+    password: str = Field(min_length=8, max_length=128)
+
+
 class OnboardingMerchantAccountResponse(BaseModel):
     merchant: MerchantResponse
     account_status: AccountStatus
     next_path: str = "/merchant/overview"
+
+
+class OnboardingSignupResponse(BaseModel):
+    """Response to POST /v1/onboarding/signup. Deliberately minimal — no
+    session, no tokens: the merchant must verify their email (if required)
+    and then wait for Super Admin approval before logging in."""
+
+    merchant_id: uuid.UUID
+    merchant_code: str | None = None
+    account_status: AccountStatus = AccountStatus.PENDING_VERIFICATION
+    email_confirmation_required: bool = True
 
 
 class OnboardingStatusResponse(BaseModel):
@@ -75,6 +112,11 @@ class OnboardingSubmissionResponse(BaseModel):
     physical_address: str
     region_city: str
     website_url: str | None = None
+    # Masked — last 4 digits only (e.g. "1234"). The full NIDA number is
+    # never returned by the API, only this. None for pre-NIDA submissions.
+    nida_last4: str | None = None
+    tin_number: str | None = None
+    expected_monthly_volume: str | None = None
     services_needed: list[ServiceNeeded]
     review_status: AccountStatus
     review_note: str | None = None

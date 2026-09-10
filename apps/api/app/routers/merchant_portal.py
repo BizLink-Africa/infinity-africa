@@ -1219,7 +1219,10 @@ def create_my_api_key(
     app.services.api_access.check_production_api_access)."""
     require_merchant_api_keys_enabled()
     client = get_supabase_admin()
-    merchant = get_by_id(client, "merchants", membership.merchant_id) or {}
+    # Pending/unapproved merchants can't mint any API key (sandbox or
+    # live) — see app/services/merchant_gate.py. Production keys have the
+    # stricter check_production_api_access gate on top of this.
+    merchant = require_approved_merchant(client, membership.merchant_id)
     if payload.environment == "live":
         check_production_api_access(client, merchant)
     else:

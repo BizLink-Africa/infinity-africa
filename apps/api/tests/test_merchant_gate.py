@@ -103,6 +103,31 @@ def test_pending_merchant_cannot_initiate_a_collection(fake_client):
     assert fake_client.table("collections")._table.rows == []
 
 
+def test_pending_merchant_cannot_create_an_api_key(fake_client, monkeypatch):
+    monkeypatch.setenv("ENABLE_MERCHANT_API_KEYS", "true")
+    get_settings.cache_clear()
+    _merchant_id, user_id = _pending_merchant(fake_client)
+    response = client.post(
+        "/v1/merchant/api-keys",
+        headers=auth_headers(user_id),
+        json={"name": "test key", "environment": "sandbox"},
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "merchant_not_approved"
+    assert fake_client.table("api_keys")._table.rows == []
+
+
+def test_pending_merchant_cannot_activate_pay_by_link(fake_client):
+    _merchant_id, user_id = _pending_merchant(fake_client)
+    response = client.post(
+        "/v1/merchant/pay-by-link",
+        headers=auth_headers(user_id),
+        json={"display_name": "My Shop"},
+    )
+    assert response.status_code == 409  # ensure_merchant_accepts_payments -> ConflictError
+    assert fake_client.table("merchant_pay_links")._table.rows == []
+
+
 # --- approved merchant is unaffected -------------------------------------
 
 

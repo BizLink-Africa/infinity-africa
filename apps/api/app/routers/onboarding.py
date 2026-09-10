@@ -21,15 +21,49 @@ from app.schemas.onboarding import (
     OnboardingDocumentResponse,
     OnboardingMerchantAccountCreate,
     OnboardingMerchantAccountResponse,
+    OnboardingSignupCreate,
+    OnboardingSignupResponse,
     OnboardingStatusResponse,
 )
 from app.services.onboarding import (
     create_merchant_onboarding,
     get_onboarding_status,
     register_onboarding_document,
+    signup_merchant,
 )
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
+
+
+@router.post(
+    "/signup",
+    response_model=APIResponse[OnboardingSignupResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def merchant_signup(
+    payload: OnboardingSignupCreate,
+    _rate_limit: Annotated[
+        None, Depends(rate_limit(scope="merchant_signup", limit=5, window_seconds=300))
+    ],
+):
+    """Combined signup: account credentials + business details in one call.
+    Unauthenticated — the backend creates the Supabase Auth user itself
+    (service_role) so the frontend never touches Supabase Auth for this
+    flow. The merchant is created PENDING_VERIFICATION; it is NOT
+    auto-approved and no welcome/approval email is sent here (that only
+    happens on Super Admin approval). NIDA is mandatory — a missing value
+    returns `nida_required`, a malformed one `nida_invalid`."""
+    client = get_supabase_admin()
+    result = signup_merchant(client, payload=payload)
+    merchant = result["merchant"]
+    return APIResponse(
+        data=OnboardingSignupResponse(
+            merchant_id=merchant["id"],
+            merchant_code=merchant.get("merchant_code"),
+            account_status=AccountStatus.PENDING_VERIFICATION,
+            email_confirmation_required=result["email_confirmation_required"],
+        )
+    )
 
 
 @router.post(

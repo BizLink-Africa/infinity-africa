@@ -35,6 +35,7 @@ def _valid_payload(**overrides) -> dict:
         "region_city": "Dar es Salaam",
         "website_url": None,
         "contact_phone": "+255700000000",
+        "nida_number": "19900101-12345-12345-12",
         "services_needed": ["PAYMENT_LINKS", "INVOICES"],
         "accepted_terms": True,
         "accepted_privacy": True,

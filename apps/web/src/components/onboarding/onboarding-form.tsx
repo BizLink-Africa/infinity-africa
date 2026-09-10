@@ -37,6 +37,7 @@ export function OnboardingForm({
     businessCategory: "",
     physicalAddress: "",
     regionCity: "",
+    nidaNumber: "",
     websiteOrAppLink: "",
     contactPhone: defaultPhone,
   };
@@ -140,23 +141,43 @@ export function OnboardingForm({
           </div>
         </div>
 
-        <div>
-          <label htmlFor="contactPhone" className={labelClass}>
-            Contact Phone Number
-          </label>
-          <input
-            id="contactPhone"
-            name="contactPhone"
-            type="tel"
-            placeholder="e.g. 0747730270"
-            defaultValue={values.contactPhone}
-            className={inputClass}
-          />
-          {state?.errors?.contactPhone?.map((msg) => (
-            <p key={msg} className={errorClass}>
-              {msg}
-            </p>
-          ))}
+        <div className="grid sm:grid-cols-2 gap-7">
+          <div>
+            <label htmlFor="contactPhone" className={labelClass}>
+              Contact Phone Number
+            </label>
+            <input
+              id="contactPhone"
+              name="contactPhone"
+              type="tel"
+              placeholder="e.g. 0747730270"
+              defaultValue={values.contactPhone}
+              className={inputClass}
+            />
+            {state?.errors?.contactPhone?.map((msg) => (
+              <p key={msg} className={errorClass}>
+                {msg}
+              </p>
+            ))}
+          </div>
+          <div>
+            <label htmlFor="nidaNumber" className={labelClass}>
+              NIDA Number
+            </label>
+            <input
+              id="nidaNumber"
+              name="nidaNumber"
+              type="text"
+              placeholder="20-digit National ID number"
+              defaultValue={values.nidaNumber}
+              className={inputClass}
+            />
+            {state?.errors?.nidaNumber?.map((msg) => (
+              <p key={msg} className={errorClass}>
+                {msg}
+              </p>
+            ))}
+          </div>
         </div>
 
         <div>

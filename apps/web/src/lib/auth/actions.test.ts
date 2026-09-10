@@ -26,8 +26,18 @@ vi.mock("./supabase-status", async (importOriginal) => {
 });
 
 const getOnboardingStatus = vi.fn();
+const submitMerchantSignup = vi.fn();
+class OnboardingApiError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
 vi.mock("@/lib/onboarding/api", () => ({
   getOnboardingStatus: (...args: unknown[]) => getOnboardingStatus(...args),
+  submitMerchantSignup: (...args: unknown[]) => submitMerchantSignup(...args),
+  OnboardingApiError,
 }));
 
 vi.mock("next/headers", () => ({
@@ -57,8 +67,18 @@ const VALID_SIGNUP = {
   fullName: "Amani Mushi",
   email: "amani@shop.co.tz",
   phone: "+255700000000",
+  nidaNumber: "19900101-12345-12345-12",
   password: "Str0ng!pass",
   confirmPassword: "Str0ng!pass",
+  businessName: "Amani Traders",
+  businessCategory: "Retail",
+  natureOfBusiness: "Online retail",
+  physicalAddress: "Mbezi",
+  regionCity: "Dar es Salaam",
+  servicesNeeded: "PAYMENT_LINKS",
+  agreedToTerms: "on",
+  agreedToPrivacy: "on",
+  confirmedAccurate: "on",
 };
 
 async function importActions() {
@@ -71,50 +91,85 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SITE_URL = "https://infinityafrica.net";
 });
 
-// --- createAccountAction ------------------------------------------------
+// --- signupWithBusinessAction (combined signup) -----------------------
 
-describe("createAccountAction", () => {
-  it("when email confirmation is required (user, no session) shows the check-email message and does NOT redirect", async () => {
-    signUp.mockResolvedValue({ data: { user: { id: "u1" }, session: null }, error: null });
-    const { createAccountAction } = await importActions();
+describe("signupWithBusinessAction", () => {
+  it("requires a NIDA number, attached to the nidaNumber field", async () => {
+    const { signupWithBusinessAction } = await importActions();
+    const state = await signupWithBusinessAction(null, form({ ...VALID_SIGNUP, nidaNumber: "" }));
+    expect(state?.errors?.nidaNumber?.[0]).toMatch(/NIDA number is required/i);
+    expect(submitMerchantSignup).not.toHaveBeenCalled();
+  });
 
-    const state = await createAccountAction(null, form(VALID_SIGNUP));
+  it("rejects a NIDA number that isn't 20 digits", async () => {
+    const { signupWithBusinessAction } = await importActions();
+    const state = await signupWithBusinessAction(null, form({ ...VALID_SIGNUP, nidaNumber: "12345" }));
+    expect(state?.errors?.nidaNumber?.[0]).toMatch(/20 digits/i);
+    expect(submitMerchantSignup).not.toHaveBeenCalled();
+  });
 
+  it("on success (email confirmation required) shows the verify-then-wait message and offers resend", async () => {
+    submitMerchantSignup.mockResolvedValue({
+      merchant_id: "m1",
+      merchant_code: "MER-1",
+      account_status: "PENDING_VERIFICATION",
+      email_confirmation_required: true,
+    });
+    const { signupWithBusinessAction } = await importActions();
+
+    const state = await signupWithBusinessAction(null, form(VALID_SIGNUP));
+
+    expect(state?.notice).toMatch(/verify your email, then wait for Infinity Africa approval/i);
     expect(state?.awaitingEmailVerification).toBe(true);
-    expect(state?.notice).toMatch(/check your email to verify/i);
-    expect(state?.formError).toBeUndefined();
-    // emailRedirectTo must point at our callback route.
-    expect(signUp).toHaveBeenCalledWith(
+    expect(submitMerchantSignup).toHaveBeenCalledWith(
       expect.objectContaining({
-        options: expect.objectContaining({
-          emailRedirectTo: "https://infinityafrica.net/auth/callback?next=%2Fonboarding",
-        }),
+        email: "amani@shop.co.tz",
+        nida_number: "19900101-12345-12345-12",
+        business_name: "Amani Traders",
+        accepted_terms: true,
       }),
     );
   });
 
-  it("when signup returns an active session, redirects to /onboarding", async () => {
-    signUp.mockResolvedValue({
-      data: { user: { id: "u1" }, session: { access_token: "tok" } },
-      error: null,
+  it("on success (no email confirmation) shows the submitted-for-review message", async () => {
+    submitMerchantSignup.mockResolvedValue({
+      merchant_id: "m1",
+      merchant_code: "MER-1",
+      account_status: "PENDING_VERIFICATION",
+      email_confirmation_required: false,
     });
-    const { createAccountAction } = await importActions();
+    const { signupWithBusinessAction } = await importActions();
 
-    await expect(createAccountAction(null, form(VALID_SIGNUP))).rejects.toMatchObject({
-      location: "/onboarding",
-    });
+    const state = await signupWithBusinessAction(null, form(VALID_SIGNUP));
+    expect(state?.notice).toMatch(/submitted for review/i);
+    expect(state?.notice).toMatch(/collected offline|additional KYC/i);
+    expect(state?.awaitingEmailVerification).toBeFalsy();
   });
 
-  it("surfaces a real Supabase rejection as a form error", async () => {
-    signUp.mockResolvedValue({
-      data: { user: null, session: null },
-      error: { status: 422, message: "Password is too weak", name: "AuthApiError" },
-    });
-    const { createAccountAction } = await importActions();
+  it("maps a backend nida_invalid error onto the NIDA field", async () => {
+    submitMerchantSignup.mockRejectedValue(new OnboardingApiError("Enter a valid NIDA number.", "nida_invalid"));
+    const { signupWithBusinessAction } = await importActions();
+    const state = await signupWithBusinessAction(null, form(VALID_SIGNUP));
+    expect(state?.errors?.nidaNumber?.[0]).toMatch(/valid NIDA/i);
+  });
 
-    const state = await createAccountAction(null, form(VALID_SIGNUP));
-    expect(state?.formError).toBe("Password is too weak");
-    expect(state?.awaitingEmailVerification).toBeFalsy();
+  it("maps a duplicate-email conflict onto the email field", async () => {
+    submitMerchantSignup.mockRejectedValue(new OnboardingApiError("An account with this email already exists.", "conflict"));
+    const { signupWithBusinessAction } = await importActions();
+    const state = await signupWithBusinessAction(null, form(VALID_SIGNUP));
+    expect(state?.errors?.email?.[0]).toMatch(/already exists/i);
+  });
+
+  it("never redirects — the merchant must wait for approval", async () => {
+    submitMerchantSignup.mockResolvedValue({
+      merchant_id: "m1",
+      merchant_code: "MER-1",
+      account_status: "PENDING_VERIFICATION",
+      email_confirmation_required: true,
+    });
+    const { signupWithBusinessAction } = await importActions();
+    // resolves (returns a FormState) rather than throwing a redirect
+    await expect(signupWithBusinessAction(null, form(VALID_SIGNUP))).resolves.toBeTruthy();
   });
 });
 

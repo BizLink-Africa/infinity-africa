@@ -50,7 +50,10 @@ def _approved_merchant_with_pricing(fake_client, **merchant_overrides):
     return merchant, merchant_id, user_id
 
 
-def test_sandbox_key_creation_never_gated_even_for_an_unverified_merchant(fake_client):
+def test_sandbox_key_creation_blocked_for_unapproved_merchant(fake_client):
+    """Pending/unapproved merchants can't mint ANY API key (sandbox or
+    live) — see app/services/merchant_gate.py::require_approved_merchant,
+    applied in create_my_api_key before the environment split."""
     _merchant, _merchant_id, user_id = _merchant_admin(fake_client, status="pending", kyc_status="unverified")
 
     response = client.post(
@@ -58,10 +61,15 @@ def test_sandbox_key_creation_never_gated_even_for_an_unverified_merchant(fake_c
         headers=auth_headers(user_id),
         json={"name": "Sandbox key", "environment": "sandbox", "scopes": ["collections:write"]},
     )
-    assert response.status_code == 201, response.text
+    assert response.status_code == 403, response.text
+    assert response.json()["error"]["code"] == "merchant_not_approved"
+    assert fake_client.table("api_keys")._table.rows == []
 
 
-def test_live_key_creation_blocked_for_unapproved_merchant_with_exact_message(fake_client):
+def test_live_key_creation_blocked_for_unapproved_merchant(fake_client):
+    """An unapproved merchant is stopped at the require_approved_merchant
+    gate (which runs before the environment split), so a live-key request
+    fails the same way a sandbox one does — merchant_not_approved."""
     _merchant, _merchant_id, user_id = _merchant_admin(fake_client, status="pending", kyc_status="unverified")
 
     response = client.post(
@@ -70,10 +78,7 @@ def test_live_key_creation_blocked_for_unapproved_merchant_with_exact_message(fa
         json={"name": "Live key", "environment": "live", "scopes": ["collections:write"]},
     )
     assert response.status_code == 403, response.text
-    assert response.json()["error"]["code"] == "production_access_restricted"
-    assert response.json()["error"]["message"] == (
-        "Production API keys are available after your business account is approved."
-    )
+    assert response.json()["error"]["code"] == "merchant_not_approved"
 
 
 def test_live_key_creation_blocked_when_approved_but_no_pricing_rule_resolves(fake_client):

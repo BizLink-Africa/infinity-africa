@@ -57,6 +57,7 @@ def _valid_payload(**overrides) -> dict:
         "region_city": "Arusha",
         "website_url": None,
         "contact_phone": "+255712345678",
+        "nida_number": "19900101-12345-12345-12",
         "services_needed": ["PAYMENT_COLLECTION"],
         "accepted_terms": True,
         "accepted_privacy": True,
@@ -183,7 +184,7 @@ def test_approval_sends_a_welcome_email(fake_client, fake_resend):
 
     assert len(fake_resend.calls) == 1
     assert fake_resend.calls[0]["to"] == ["user@example.com"]
-    assert fake_resend.calls[0]["subject"] == "Welcome to Infinity Africa"
+    assert fake_resend.calls[0]["subject"] == "Your Infinity Africa account has been approved"
     html = fake_resend.calls[0]["html"]
     assert "Kilimanjaro Fresh Produce" in html
     assert "Request collections" in html
@@ -229,7 +230,7 @@ def test_welcome_email_never_goes_to_ceo(fake_client, fake_resend, monkeypatch):
     response = client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
     assert response.status_code == 200, response.text
 
-    welcome_calls = [c for c in fake_resend.calls if c["subject"] == "Welcome to Infinity Africa"]
+    welcome_calls = [c for c in fake_resend.calls if c["subject"] == "Your Infinity Africa account has been approved"]
     assert len(welcome_calls) == 1
     assert welcome_calls[0]["to"] == ["user@example.com"]
     assert welcome_calls[0]["to"] != ["ceo@infinityafrica.net"]
@@ -247,7 +248,7 @@ def test_welcome_email_reply_to_is_info_email(fake_client, fake_resend):
 
     client.post(f"/v1/admin/onboarding/{submission_id}/approve", headers=auth_headers(admin_id))
 
-    welcome_call = next(c for c in fake_resend.calls if c["subject"] == "Welcome to Infinity Africa")
+    welcome_call = next(c for c in fake_resend.calls if c["subject"] == "Your Infinity Africa account has been approved")
     assert welcome_call["reply_to"] == "info@infinityafrica.net"
 
 
@@ -317,7 +318,7 @@ def test_missing_merchant_email_does_not_fall_back_to_ceo(fake_client, fake_rese
     assert merchant["status"] == "active"
 
     # No welcome email sent anywhere — in particular, never to CEO_EMAIL.
-    welcome_calls = [c for c in fake_resend.calls if c["subject"] == "Welcome to Infinity Africa"]
+    welcome_calls = [c for c in fake_resend.calls if c["subject"] == "Your Infinity Africa account has been approved"]
     assert welcome_calls == []
     assert not any(d["email_type"] == "merchant_welcome" for d in fake_client.table("email_deliveries")._table.rows)
 

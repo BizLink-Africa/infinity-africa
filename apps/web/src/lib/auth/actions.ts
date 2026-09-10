@@ -3,22 +3,17 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { ServiceNeeded } from "@infinity/shared";
+
 import { createClient } from "@/lib/supabase/server";
-import { getOnboardingStatus } from "@/lib/onboarding/api";
+import { getOnboardingStatus, submitMerchantSignup, OnboardingApiError } from "@/lib/onboarding/api";
 
 import type { FormState } from "./form-state";
+import { isValidNida } from "./nida";
 import { isEmail, validatePassword } from "./password";
-import { createUser, findByEmail, verifyPassword } from "./mock-store";
+import { findByEmail, verifyPassword } from "./mock-store";
 import { setMockSession } from "./mock-session";
 import { isKnownAuthRejection, isSupabaseConfigured } from "./supabase-status";
-
-function describeSupabaseError(error: unknown): string {
-  if (error && typeof error === "object" && "message" in error) {
-    const message = String((error as { message?: unknown }).message ?? "");
-    if (message) return message;
-  }
-  return "Something went wrong. Please try again.";
-}
 
 /**
  * True when a Supabase Auth sign-in was rejected specifically because the
@@ -52,111 +47,6 @@ async function authCallbackUrl(next: string): Promise<string> {
     base = host ? `${proto}://${host}` : "http://localhost:3000";
   }
   return `${base}/auth/callback?next=${encodeURIComponent(next)}`;
-}
-
-export async function createAccountAction(_prevState: FormState, formData: FormData): Promise<FormState> {
-  const fullName = String(formData.get("fullName") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
-  const phone = String(formData.get("phone") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
-  const confirmPassword = String(formData.get("confirmPassword") ?? "");
-
-  const errors: Record<string, string[]> = {};
-  if (!fullName) errors.fullName = ["Full name is required."];
-  if (!email) {
-    errors.email = ["Email address is required."];
-  } else if (!isEmail(email)) {
-    errors.email = ["Enter a valid email address."];
-  }
-  if (!phone) errors.phone = ["Contact number is required."];
-
-  const passwordErrors = validatePassword(password);
-  if (passwordErrors.length > 0) errors.password = passwordErrors;
-
-  if (!confirmPassword) {
-    errors.confirmPassword = ["Please confirm your password."];
-  } else if (confirmPassword !== password) {
-    errors.confirmPassword = ["Passwords do not match."];
-  }
-
-  if (Object.keys(errors).length > 0) {
-    return { errors, values: { fullName, email, phone } };
-  }
-
-  let userId: string | null = null;
-  let usedSupabase = false;
-
-  if (isSupabaseConfigured()) {
-    try {
-      const supabase = await createClient();
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { full_name: fullName, phone },
-          emailRedirectTo: await authCallbackUrl("/onboarding"),
-        },
-      });
-      if (error) throw error;
-      usedSupabase = true;
-      userId = data.user?.id ?? null;
-
-      // Supabase returns a populated `user` but a null `session` when the
-      // project requires email confirmation — the account exists but is
-      // not usable yet. This path previously still fell through to
-      // `redirect("/onboarding")`, where the auth guard found no session
-      // and bounced the merchant to /merchant/login: that is exactly the
-      // "returned to login right after signup" bug. Stop here and tell
-      // them to check their email instead.
-      //
-      // This branch also covers Supabase's account-enumeration protection
-      // (an already-registered email returns an obfuscated user with a
-      // null session and no error) — showing the same "check your email"
-      // copy is the correct, non-revealing response there too.
-      if (!data.session) {
-        return {
-          errors: {},
-          values: { fullName, email, phone },
-          awaitingEmailVerification: true,
-          notice:
-            "Account created. Check your email to verify your account, then continue your merchant verification.",
-        };
-      }
-    } catch (err) {
-      if (isKnownAuthRejection(err)) {
-        return { errors: {}, formError: describeSupabaseError(err), values: { fullName, email, phone } };
-      }
-      // Connectivity failure — fall through to the mock store below.
-    }
-  }
-
-  if (!usedSupabase) {
-    if (findByEmail(email)) {
-      return {
-        errors: {},
-        formError: "An account with this email already exists.",
-        values: { fullName, email, phone },
-      };
-    }
-    const user = createUser({ fullName, email, phone, password });
-    await setMockSession(user.id);
-    userId = user.id;
-  }
-
-  if (!userId) {
-    return {
-      errors: {},
-      values: { fullName, email, phone },
-      awaitingEmailVerification: true,
-      notice:
-        "Account created. Check your email to verify your account, then continue your merchant verification.",
-    };
-  }
-
-  // Reached only with a real session in hand (mock path, or a Supabase
-  // project with email confirmation disabled). Send them straight to
-  // document/business verification.
-  redirect("/onboarding");
 }
 
 /**
@@ -196,6 +86,139 @@ export async function resendVerificationAction(_prevState: FormState, formData: 
     values: { email },
     awaitingEmailVerification: true,
     notice: "If that account still needs verification, we've sent a fresh link. Check your inbox and spam folder.",
+  };
+}
+
+const VALID_SERVICES = new Set<string>(Object.values(ServiceNeeded));
+
+const SIGNUP_SUCCESS_VERIFY =
+  "Account created. Please verify your email, then wait for Infinity Africa approval.";
+const SIGNUP_SUCCESS_NO_VERIFY =
+  "Account created. Your business details have been submitted for review. Infinity Africa will contact you if " +
+  "additional KYC documents are needed.";
+
+/**
+ * Combined merchant signup — account credentials AND business details on
+ * one page. Posts to the unauthenticated backend endpoint
+ * POST /v1/onboarding/signup, which creates the Supabase Auth user
+ * itself (service_role) plus the merchant + PENDING_VERIFICATION
+ * onboarding submission, notifies the CEO, and emails a verification
+ * link. No merchant is ever auto-approved; no welcome/approval email is
+ * sent here.
+ */
+export async function signupWithBusinessAction(_prevState: FormState, formData: FormData): Promise<FormState> {
+  const get = (k: string) => String(formData.get(k) ?? "").trim();
+
+  const fullName = get("fullName");
+  const email = get("email");
+  const phone = get("phone");
+  const nidaNumber = get("nidaNumber");
+  const password = String(formData.get("password") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+
+  const businessName = get("businessName");
+  const businessCategory = get("businessCategory");
+  const natureOfBusiness = get("natureOfBusiness");
+  const physicalAddress = get("physicalAddress");
+  const regionCity = get("regionCity");
+  const websiteOrAppLink = get("websiteOrAppLink");
+  const tinNumber = get("tinNumber");
+  const expectedVolume = get("expectedVolume");
+
+  const servicesNeeded = formData
+    .getAll("servicesNeeded")
+    .map((v) => String(v))
+    .filter((v): v is ServiceNeeded => VALID_SERVICES.has(v));
+
+  const agreedToTerms = formData.get("agreedToTerms") === "on";
+  const agreedToPrivacy = formData.get("agreedToPrivacy") === "on";
+  const confirmedAccurate = formData.get("confirmedAccurate") === "on";
+
+  const values: Record<string, string> = {
+    fullName,
+    email,
+    phone,
+    businessName,
+    businessCategory,
+    natureOfBusiness,
+    physicalAddress,
+    regionCity,
+    websiteOrAppLink,
+    tinNumber,
+    expectedVolume,
+  };
+
+  const errors: Record<string, string[]> = {};
+  if (!fullName) errors.fullName = ["Your name is required."];
+  if (!email) errors.email = ["Email address is required."];
+  else if (!isEmail(email)) errors.email = ["Enter a valid email address."];
+  if (!phone) errors.phone = ["Phone number is required."];
+
+  if (!nidaNumber) errors.nidaNumber = ["NIDA number is required."];
+  else if (!isValidNida(nidaNumber)) errors.nidaNumber = ["Enter a valid NIDA number — it should be 20 digits."];
+
+  const passwordErrors = validatePassword(password);
+  if (passwordErrors.length > 0) errors.password = passwordErrors;
+  if (!confirmPassword) errors.confirmPassword = ["Please confirm your password."];
+  else if (confirmPassword !== password) errors.confirmPassword = ["Passwords do not match."];
+
+  if (!businessName) errors.businessName = ["Business name is required."];
+  if (!businessCategory) errors.businessCategory = ["Business category is required."];
+  if (!natureOfBusiness) errors.natureOfBusiness = ["Nature of business is required."];
+  if (!physicalAddress) errors.physicalAddress = ["Physical address is required."];
+  if (!regionCity) errors.regionCity = ["Region/city is required."];
+  if (servicesNeeded.length === 0) errors.servicesNeeded = ["Select at least one service you need."];
+
+  if (!agreedToTerms) errors.agreedToTerms = ["You must agree to the Terms of Service."];
+  if (!agreedToPrivacy) errors.agreedToPrivacy = ["You must agree to the Privacy Policy."];
+  if (!confirmedAccurate) errors.confirmedAccurate = ["Please confirm the information provided is accurate."];
+
+  if (Object.keys(errors).length > 0) {
+    return { errors, values };
+  }
+
+  let result;
+  try {
+    result = await submitMerchantSignup({
+      full_name: fullName,
+      email,
+      password,
+      contact_phone: phone,
+      nida_number: nidaNumber,
+      tin_number: tinNumber || null,
+      expected_monthly_volume: expectedVolume || null,
+      business_name: businessName,
+      business_category: businessCategory,
+      nature_of_business: natureOfBusiness,
+      physical_address: physicalAddress,
+      region_city: regionCity,
+      website_url: websiteOrAppLink || null,
+      services_needed: servicesNeeded,
+      accepted_terms: agreedToTerms,
+      accepted_privacy: agreedToPrivacy,
+    });
+  } catch (err) {
+    if (err instanceof OnboardingApiError) {
+      if (err.code === "nida_required" || err.code === "nida_invalid") {
+        return { errors: { nidaNumber: [err.message] }, values };
+      }
+      if (err.code === "conflict") {
+        return { errors: { email: ["An account with this email already exists."] }, values };
+      }
+      return { errors: {}, formError: err.message, values };
+    }
+    return {
+      errors: {},
+      formError: "Couldn't reach Infinity Africa. Check your connection and try again.",
+      values,
+    };
+  }
+
+  return {
+    errors: {},
+    values: { email },
+    awaitingEmailVerification: result.email_confirmation_required,
+    notice: result.email_confirmation_required ? SIGNUP_SUCCESS_VERIFY : SIGNUP_SUCCESS_NO_VERIFY,
   };
 }
 

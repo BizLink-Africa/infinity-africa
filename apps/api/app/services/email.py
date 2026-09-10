@@ -453,6 +453,60 @@ def send_password_reset_email(client: Client, *, email: str, redirect_to: str) -
     )
 
 
+def send_email_verification_email(client: Client, *, email: str, action_link: str) -> dict | None:
+    """Sends the "confirm your email address" link for the combined merchant
+    signup (app/services/onboarding.py::signup_merchant). Best-effort —
+    never raises: the account + onboarding submission already exist by the
+    time this is called, and the merchant can request a fresh link from the
+    "check your email" screen. NOT the approval/welcome email — that only
+    goes out after Super Admin approval (send_merchant_welcome_email). The
+    verification link/token is never passed to _log_delivery or logged."""
+    settings = get_settings()
+    subject = "Confirm your email address"
+    sender = settings.email_from
+
+    body = f"""
+    <h1 style="margin:0 0 20px;font-size:20px;color:#1f2937;">Confirm your email address</h1>
+    <p style="margin:0 0 16px;font-size:14px;color:#374151;">Thanks for signing up with Infinity Africa. Confirm your
+    email address to finish creating your merchant account.</p>
+    {_cta_button(action_link, "Confirm email address")}
+    <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">After you confirm, our team reviews your business details
+    and will approve your account or contact you if we need anything else. You'll be able to sign in once your account
+    is approved.</p>
+    """
+    html = _email_shell(body_html=body)
+
+    try:
+        message_id = send_email(to=email, subject=subject, html=html, sender=sender, reply_to=settings.email_reply_to)
+    except EmailDeliveryError as exc:
+        _log_delivery(
+            client,
+            merchant_id=None,
+            email_type="email_verification",
+            related_resource_type=None,
+            related_resource_id=None,
+            recipient_email=email,
+            sender_email=sender,
+            subject=subject,
+            status="failed",
+            error_message=str(exc),
+        )
+        return None
+
+    return _log_delivery(
+        client,
+        merchant_id=None,
+        email_type="email_verification",
+        related_resource_type=None,
+        related_resource_id=None,
+        recipient_email=email,
+        sender_email=sender,
+        subject=subject,
+        status="sent",
+        provider_message_id=message_id or None,
+    )
+
+
 # --- 4. Payment receipt -------------------------------------------------------
 
 
@@ -696,7 +750,7 @@ def send_merchant_welcome_email(client: Client, *, merchant: dict, portal_url: s
     settings = get_settings()
     business_name = merchant.get("business_name") or "there"
     merchant_code = merchant.get("merchant_code")
-    subject = "Welcome to Infinity Africa"
+    subject = "Your Infinity Africa account has been approved"
     sender = settings.email_from
 
     services_list = "".join(
@@ -768,6 +822,7 @@ def send_merchant_signup_notification_email(
     nature_of_business: str | None = None,
     business_category: str | None = None,
     business_location: str | None = None,
+    nida_masked: str | None = None,
     submitted_at: str | None = None,
 ) -> dict | None:
     """Best-effort — never raises. Called right after a *new* onboarding
@@ -807,6 +862,7 @@ def send_merchant_signup_notification_email(
         ("Contact person", contact_name or "—"),
         ("Merchant email", contact_email),
         ("Phone number", contact_phone or "—"),
+        ("NIDA number", nida_masked or "—"),
         ("Business type/category", business_type or "—"),
         ("Business location", business_location or "—"),
         ("Submitted", submitted_at or "—"),
@@ -828,6 +884,7 @@ def send_merchant_signup_notification_email(
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       {rows_html}
     </table>
+    <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">Supporting KYC documents (TIN certificate, business licence, etc.) are collected offline by Infinity Africa if needed.</p>
     {_cta_button(review_url, "Review Submission")}
     """
     html = _email_shell(body_html=body)

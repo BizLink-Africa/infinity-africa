@@ -44,6 +44,23 @@ class ValidationAPIError(APIError):
     code = "validation_error"
 
 
+class NidaRequiredError(APIError):
+    """Merchant signup / onboarding submitted without a NIDA number. 400
+    with a dedicated `nida_required` code so the frontend can attach the
+    error to the NIDA field specifically ("NIDA number is required.")."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    code = "nida_required"
+
+
+class NidaInvalidError(APIError):
+    """NIDA number present but not a valid Tanzanian NIDA shape (20
+    digits). 422 with a dedicated `nida_invalid` code."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "nida_invalid"
+
+
 class IdempotencyKeyReusedError(ConflictError):
     code = "idempotency_key_reused"
 

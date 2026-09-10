@@ -6,6 +6,7 @@ import { ServiceNeeded } from "@infinity/shared";
 
 import { getCurrentUser } from "@/lib/auth/current-user";
 import type { FormState } from "@/lib/auth/form-state";
+import { isValidNida } from "@/lib/auth/nida";
 
 import { OnboardingApiError, submitOnboardingAccount } from "./api";
 
@@ -23,6 +24,7 @@ export async function submitOnboardingAction(_prevState: FormState, formData: Fo
   const physicalAddress = String(formData.get("physicalAddress") ?? "").trim();
   const regionCity = String(formData.get("regionCity") ?? "").trim();
   const contactPhone = String(formData.get("contactPhone") ?? "").trim();
+  const nidaNumber = String(formData.get("nidaNumber") ?? "").trim();
   const websiteOrAppLink = String(formData.get("websiteOrAppLink") ?? "").trim();
 
   const servicesNeeded = formData
@@ -41,6 +43,8 @@ export async function submitOnboardingAction(_prevState: FormState, formData: Fo
   if (!physicalAddress) errors.physicalAddress = ["Physical address is required."];
   if (!regionCity) errors.regionCity = ["Region/city is required."];
   if (!contactPhone) errors.contactPhone = ["Contact phone number is required."];
+  if (!nidaNumber) errors.nidaNumber = ["NIDA number is required."];
+  else if (!isValidNida(nidaNumber)) errors.nidaNumber = ["Enter a valid NIDA number — it should be 20 digits."];
   if (servicesNeeded.length === 0) errors.servicesNeeded = ["Select at least one service you need."];
 
   if (!agreedToTerms) errors.agreedToTerms = ["You must agree to the Infinity Africa Terms of Service."];
@@ -54,6 +58,7 @@ export async function submitOnboardingAction(_prevState: FormState, formData: Fo
     physicalAddress,
     regionCity,
     contactPhone,
+    nidaNumber,
     websiteOrAppLink,
   };
 
@@ -70,11 +75,15 @@ export async function submitOnboardingAction(_prevState: FormState, formData: Fo
       region_city: regionCity,
       website_url: websiteOrAppLink || null,
       contact_phone: contactPhone,
+      nida_number: nidaNumber,
       services_needed: servicesNeeded,
       accepted_terms: agreedToTerms,
       accepted_privacy: agreedToPrivacy,
     });
   } catch (err) {
+    if (err instanceof OnboardingApiError && (err.code === "nida_required" || err.code === "nida_invalid")) {
+      return { errors: { nidaNumber: [err.message] }, values };
+    }
     const formError =
       err instanceof OnboardingApiError
         ? err.code === "conflict"

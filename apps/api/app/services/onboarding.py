@@ -21,15 +21,21 @@ from supabase import Client
 
 from app.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationAPIError
+from app.core.nida import mask_nida, nida_last4, normalize_nida
+from app.core.phone import validate_and_normalize_phone
 from app.core.time import utc_now_iso
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.enums import AccountStatus, DocumentType
-from app.schemas.onboarding import OnboardingMerchantAccountCreate
+from app.schemas.onboarding import (
+    OnboardingMerchantAccountCreate,
+    OnboardingSignupCreate,
+)
 from app.schemas.withdrawals import PricingRuleCreate
 from app.services.admin_directory import best_effort_user_profile
 from app.services.audit import write_audit_log
 from app.services.crud import get_by_id, insert_row, update_row
 from app.services.email import (
+    send_email_verification_email,
     send_merchant_signup_notification_email,
     send_merchant_welcome_email,
 )
@@ -73,13 +79,16 @@ def _find_submission(client: Client, merchant_id: uuid.UUID) -> dict | None:
     return rows[0] if rows else None
 
 
-def _submission_data(payload: OnboardingMerchantAccountCreate) -> dict[str, Any]:
+def _submission_data(payload: OnboardingMerchantAccountCreate, *, nida_number: str) -> dict[str, Any]:
     return {
         "nature_of_business": payload.nature_of_business,
         "business_category": payload.business_category,
         "physical_address": payload.physical_address,
         "region_city": payload.region_city,
         "website_url": payload.website_url,
+        "nida_number": nida_number,
+        "tin_number": payload.tin_number or None,
+        "expected_monthly_volume": payload.expected_monthly_volume or None,
         "services_needed": [s.value for s in payload.services_needed],
         "accepted_terms": True,
         "accepted_privacy": True,
@@ -92,12 +101,21 @@ def _submission_data(payload: OnboardingMerchantAccountCreate) -> dict[str, Any]
 
 
 def create_merchant_onboarding(
-    client: Client, *, user: AuthenticatedUser, payload: OnboardingMerchantAccountCreate
+    client: Client,
+    *,
+    user: AuthenticatedUser,
+    payload: OnboardingMerchantAccountCreate,
+    contact_name: str | None = None,
 ) -> dict:
     if not payload.accepted_terms:
         raise ValidationAPIError("You must accept the Infinity Africa Terms of Service")
     if not payload.accepted_privacy:
         raise ValidationAPIError("You must accept the Infinity Africa Privacy Policy")
+
+    # Mandatory for MVP — raises NidaRequiredError / NidaInvalidError with
+    # the dedicated codes the frontend attaches to the NIDA field. Stored
+    # digits-only; never logged in full.
+    nida = normalize_nida(payload.nida_number)
 
     membership = _find_active_membership(client, user.id)
 
@@ -122,7 +140,7 @@ def create_merchant_onboarding(
             client,
             "onboarding_submissions",
             uuid.UUID(submission["id"]),
-            {**_submission_data(payload), "submitted_at": utc_now_iso()},
+            {**_submission_data(payload, nida_number=nida), "submitted_at": utc_now_iso()},
         )
 
         write_audit_log(
@@ -167,7 +185,11 @@ def create_merchant_onboarding(
     insert_row(
         client,
         "onboarding_submissions",
-        {"merchant_id": str(merchant_id), "submitted_at": submitted_at, **_submission_data(payload)},
+        {
+            "merchant_id": str(merchant_id),
+            "submitted_at": submitted_at,
+            **_submission_data(payload, nida_number=nida),
+        },
     )
 
     write_audit_log(
@@ -188,21 +210,95 @@ def create_merchant_onboarding(
     # success on) the merchant's own signup submission, which already
     # succeeded by this point.
     try:
-        profile = best_effort_user_profile(client, user.id)
+        resolved_contact_name = contact_name or best_effort_user_profile(client, user.id).get("full_name")
         business_location = ", ".join(v for v in (payload.physical_address, payload.region_city) if v) or None
         send_merchant_signup_notification_email(
             client,
             merchant=merchant,
-            contact_name=profile.get("full_name"),
+            contact_name=resolved_contact_name,
             nature_of_business=payload.nature_of_business,
             business_category=payload.business_category,
             business_location=business_location,
+            nida_masked=mask_nida(nida),
             submitted_at=submitted_at,
         )
     except Exception:  # noqa: BLE001, S110
         pass
 
     return merchant
+
+
+def signup_merchant(client: Client, *, payload: OnboardingSignupCreate) -> dict:
+    """The single combined signup: create the Supabase Auth user
+    (service_role — the frontend never touches Supabase Auth for this
+    flow), then create the merchant + membership + onboarding submission
+    and fire the CEO notification, then send the merchant an email-
+    verification link.
+
+    Returns ``{"merchant": <row>, "email_confirmation_required": bool}``.
+    Never returns a session or token — the merchant must verify their
+    email (if required) and then wait for Super Admin approval.
+
+    NOT auto-approved: the merchant is created ``status='pending'`` /
+    ``review_status='PENDING_VERIFICATION'`` exactly like the two-step
+    flow. No welcome/approval email is sent here — that only happens on
+    Super Admin approval (approve_onboarding_submission)."""
+    # Validate NIDA up front so a bad value fails *before* an auth user is
+    # created (create_merchant_onboarding re-validates too — cheap, and it
+    # keeps that function correct for its other callers).
+    normalize_nida(payload.nida_number)
+    phone = validate_and_normalize_phone(payload.contact_phone)
+
+    try:
+        created = client.auth.admin.create_user(
+            {
+                "email": payload.email,
+                "password": payload.password,
+                "email_confirm": False,
+                "user_metadata": {"full_name": payload.full_name, "phone": phone},
+            }
+        )
+    except Exception as exc:
+        message = str(exc).lower()
+        if "already" in message and ("registered" in message or "exists" in message):
+            raise ConflictError("An account with this email already exists.") from exc
+        if "password" in message:
+            raise ValidationAPIError(
+                "Password does not meet the requirements. Use at least 8 characters "
+                "with an uppercase letter, a lowercase letter, a number, and a symbol."
+            ) from exc
+        raise ValidationAPIError("Couldn't create the account. Please check your details and try again.") from exc
+
+    new_user = getattr(created, "user", None) or created
+    user = AuthenticatedUser(id=uuid.UUID(str(new_user.id)), email=payload.email)
+
+    merchant = create_merchant_onboarding(
+        client, user=user, payload=payload, contact_name=payload.full_name
+    )
+
+    email_confirmed_at = getattr(new_user, "email_confirmed_at", None)
+    email_confirmation_required = not email_confirmed_at
+
+    if email_confirmation_required:
+        # Best-effort — a slow/failed verification email must never fail
+        # signup (the account + submission already exist). The merchant can
+        # request a fresh link from the "check your email" screen.
+        try:
+            settings = get_settings()
+            link = client.auth.admin.generate_link(
+                {
+                    "type": "signup",
+                    "email": payload.email,
+                    "password": payload.password,
+                    "options": {"redirect_to": f"{settings.app_url}/auth/callback?next=/merchant/overview"},
+                }
+            )
+            action_link = link.properties.action_link
+            send_email_verification_email(client, email=payload.email, action_link=action_link)
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    return {"merchant": merchant, "email_confirmation_required": email_confirmation_required}
 
 
 def get_onboarding_status(client: Client, *, user: AuthenticatedUser) -> dict:
@@ -335,6 +431,10 @@ def _to_submission_row(submission: dict, merchant: dict, documents: list[dict]) 
         "physical_address": submission["physical_address"],
         "region_city": submission["region_city"],
         "website_url": submission.get("website_url"),
+        # Never the full NIDA — only the last 4 digits reach the API response.
+        "nida_last4": nida_last4(submission.get("nida_number")),
+        "tin_number": submission.get("tin_number"),
+        "expected_monthly_volume": submission.get("expected_monthly_volume"),
         "services_needed": submission.get("services_needed") or [],
         "review_status": submission["review_status"],
         "review_note": submission.get("review_note"),

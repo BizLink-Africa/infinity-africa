@@ -5,6 +5,8 @@ import type { DocumentType } from "@infinity/shared";
 import { getAccessToken } from "@/lib/supabase/session";
 
 import type {
+  MerchantSignupInput,
+  MerchantSignupResult,
   OnboardingDocument,
   OnboardingMerchantAccountInput,
   OnboardingMerchantAccountResult,
@@ -89,6 +91,24 @@ export async function getOnboardingStatus(accessToken?: string): Promise<Onboard
   } catch {
     return null;
   }
+}
+
+/** Combined signup — unauthenticated (no Authorization header): the
+ * backend creates the Supabase Auth user itself. Surfaces the backend
+ * error `code` (nida_required / nida_invalid / conflict / …) so the
+ * caller can attach the message to the right field. */
+export async function submitMerchantSignup(input: MerchantSignupInput): Promise<MerchantSignupResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/v1/onboarding/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new OnboardingApiError("Couldn't reach Infinity Africa. Check your connection and try again.");
+  }
+  return parseEnvelope<MerchantSignupResult>(res);
 }
 
 export async function submitOnboardingAccount(

@@ -47,6 +47,26 @@ export default async function OnboardingDetailPage(props: PageProps<"/super-admi
             <dd className="mt-1 text-on-surface">{submission.contact_phone ?? "—"}</dd>
           </div>
           <div>
+            <dt className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide">NIDA Number</dt>
+            <dd className="mt-1 font-mono text-on-surface">
+              {submission.nida_last4 ? `••••••••••••••••${submission.nida_last4}` : "—"}
+            </dd>
+          </div>
+          {submission.tin_number && (
+            <div>
+              <dt className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide">TIN Number</dt>
+              <dd className="mt-1 text-on-surface">{submission.tin_number}</dd>
+            </div>
+          )}
+          {submission.expected_monthly_volume && (
+            <div>
+              <dt className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide">
+                Expected Monthly Volume
+              </dt>
+              <dd className="mt-1 text-on-surface">{submission.expected_monthly_volume}</dd>
+            </div>
+          )}
+          <div>
             <dt className="text-xs font-semibold text-on-surface-variant uppercase tracking-wide">Business Category</dt>
             <dd className="mt-1 text-on-surface">{submission.business_category}</dd>
           </div>
