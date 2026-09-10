@@ -158,7 +158,6 @@ export function CreateAccountForm() {
           <Field name="websiteOrAppLink" label="Website or App Link" optional placeholder="www.yourbusiness.co.tz" defaultValue={v.websiteOrAppLink} />
           <Field name="tinNumber" label="TIN Number" optional placeholder="Tax Identification Number" defaultValue={v.tinNumber} />
         </div>
-        <Field name="expectedVolume" label="Expected Monthly Transaction Volume" optional placeholder="e.g. TZS 5,000,000" defaultValue={v.expectedVolume} />
       </section>
 
       <section className="space-y-4">
@@ -182,10 +181,6 @@ export function CreateAccountForm() {
             {msg}
           </p>
         ))}
-        <p className="text-xs text-on-surface-variant bg-surface-container rounded-lg px-4 py-3">
-          Other KYC documents (TIN certificate, business licence, etc.) are collected offline by Infinity Africa if
-          needed — you don&apos;t need to upload anything now.
-        </p>
       </section>
 
       <section className="space-y-3">
@@ -237,7 +232,7 @@ export function CreateAccountForm() {
         disabled={pending}
         className="w-full inline-flex items-center justify-center gap-2 bg-primary-container text-on-primary text-sm font-medium px-8 py-3.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-60"
       >
-        {pending ? "Creating account…" : "Create Account & Submit for Review"}
+        {pending ? "Creating account…" : "Create Account"}
       </button>
 
       <p className="text-center text-sm text-on-surface-variant">

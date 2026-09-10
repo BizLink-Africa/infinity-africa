@@ -18,7 +18,6 @@ export interface OnboardingMerchantAccountInput {
   contact_phone: string;
   nida_number: string;
   tin_number?: string | null;
-  expected_monthly_volume?: string | null;
   services_needed: ServiceNeeded[];
   accepted_terms: boolean;
   accepted_privacy: boolean;

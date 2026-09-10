@@ -123,7 +123,6 @@ export async function signupWithBusinessAction(_prevState: FormState, formData: 
   const regionCity = get("regionCity");
   const websiteOrAppLink = get("websiteOrAppLink");
   const tinNumber = get("tinNumber");
-  const expectedVolume = get("expectedVolume");
 
   const servicesNeeded = formData
     .getAll("servicesNeeded")
@@ -145,7 +144,6 @@ export async function signupWithBusinessAction(_prevState: FormState, formData: 
     regionCity,
     websiteOrAppLink,
     tinNumber,
-    expectedVolume,
   };
 
   const errors: Record<string, string[]> = {};
@@ -186,7 +184,6 @@ export async function signupWithBusinessAction(_prevState: FormState, formData: 
       contact_phone: phone,
       nida_number: nidaNumber,
       tin_number: tinNumber || null,
-      expected_monthly_volume: expectedVolume || null,
       business_name: businessName,
       business_category: businessCategory,
       nature_of_business: natureOfBusiness,
